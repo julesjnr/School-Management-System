@@ -1,0 +1,6 @@
+{
+  "name": "Zenti Portal",
+  "description": "Zenti institutional landing page and centralized multi-role school management platform with interactive course registration, online public access library cataloging, holds queueing, and ledger fines synchronizers.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

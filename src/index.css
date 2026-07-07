@@ -1,0 +1,243 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Custom styling variables to enforce geometric balance */
+  --shadow-xl: 0 20px 25px -5px rgba(37, 99, 235, 0.05), 0 10px 10px -5px rgba(37, 99, 235, 0.02);
+  --shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.05), 0 4px 6px -2px rgba(15, 23, 42, 0.02);
+}
+
+@layer base {
+  body {
+    @apply antialiased text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-950 transition-colors duration-300;
+    font-family: var(--font-sans);
+  }
+  
+  h1, h2, h3, h4, th {
+    font-family: var(--font-display);
+    @apply tracking-tight;
+  }
+
+  /* Custom scrollbar matching geometric lines */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    @apply bg-slate-200 rounded-sm hover:bg-slate-300;
+  }
+}
+
+/* Global Dark Mode Overrides for Perfect Late-Night Study comfort */
+.dark {
+  color-scheme: dark;
+}
+
+.dark .bg-white {
+  background-color: #0d1222 !important; /* slate-900 / dark slate */
+  border-color: #1e293b !important; /* slate-800 */
+}
+
+.dark .bg-[#f8fafc] {
+  background-color: #060913 !important; /* slate-950 dark space */
+}
+
+.dark .bg-slate-50 {
+  background-color: #161e31 !important; /* slate-800 */
+}
+
+.dark .bg-slate-55 {
+  background-color: #060913 !important; /* slate-950 */
+}
+
+.dark .bg-slate-100 {
+  background-color: #1c2741 !important; /* slate-800 alternative */
+}
+
+.dark .border-slate-100,
+.dark .border-slate-150,
+.dark .border-slate-200,
+.dark .border-slate-205 {
+  border-color: #1c2741 !important; /* slate-800 */
+}
+
+.dark .text-slate-900,
+.dark .text-slate-800 {
+  color: #f1f5f9 !important; /* slate-100 */
+}
+
+.dark .text-slate-700,
+.dark .text-slate-650,
+.dark .text-slate-600 {
+  color: #cbd5e1 !important; /* slate-300 */
+}
+
+.dark .text-slate-500 {
+  color: #94a3b8 !important; /* slate-400 */
+}
+
+.dark .text-slate-400 {
+  color: #64748b !important; /* slate-500 */
+}
+
+.dark .divide-slate-100 > *,
+.dark .divide-slate-200 > * {
+  border-color: #1c2741 !important;
+}
+
+.dark input, 
+.dark select, 
+.dark textarea {
+  background-color: #161e31 !important;
+  border-color: #2e3e60 !important;
+  color: #f1f5f9 !important;
+}
+
+.dark .hover\:bg-slate-105:hover,
+.dark .hover\:bg-slate-205:hover {
+  background-color: #1d2842 !important;
+}
+
+.dark #main-navigation-header {
+  background-color: rgba(13, 18, 34, 0.95) !important;
+  border-color: #1c2741 !important;
+}
+
+/* Native Print Stylesheets for Geometric Balance Transcripts */
+@media print {
+  /* Reset background and text colors */
+  html, body {
+    background: white !important;
+    color: black !important;
+    font-size: 11pt;
+    line-height: 1.4;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide headers, footers, sidebars and other interactive dashboard parts */
+  header,
+  footer,
+  nav,
+  aside,
+  button,
+  .no-print {
+    display: none !important;
+  }
+
+  /* Default print-area block (Report Card) styling */
+  #print-area {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  /* Reset outer centering overlay if printing the Official Transcript Modal */
+  .print-container-overlay {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    display: block !important;
+    overflow: visible !important;
+    z-index: auto !important;
+  }
+
+  /* Reset inner card wrappers to avoid double backgrounds */
+  .print-container-overlay .relative.bg-white,
+  .print-container-overlay .max-w-4xl,
+  .print-container-overlay .w-full,
+  .print-container-overlay .shadow-2xl,
+  .print-container-overlay .overflow-hidden,
+  .print-container-overlay .max-h-\[90vh\] {
+    position: static !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Reset intermediate scroll panel */
+  .transcript-scroll-content {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Style the Premium Official Academic Transcript Sheet */
+  #transcript-print-area {
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+    max-width: 210mm !important; /* Standard A4 Width */
+    min-height: 285mm !important; /* Fitting within single page printable height perfectly */
+    margin: 0 auto !important;
+    padding: 15mm 20mm !important;
+    border: 4px double #1e293b !important; /* Thick elegant border */
+    box-shadow: none !important;
+    background: white !important;
+    color: black !important;
+    page-break-inside: avoid !important;
+    page-break-after: always !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Specific elements style resets for printers */
+  #transcript-print-area .bg-slate-50 {
+    background-color: #f8fafc !important; /* Keep slight off-white block styling visible */
+    border-color: #e2e8f0 !important;
+  }
+  
+  #transcript-print-area table {
+    width: 100% !important;
+    border-color: #e2e8f0 !important;
+  }
+
+  #transcript-print-area th {
+    background-color: #f1f5f9 !important;
+    color: #1e293b !important;
+  }
+
+  /* When the official transcript modal is active, hide all other on-screen dashboard components */
+  body:has(#transcript-wrapper-parent) #student-dashboard-root > *:not(#transcript-wrapper-parent) {
+    display: none !important;
+  }
+  body:has(#transcript-wrapper-parent) #global-search-row,
+  body:has(#transcript-wrapper-parent) #student-header-row,
+  body:has(#transcript-wrapper-parent) div[class*="bg-blue-600"][class*="dark:bg-slate-900"] {
+    display: none !important;
+  }
+}
