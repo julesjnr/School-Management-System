@@ -481,16 +481,30 @@ Zenti Library Services`;
   // CORE REDUCER / CONTROLLER MUTATOR FUNCTIONS:
   
   // 1. ADD NEW COURSE SYLLABUS
-  const handleAddCourse = (newCourse: Omit<Course, 'id' | 'active'>) => {
-    setCourses(prev => [
-      ...prev,
-      {
-        ...newCourse,
-        id: `course-${Date.now()}`,
-        active: true,
-      }
-    ]);
-  };
+  const handleAddCourse = async (
+  newCourse: Omit<Course, "id" | "active">
+) => {
+  try {
+    const res = await fetch("/api/courses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(newCourse),
+    });
+
+    if (!res.ok) {
+      throw new Error("Failed to create course");
+    }
+
+    const course = await res.json();
+
+    setCourses((prev) => [...prev, course]);
+  } catch (err) {
+    console.error(err);
+    alert("Failed to create course.");
+  }
+};
 
   // 2. TOGGLE PORTAL LISTING VISIBILITY
   const handleToggleCourseActive = (courseId: string) => {
@@ -926,16 +940,30 @@ Zenti Library Services`;
   };
 
   // 10. NEW LECTURER REGISTRAR PROFILE
-  const handleAddLecturer = (newLec: Omit<Lecturer, 'id' | 'loggedHours'>) => {
-    setLecturers(prev => [
-      ...prev,
-      {
-        ...newLec,
-        id: `lecturer-${Date.now()}`,
-        loggedHours: 0
-      }
-    ]);
-  };
+  const handleAddLecturer = async (
+  newLec: Omit<Lecturer, "id" | "loggedHours">
+) => {
+  try {
+    const res = await fetch("/api/lecturers", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(newLec),
+    });
+
+    if (!res.ok) {
+      throw new Error("Failed to register lecturer");
+    }
+
+    const lecturer = await res.json();
+
+    setLecturers((prev) => [...prev, lecturer]);
+  } catch (err) {
+    console.error(err);
+    alert("Failed to register lecturer.");
+  }
+};
 
   // 11. REGISTER FOR CLASS MODULE
   const handleRegisterUnit = (unitCode: string) => {

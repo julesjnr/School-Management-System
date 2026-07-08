@@ -4,6 +4,9 @@ import path from "path";
 import fs from "fs";
 import { db } from "./src/db/index.ts";
 import { systemState,students} from "./src/db/schema.ts";
+import { lecturers } from "./src/db/schema.ts";
+
+import {courses} from "./src/db/schema.ts";
 import { eq } from "drizzle-orm";
 import { supabase } from "./src/db/supabaseClient.ts";
 
@@ -771,32 +774,41 @@ app.get("/api/courses", (req, res) => {
   res.json(db.courses || []);
 });
 
-app.post("/api/courses", (req, res) => {
-  const newCourse = req.body;
-  if (!newCourse || !newCourse.code || !newCourse.title) {
-    res.status(400).json({ error: "Course code and title are required" });
-    return;
+app.post("/api/courses", async (req, res) => {
+  try {
+    const courseData = req.body;
+
+    if (!courseData?.code || !courseData?.title) {
+      return res.status(400).json({
+        error: "Course code and title are required",
+      });
+    }
+
+    const [course] = await db
+      .insert(courses)
+      .values({
+        code: courseData.code,
+        title: courseData.title,
+        description: courseData.description ?? null,
+        duration: courseData.duration,
+        fees: courseData.fees,
+        thumbnail: courseData.thumbnail ?? null,
+        faculty: courseData.faculty,
+        active: courseData.active ?? true,
+      })
+      .returning();
+
+    res.status(201).json(course);
+  } catch (error: any) {
+    console.error("Failed to create course:", error);
+
+    res.status(500).json({
+      error: error.message,
+    });
   }
-
-  const db = getDatabase();
-  const id = newCourse.id || `course-${Date.now()}`;
-  const existingIdx = (db.courses || []).findIndex((c: any) => c.id === id);
-
-  const courseRecord = {
-    ...newCourse,
-    id,
-    active: newCourse.active !== undefined ? newCourse.active : true
-  };
-
-  if (existingIdx >= 0) {
-    db.courses[existingIdx] = courseRecord;
-  } else {
-    db.courses = [...(db.courses || []), courseRecord];
-  }
-
-  saveDatabase(db);
-  res.status(201).json(courseRecord);
 });
+
+  
 
 // 5. REST Resource: Lecturers
 app.get("/api/lecturers", (req, res) => {
@@ -804,37 +816,46 @@ app.get("/api/lecturers", (req, res) => {
   res.json(db.lecturers || []);
 });
 
-app.post("/api/lecturers", (req, res) => {
-  const lecturerData = req.body;
-  if (!lecturerData || !lecturerData.name || !lecturerData.email) {
-    res.status(400).json({ error: "Lecturer name and email are required" });
-    return;
+app.post("/api/lecturers", async (req, res) => {
+  try {
+    const lecturerData = req.body;
+
+    if (!lecturerData?.name || !lecturerData?.email) {
+      return res.status(400).json({
+        error: "Lecturer name and email are required",
+      });
+    }
+
+    const [lecturer] = await db
+      .insert(lecturers)
+      .values({
+        name: lecturerData.name,
+        email: lecturerData.email,
+        phone: lecturerData.phone,
+        hourlyRate: lecturerData.hourlyRate,
+        loggedHours: lecturerData.loggedHours ?? "0.00",
+        bankDetails: lecturerData.bankDetails ?? null,
+        contractLength: lecturerData.contractLength,
+        designatorCode: lecturerData.designatorCode,
+        bio: lecturerData.bio ?? null,
+        avatar: lecturerData.avatar ?? null,
+        isActive: lecturerData.isActive ?? true,
+        isAccountant: lecturerData.isAccountant ?? false,
+        isLibrarian: lecturerData.isLibrarian ?? false,
+        passcode: lecturerData.passcode ?? "lecturer123",
+      })
+      .returning();
+
+    res.status(201).json(lecturer);
+  } catch (error: any) {
+    console.error("Failed to create lecturer:", error);
+
+    res.status(500).json({
+      error: error.message,
+    });
   }
-
-  const db = getDatabase();
-  const id = lecturerData.id || `l-${Date.now()}`;
-  const existingIdx = (db.lecturers || []).findIndex((l: any) => l.id === id);
-
-  const lecturerRecord = {
-    ...lecturerData,
-    id,
-    subjects: lecturerData.subjects || [],
-    officeHours: lecturerData.officeHours || [],
-    researchInterests: lecturerData.researchInterests || [],
-    publications: lecturerData.publications || [],
-    isActive: lecturerData.isActive !== undefined ? lecturerData.isActive : true
-  };
-
-  if (existingIdx >= 0) {
-    db.lecturers[existingIdx] = lecturerRecord;
-  } else {
-    db.lecturers = [...(db.lecturers || []), lecturerRecord];
-  }
-
-  saveDatabase(db);
-  res.status(201).json(lecturerRecord);
 });
-
+   
 // 6. REST Resource: Students
 app.get("/api/students", (req, res) => {
   const db = getDatabase();
