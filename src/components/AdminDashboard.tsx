@@ -698,7 +698,7 @@ export default function AdminDashboard({
     onAddStudent({
       name: regStudentName,
       email: regStudentEmail,
-      phone: regStudentPhone || '+254 700 000000',
+      phone: regStudentPhone,
       admissionNo: regStudentAdmission,
       cohort: regStudentCohort,
       passcode: regStudentPasscode || 'student123'

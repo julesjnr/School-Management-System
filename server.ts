@@ -3,7 +3,7 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { db } from "./src/db/index.ts";
-import { systemState } from "./src/db/schema.ts";
+import { systemState,students} from "./src/db/schema.ts";
 import { eq } from "drizzle-orm";
 import { supabase } from "./src/db/supabaseClient.ts";
 
@@ -841,35 +841,46 @@ app.get("/api/students", (req, res) => {
   res.json(db.students || []);
 });
 
-app.post("/api/students", (req, res) => {
-  const studentData = req.body;
-  if (!studentData || !studentData.name || !studentData.email) {
-    res.status(400).json({ error: "Student name and email are required" });
-    return;
+app.post("/api/students", async (req, res) => {
+  try {
+    const studentData = req.body;
+
+    if (
+      !studentData?.name ||
+      !studentData?.email 
+    ) {
+      return res.status(400).json({
+        error: "Name and email required",
+      });
+    }
+
+    const result = await db.transaction(async (tx) => {
+      // Create student
+      const [student] = await tx
+        .insert(students)
+        .values({
+          name: studentData.name,
+          email: studentData.email,
+          phone: studentData.phone,
+          admissionNo: studentData.admissionNo,
+          cohort: studentData.cohort,
+          avatar: studentData.avatar ?? null,
+          passcode: studentData.passcode ?? "student123",
+        })
+        .returning();
+
+      return student;
+      
+    });
+
+    res.status(201).json(result);
+  } catch (error: any) {
+    console.error("Registration failed:", error);
+
+    res.status(500).json({
+      error: error.message,
+    });
   }
-
-  const db = getDatabase();
-  const id = studentData.id || `s-${Date.now()}`;
-  const existingIdx = (db.students || []).findIndex((s: any) => s.id === id);
-
-  const studentRecord = {
-    ...studentData,
-    id,
-    registeredUnits: studentData.registeredUnits || [],
-    grades: studentData.grades || [],
-    attendance: studentData.attendance || [],
-    ledger: studentData.ledger || [],
-    payments: studentData.payments || []
-  };
-
-  if (existingIdx >= 0) {
-    db.students[existingIdx] = studentRecord;
-  } else {
-    db.students = [...(db.students || []), studentRecord];
-  }
-
-  saveDatabase(db);
-  res.status(201).json(studentRecord);
 });
 
 // 7. REST Resource: Books

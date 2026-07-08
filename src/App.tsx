@@ -1059,8 +1059,10 @@ Zenti Library Services`;
   };
 
   // 15b. STUDENT UPDATE PROFILE (E.G. CAMERA CAPTURED PHOTO)
+
   const handleUpdateStudentProfile = (studentId: string, updatedFields: Partial<Student>) => {
     // If ledger is updated and contains new invoice(s), send mock email alerts!
+
     const targetStudent = students.find(s => s.id === studentId);
     if (targetStudent && updatedFields.ledger && updatedFields.ledger.length > targetStudent.ledger.length) {
       const newInvoices = updatedFields.ledger.filter(
@@ -1083,21 +1085,39 @@ Zenti Library Services`;
   };
 
   // 15c. REGISTER NEW STUDENT
-  const handleAddStudent = (newStud: Omit<Student, 'id' | 'enrolledUnits' | 'grades' | 'ledger' | 'payments' | 'attendance'>) => {
+  const handleAddStudent = async (
+  newStud: Omit<Student, 'id' | 'enrolledUnits' | 'grades' | 'ledger' | 'payments' | 'attendance'>
+) => {
+  try {
+    const response = await fetch("/api/students", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(newStud),
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to create student");
+    }
+
+    const createdStudent = await response.json();
+
     setStudents(prev => [
       ...prev,
       {
-        ...newStud,
-        id: `student-${Date.now()}`,
+        ...createdStudent,
         enrolledUnits: [],
         grades: {},
         ledger: [],
         payments: [],
-        attendance: {}
-      }
+        attendance: {},
+      },
     ]);
-  };
-
+  } catch (err) {
+    console.error("Error creating student:", err);
+  }
+};
   // 15d. SYSTEM DELETE LECTURER OR FAULTY CODES
   const handleDeleteLecturer = (lecturerId: string) => {
     setLecturers(prev => prev.filter(l => l.id !== lecturerId));
