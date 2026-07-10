@@ -364,7 +364,7 @@ export default function LecturerDashboard({
           </div>
           <div>
             <span className="text-[10px] text-slate-400 uppercase tracking-widest font-bold block">Assigned Modules</span>
-            <span className="text-lg font-extrabold text-slate-800">{lecturer.subjects.length} Course Subjects</span>
+            <span className="text-lg font-extrabold text-slate-800">{(lecturer.subjects ?? []).length}Course Subjects</span>
           </div>
         </div>
 
@@ -479,9 +479,9 @@ export default function LecturerDashboard({
                       onChange={(e) => { setSelectedSubject(e.target.value); setGradeInputs({}); }}
                       className="bg-white border border-slate-200 rounded-lg p-2 text-xs font-bold text-slate-800 focus:outline-hidden"
                     >
-                      {lecturer.subjects.map(s => (
+                      (lecturer.subjects ?? []).map(
                         <option key={s} value={s}>{subjectMap[s] || s}</option>
-                      ))}
+                      )
                     </select>
                   </div>
                 </div>
@@ -503,7 +503,7 @@ export default function LecturerDashboard({
 
                     <div className="flex flex-wrap items-center gap-2.5 text-[10px] font-bold font-mono bg-white border border-slate-150/85 px-2.5 py-1.5 rounded-xl">
                       <span className="text-slate-400">Total Graded Modules:</span>
-                      <span className="text-blue-600 font-extrabold">{lecturer.subjects.length} Units</span>
+                      <span className="text-blue-600 font-extrabold">{(lecturer.subjects ?? []).length} Units</span>
                     </div>
                   </div>
 
@@ -1073,8 +1073,8 @@ export default function LecturerDashboard({
                   </div>
 
                   <div className="grid sm:grid-cols-2 gap-4">
-                    {lecturer.subjects.map((code) => {
-                      const matchedStudents = students.filter(s => s.enrolledUnits.includes(code));
+                    (lecturer.subjects ?? []).map(
+                      const matchedStudents = students.filter(s =s.enrolledUnits.includes(code)));
                       return (
                         <div key={code} className="bg-slate-50 border border-slate-100 p-4 rounded-xl flex items-start gap-4">
                           <div className="w-10 h-10 bg-blue-50 text-blue-800 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 border border-blue-105">
@@ -1094,7 +1094,7 @@ export default function LecturerDashboard({
                           </div>
                         </div>
                       );
-                    })}
+                    
                   </div>
                 </div>
 

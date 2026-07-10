@@ -552,28 +552,39 @@ Zenti Library Services`;
   };
 
   // 4. ADD STUDENT BILLS M-PESA STATEMENT PAYMENT
-  const handleAddPayment = (newPay: Omit<Payment, 'id' | 'date' | 'status'>) => {
-    setStudents(prev => prev.map(s => {
-      if (s.id === newPay.studentId) {
-        // Build new payment receipt
-        const updatedPayments: Payment[] = [
-          ...s.payments,
-          {
-            ...newPay,
-            id: `pay-${Date.now()}`,
-            date: new Date().toLocaleDateString('en-CA'),
-            status: 'unreconciled', // Admin needs to approve reconciliation
-          }
-        ];
+  const handleAddPayment = async (
+  newPay: Omit<Payment, "id" | "date" | "status">
+) => {
+  try {
+    const res = await fetch("/api/payments", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(newPay),
+    });
 
-        return {
-          ...s,
-          payments: updatedPayments
-        };
-      }
-      return s;
-    }));
-  };
+    if (!res.ok) {
+      throw new Error("Failed to record payment");
+    }
+
+    const payment = await res.json();
+
+    setStudents((prev) =>
+      prev.map((s) =>
+        s.id === payment.studentId
+          ? {
+              ...s,
+              payments: [...s.payments, payment],
+            }
+          : s
+      )
+    );
+  } catch (err) {
+    console.error(err);
+    alert("Failed to record payment.");
+  }
+};
 
   // 5. PROCESS AUTOMANDATED DEBT RECONCILIATION
   const handleReconcilePayment = (paymentId: string) => {
@@ -966,19 +977,44 @@ Zenti Library Services`;
 };
 
   // 11. REGISTER FOR CLASS MODULE
-  const handleRegisterUnit = (unitCode: string) => {
-    if (!currentUserId || currentUserRole !== 'student') return;
-    setStudents(prev => prev.map(s => {
-      if (s.id === currentUserId) {
-        if (s.enrolledUnits.includes(unitCode)) return s;
-        return {
-          ...s,
-          enrolledUnits: [...s.enrolledUnits, unitCode]
-        };
-      }
-      return s;
-    }));
-  };
+  const handleRegisterUnit = async (unitCode: string) => {
+  if (!currentUserId || currentUserRole !== "student") return;
+
+  try {
+    const res = await fetch("/api/student-enrollments", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        studentId: currentUserId,
+        courseCode: unitCode,
+      }),
+    });
+
+    if (!res.ok) {
+      throw new Error("Failed to register unit");
+    }
+
+    setStudents((prev) =>
+      prev.map((s) => {
+        if (s.id === currentUserId) {
+          if (s.enrolledUnits.includes(unitCode)) return s;
+
+          return {
+            ...s,
+            enrolledUnits: [...s.enrolledUnits, unitCode],
+          };
+        }
+
+        return s;
+      })
+    );
+  } catch (err) {
+    console.error(err);
+    alert("Failed to register unit.");
+  }
+};
 
   // 12. DROP INTAKE SUBJECT MODULE
   const handleDeregisterUnit = (unitCode: string) => {
@@ -1021,44 +1057,105 @@ Zenti Library Services`;
   };
 
   // 13.5. ATTENDANCE MARKING AND HISTORIC UPDATES
-  const handleSaveAttendance = (subjectCode: string, date: string, presentStudentIds: string[], absentStudentIds: string[]) => {
-    setAttendanceSessions(prev => {
-      const filtered = prev.filter(s => !(s.date === date && s.subjectCode === subjectCode));
-      const newSession: AttendanceSession = {
-        id: `att-sess-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
-        date,
-        subjectCode,
-        presentStudents: presentStudentIds,
-        absentStudents: absentStudentIds
-      };
-      const updatedSessions = [newSession, ...filtered];
+  const handleSaveAttendance = async (
+  subjectCode: string,
+  date: string,
+  presentStudentIds: string[],
+  absentStudentIds: string[]
+) => {
+  setAttendanceSessions(prev => {
+    const filtered = prev.filter(
+      s => !(s.date === date && s.subjectCode === subjectCode)
+    );
 
-      // Recompute rolling rates for active class students
-      setStudents(prevStudents => prevStudents.map(student => {
+    const newSession: AttendanceSession = {
+      id: `att-sess-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      date,
+      subjectCode,
+      presentStudents: presentStudentIds,
+      absentStudents: absentStudentIds,
+    };
+
+    const updatedSessions = [newSession, ...filtered];
+
+    // Save attendance to PostgreSQL in the background
+    (async () => {
+      try {
+        const attendance = students
+          .filter(s => s.enrolledUnits.includes(subjectCode))
+          .map(student => {
+            const sessions = updatedSessions.filter(
+              x =>
+                x.subjectCode === subjectCode &&
+                (x.presentStudents.includes(student.id) ||
+                  x.absentStudents.includes(student.id))
+            );
+
+            const present = sessions.filter(x =>
+              x.presentStudents.includes(student.id)
+            ).length;
+
+            const rate =
+              sessions.length > 0
+                ? Math.round((present / sessions.length) * 100)
+                : 100;
+
+            return {
+              studentId: student.id,
+              subjectCode,
+              attendanceRate: rate,
+            };
+          });
+
+        await fetch("/api/student-attendance", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(attendance),
+        });
+      } catch (err) {
+        console.error("Failed to save attendance:", err);
+      }
+    })();
+
+    setStudents(prevStudents =>
+      prevStudents.map(student => {
         if (student.enrolledUnits.includes(subjectCode)) {
-          const studentSessions = updatedSessions.filter(s => 
-            s.subjectCode === subjectCode && 
-            (s.presentStudents.includes(student.id) || s.absentStudents.includes(student.id))
+          const studentSessions = updatedSessions.filter(
+            s =>
+              s.subjectCode === subjectCode &&
+              (s.presentStudents.includes(student.id) ||
+                s.absentStudents.includes(student.id))
           );
-          
+
           if (studentSessions.length > 0) {
-            const presentCount = studentSessions.filter(s => s.presentStudents.includes(student.id)).length;
-            const calculatedRate = Math.round((presentCount / studentSessions.length) * 100);
+            const presentCount = studentSessions.filter(s =>
+              s.presentStudents.includes(student.id)
+            ).length;
+
             return {
               ...student,
               attendance: {
                 ...(student.attendance || {}),
-                [subjectCode]: calculatedRate
-              }
+                [subjectCode]: Math.round(
+                  (presentCount / studentSessions.length) * 100
+                ),
+              },
             };
           }
         }
-        return student;
-      }));
 
-      return updatedSessions;
-    });
-  };
+        return student;
+      })
+    );
+
+    return updatedSessions;
+  });
+};
+      // Recompute rolling rates for active class students
+      
+  
 
   // 14. LECTURER LOG SESSION HOURS
   const handleLogHours = (lecturerId: string, hours: number) => {

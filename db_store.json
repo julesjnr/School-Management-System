@@ -75,13 +75,13 @@
     {
       "id": "21ef91c7-f051-4633-9510-d3bbc7c8316f",
       "code": "ATM/4353/87",
-      "title": "Automotive Engineering",
-      "description": "hello engineers?",
-      "duration": "5 Years",
       "fees": "50000.00",
-      "thumbnail": "https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&q=80&w=600",
+      "title": "Automotive Engineering",
+      "active": true,
       "faculty": "School of Engineering",
-      "active": true
+      "duration": "5 Years",
+      "thumbnail": "https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&q=80&w=600",
+      "description": "hello engineers?"
     }
   ],
   "reviews": [],
@@ -95,7 +95,16 @@
       "avatar": null,
       "cohort": "2026 Intake",
       "grades": {},
-      "ledger": [],
+      "ledger": [
+        {
+          "id": "inv-1783509274877",
+          "date": "2026-07-08",
+          "amount": 40000,
+          "status": "unpaid",
+          "invoiceNo": "INV-6009",
+          "description": "[Tuition] Semester Tuition and Accommodation Fees"
+        }
+      ],
       "passcode": "bond123",
       "payments": [],
       "createdAt": "2026-07-08 08:11:22.374489+00",
@@ -117,7 +126,9 @@
       "createdAt": "2026-07-08 08:13:43.264037+00",
       "attendance": {},
       "admissionNo": "FBD/HDG/24",
-      "enrolledUnits": []
+      "enrolledUnits": [
+        "CS-101-Algo"
+      ]
     },
     {
       "id": "6f90002d-283c-4df7-8c98-cf0d122b169a",
@@ -127,13 +138,24 @@
       "avatar": null,
       "cohort": "2026 Intake",
       "grades": {},
-      "ledger": [],
+      "ledger": [
+        {
+          "id": "inv-1783530413345",
+          "date": "2026-07-08",
+          "amount": 10000,
+          "status": "unpaid",
+          "invoiceNo": "INV-8574",
+          "description": "[Tuition] Semester Tuition and Accommodation Fees"
+        }
+      ],
       "passcode": "julius123",
       "payments": [],
       "createdAt": "2026-07-08 08:14:11.422133+00",
       "attendance": {},
       "admissionNo": "CSC6/0639/24",
-      "enrolledUnits": []
+      "enrolledUnits": [
+        "DS-202-ML"
+      ]
     },
     {
       "id": "43a6d4b1-366d-4194-9b2b-17fe4132f654",
@@ -159,9 +181,40 @@
       "avatar": null,
       "cohort": "2025 Intake",
       "grades": {},
-      "ledger": [],
+      "ledger": [
+        {
+          "id": "81c65176-d1c8-4966-8727-54480cf69605",
+          "date": "2026-07-08",
+          "amount": "5000.00",
+          "status": "unpaid",
+          "invoiceNo": "INV-8290",
+          "studentId": "a616260e-6d93-4072-8077-322dc7baea23",
+          "description": "[Tuition] Semester Tuition and Accommodation Fees"
+        }
+      ],
       "passcode": "Njogu123",
-      "payments": [],
+      "payments": [
+        {
+          "id": "6abf1deb-0d22-469a-b735-4b4568ac3e3a",
+          "date": "2026-07-08",
+          "amount": "5000.00",
+          "status": "unreconciled",
+          "invoiceId": "81c65176-d1c8-4966-8727-54480cf69605",
+          "studentId": "a616260e-6d93-4072-8077-322dc7baea23",
+          "paymentMethod": "M-Pesa",
+          "transactionId": "QKQEF7M8Y"
+        },
+        {
+          "id": "8b209c7e-d52e-427d-8a06-88cebc6db29d",
+          "date": "2026-07-08",
+          "amount": "5000.00",
+          "status": "unreconciled",
+          "invoiceId": "81c65176-d1c8-4966-8727-54480cf69605",
+          "studentId": "a616260e-6d93-4072-8077-322dc7baea23",
+          "paymentMethod": "M-Pesa",
+          "transactionId": "QQZXPAIZC"
+        }
+      ],
       "createdAt": "2026-07-08 08:34:58.769808+00",
       "attendance": {},
       "admissionNo": "TDFGHJ/7637/3435",
@@ -169,7 +222,42 @@
     }
   ],
   "inventory": [],
-  "lecturers": [],
+  "lecturers": [
+    {
+      "id": "5073997e-2cbd-485c-b33d-d617bbed0f74",
+      "bio": null,
+      "name": "Wairimu",
+      "email": "wairimu@edu.ac.ke",
+      "phone": "076354526",
+      "avatar": null,
+      "isActive": true,
+      "passcode": "wairimu123",
+      "hourlyRate": "400.00",
+      "bankDetails": "KCB:5673898276",
+      "isLibrarian": false,
+      "loggedHours": "0.00",
+      "isAccountant": false,
+      "contractLength": "2 Year Contract",
+      "designatorCode": "GTEU87352"
+    },
+    {
+      "id": "4f02c993-c99e-46ed-9b34-2fd58e644964",
+      "bio": null,
+      "name": "mkenya",
+      "email": "mkenya@edu.ac.ke",
+      "phone": "0788473662",
+      "avatar": null,
+      "isActive": true,
+      "passcode": "mkena123",
+      "hourlyRate": "500.00",
+      "bankDetails": "COOPERATIVE:TWEGQ28743",
+      "isLibrarian": true,
+      "loggedHours": "0.00",
+      "isAccountant": false,
+      "contractLength": "1 Year Contract",
+      "designatorCode": "MKHSGD123"
+    }
+  ],
   "examPapers": [],
   "bookReviews": [],
   "testimonies": [
@@ -192,7 +280,48 @@
   "readingLists": [],
   "requisitions": [],
   "reservations": [],
-  "notifications": [],
+  "notifications": [
+    {
+      "id": "notif-1783537456945-387",
+      "type": "payment",
+      "title": "⚠️ [Invoice Generated] New Billing Invoice #INV-8290",
+      "status": "unread",
+      "message": "Timothy Njogu (timothy.njogu@zenti.edu): Dear Timothy Njogu,",
+      "dateTime": "7/8/2026, 10:04:16 PM",
+      "targetUserId": "",
+      "targetUserRole": "all"
+    },
+    {
+      "id": "notif-1783537454790-930",
+      "type": "payment",
+      "title": "⚠️ [Invoice Generated] New Billing Invoice #INV-3409",
+      "status": "unread",
+      "message": "Timothy Njogu (timothy.njogu@zenti.edu): Dear Timothy Njogu,",
+      "dateTime": "7/8/2026, 10:04:14 PM",
+      "targetUserId": "",
+      "targetUserRole": "all"
+    },
+    {
+      "id": "notif-1783530413347-235",
+      "type": "payment",
+      "title": "⚠️ [Invoice Generated] New Billing Invoice #INV-8574",
+      "status": "unread",
+      "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
+      "dateTime": "7/8/2026, 8:06:53 PM",
+      "targetUserId": "",
+      "targetUserRole": "all"
+    },
+    {
+      "id": "notif-1783509274883-163",
+      "type": "payment",
+      "title": "⚠️ [Invoice Generated] New Billing Invoice #INV-6009",
+      "status": "unread",
+      "message": "James Bond (james.bond@zenti.edu): Dear James Bond,",
+      "dateTime": "7/8/2026, 2:14:34 PM",
+      "targetUserId": "",
+      "targetUserRole": "all"
+    }
+  ],
   "libraryGateLogs": [],
   "teacherResources": [],
   "attendanceSessions": [],

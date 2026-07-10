@@ -325,33 +325,59 @@ export default function FinanceSuite({
   // --- ACTIONS & SUBMISSIONS ---
 
   // Generate Fees / Student Bill
-  const handleGenerateInvoice = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!billingStudentId || !billingAmount || isNaN(Number(billingAmount))) {
-      alert('Please select a student and input a valid bill amount.');
-      return;
+  const handleGenerateInvoice = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  if (!billingStudentId || !billingAmount || isNaN(Number(billingAmount))) {
+    alert("Please select a student and input a valid bill amount.");
+    return;
+  }
+
+  const student = students.find((s) => s.id === billingStudentId);
+  if (!student) return;
+
+  try {
+    const res = await fetch("/api/invoices", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        studentId: billingStudentId,
+        invoiceNo: `INV-${Math.floor(1000 + Math.random() * 9000)}`,
+        description: `[${billingVoteHead}] ${
+          billingDescription || "Semester Tuition and Accommodation Fees"
+        }`,
+        amount: Number(billingAmount),
+        date: new Date().toISOString().substring(0, 10),
+        status: "unpaid",
+      }),
+    });
+
+    if (!res.ok) {
+      throw new Error("Failed to create invoice");
     }
-    const student = students.find(s => s.id === billingStudentId);
-    if (!student) return;
 
-    const newInvoice: Invoice = {
-      id: `inv-${Date.now()}`,
-      invoiceNo: `INV-${Math.floor(1000 + Math.random() * 9000)}`,
-      description: `[${billingVoteHead}] ${billingDescription || 'Semester Tuition and Accommodation Fees'}`,
-      amount: Number(billingAmount),
-      date: new Date().toISOString().substring(0, 10),
-      status: 'unpaid'
-    };
+    const invoice = await res.json();
 
-    const updatedLedger = [...(student.ledger || []), newInvoice];
-    onUpdateStudent?.(student.id, { ledger: updatedLedger });
+console.log("Invoice returned from API:", invoice);
 
-    logAudit('CREATE_INVOICE', `Billed KES ${newInvoice.amount.toLocaleString()} to ${student.name} (${newInvoice.invoiceNo})`);
-    
-    setBillingAmount('');
-    setBillingDescription('');
-    alert(`Success: Assigned invoice ${newInvoice.invoiceNo} representing ${billingVoteHead} of KES ${Number(billingAmount).toLocaleString()} into student ledger.`);
-  };
+const updatedLedger = [...(student.ledger || []), invoice];
+onUpdateStudent?.(student.id, { ledger: updatedLedger });
+    logAudit(
+      "CREATE_INVOICE",
+      `Billed KES ${invoice.amount.toLocaleString()} to ${student.name} (${invoice.invoiceNo})`
+    );
+
+    setBillingAmount("");
+    setBillingDescription("");
+
+    alert(`Invoice ${invoice.invoiceNo} created successfully.`);
+  } catch (err) {
+    console.error(err);
+    alert("Failed to create invoice.");
+  }
+};
 
   // Record Waivers, Discounts, Bursaries
   const handleApplyWaiver = (e: React.FormEvent) => {

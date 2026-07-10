@@ -3,9 +3,8 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { db } from "./src/db/index.ts";
-import { systemState,students} from "./src/db/schema.ts";
+import { systemState,students,studentEnrollments,payments,invoices,studentAttendance,examPapers} from "./src/db/schema.ts";
 import { lecturers } from "./src/db/schema.ts";
-
 import {courses} from "./src/db/schema.ts";
 import { eq } from "drizzle-orm";
 import { supabase } from "./src/db/supabaseClient.ts";
@@ -808,12 +807,94 @@ app.post("/api/courses", async (req, res) => {
   }
 });
 
-  
+  // REST Resource: Invoices
+app.get("/api/invoices", async (req, res) => {
+  try {
+    const result = await db.select().from(invoices);
+    res.json(result);
+  } catch (error: any) {
+    console.error("Failed to fetch invoices:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+app.post("/api/invoices", async (req, res) => {
+  try {
+    const invoiceData = req.body;
 
+    if (!invoiceData?.studentId || !invoiceData?.amount) {
+      return res.status(400).json({
+        error: "Student ID and amount are required",
+      });
+    }
+
+    const [invoice] = await db
+      .insert(invoices)
+      .values({
+        studentId: invoiceData.studentId,
+        invoiceNo: invoiceData.invoiceNo,
+        description: invoiceData.description,
+        amount: invoiceData.amount,
+        date: invoiceData.date,
+        status: invoiceData.status ?? "unpaid",
+      })
+      .returning();
+
+    res.status(201).json(invoice);
+  } catch (error: any) {
+    console.error("Failed to create invoice:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/student-attendance", async (req, res) => {
+  try {
+    const attendanceData = req.body;
+
+    if (
+      !attendanceData?.studentId ||
+      !attendanceData?.subjectCode ||
+      attendanceData?.attendanceRate === undefined
+    ) {
+      return res.status(400).json({
+        error: "Student ID, subject code and attendance rate are required",
+      });
+    }
+
+    const [attendance] = await db
+      .insert(studentAttendance)
+      .values({
+        studentId: attendanceData.studentId,
+        subjectCode: attendanceData.subjectCode,
+        attendanceRate: attendanceData.attendanceRate,
+      })
+      .onConflictDoUpdate({
+        target: [
+          studentAttendance.studentId,
+          studentAttendance.subjectCode,
+        ],
+        set: {
+          attendanceRate: attendanceData.attendanceRate,
+        },
+      })
+      .returning();
+
+    res.status(201).json(attendance);
+  } catch (error: any) {
+    console.error("Failed to save attendance:", error);
+    res.status(500).json({
+      error: error.message,
+    });
+  }
+});
 // 5. REST Resource: Lecturers
-app.get("/api/lecturers", (req, res) => {
-  const db = getDatabase();
-  res.json(db.lecturers || []);
+app.get("/api/lecturers", async (req, res) => {
+  try {
+    const result = await db.select().from(lecturers);
+    res.json(result);
+  } catch (error) {
+    console.error("Failed to fetch lecturers:", error);
+    res.status(500).json({ error: "Failed to fetch lecturers" });
+  }
 });
 
 app.post("/api/lecturers", async (req, res) => {
@@ -874,8 +955,8 @@ app.post("/api/students", async (req, res) => {
         error: "Name and email required",
       });
     }
-
-    const result = await db.transaction(async (tx) => {
+    
+const result = await db.transaction(async (tx) => {
       // Create student
       const [student] = await tx
         .insert(students)
@@ -904,6 +985,71 @@ app.post("/api/students", async (req, res) => {
   }
 });
 
+app.post("/api/student-enrollments", async (req, res) => {
+  try {
+    const { studentId, courseCode } = req.body;
+
+    if (!studentId || !courseCode) {
+      return res.status(400).json({
+        error: "studentId and courseCode are required",
+      });
+    }
+
+    const [enrollment] = await db
+      .insert(studentEnrollments)
+      .values({
+        studentId,
+        courseCode,
+      })
+      .returning();
+
+    res.status(201).json(enrollment);
+  } catch (error: any) {
+    console.error("Failed to register unit:", error);
+
+    res.status(500).json({
+      error: error.message,
+    });
+  }
+});
+//--payments
+app.post("/api/payments", async (req, res) => {
+  try {
+    const paymentData = req.body;
+
+    if (
+      !paymentData?.studentId ||
+      !paymentData?.amount ||
+      !paymentData?.paymentMethod ||
+      !paymentData?.transactionId
+    ) {
+      return res.status(400).json({
+        error: "Missing payment details",
+      });
+    }
+
+    const [payment] = await db
+      .insert(payments)
+      .values({
+        studentId: paymentData.studentId,
+        invoiceId: paymentData.invoiceId ?? null,
+        amount: paymentData.amount,
+        paymentMethod: paymentData.paymentMethod,
+        transactionId: paymentData.transactionId,
+        date: new Date().toISOString().split("T")[0],
+        status: "unreconciled",
+      })
+      .returning();
+
+    res.status(201).json(payment);
+  } catch (error: any) {
+    console.error("Failed to create payment:", error);
+
+    res.status(500).json({
+      error: error.message,
+    });
+  }
+});
 // 7. REST Resource: Books
 app.get("/api/books", (req, res) => {
   const db = getDatabase();
@@ -934,6 +1080,19 @@ app.post("/api/books", (req, res) => {
 
   saveDatabase(db);
   res.status(201).json(bookRecord);
+});
+
+// REST Resource: Exam Papers
+app.get("/api/exam-papers", async (req, res) => {
+  try {
+    const papers = await db.select().from(examPapers);
+    res.json(papers);
+  } catch (error) {
+    console.error("Failed to fetch exam papers:", error);
+    res.status(500).json({
+      error: "Failed to fetch exam papers",
+    });
+  }
 });
 
 // 8. REST Resource: Loans

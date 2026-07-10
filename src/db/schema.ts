@@ -506,3 +506,18 @@ export const studentEnrollments = pgTable("student_enrollments", {
 		}).onDelete("cascade"),
 	primaryKey({ columns: [table.studentId, table.courseCode], name: "student_enrollments_pkey"}),
 ]);
+
+export const lecturerSubjects = pgTable("lecturer_subjects", {
+  id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+
+  lecturerId: uuid("lecturer_id")
+    .notNull()
+    .references(() => lecturers.id, { onDelete: "cascade" }),
+
+  subjectCode: varchar("subject_code", { length: 30 }).notNull(),
+}, (table) => [
+  unique("uq_lecturer_subject").on(
+    table.lecturerId,
+    table.subjectCode
+  ),
+]);

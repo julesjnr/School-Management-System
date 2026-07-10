@@ -1675,10 +1675,10 @@ export default function AdminDashboard({
                         <td className="py-3 px-4 font-mono text-[11px] text-indigo-600 font-bold">{l.passcode || (l.isAccountant ? 'acc123' : (l.isLibrarian || l.id === 'l3') ? 'lib123' : 'staff123')}</td>
                         <td className="py-3 px-4">
                           <div className="flex flex-wrap gap-1">
-                            {l.subjects.length === 0 ? (
+                            {(l.subjects ?? []).length === 0 ? (
                               <span className="text-slate-400 italic">No assigned courses</span>
                             ) : (
-                              l.subjects.map(s => (
+                             (l.subjects ?? []).map(s => (
                                 <span key={s} className="bg-blue-50 text-blue-750 border border-blue-100 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold">{s}</span>
                               ))
                             )}

@@ -655,10 +655,10 @@ export default function LandingPage({
                     <div className="space-y-1.5 text-left pt-3 border-t border-slate-100 dark:border-slate-700/60">
                       <span className="text-[10px] text-slate-400 dark:text-slate-505 font-bold uppercase block">Specialist Instruction Units:</span>
                       <div className="flex flex-wrap gap-1.5 min-h-[44px]">
-                        {lecturer.subjects.length === 0 ? (
+                        {(lecturer.subjects ?? []).length === 0 ? (
                           <span className="text-[10px] text-slate-400 dark:text-slate-500 italic">No instructions current semester</span>
                         ) : (
-                          lecturer.subjects.map(code => (
+                          (lecturer.subjects ?? []).map(code => (
                             <span 
                               key={code}
                               className="text-[10px] font-medium text-slate-605 dark:text-slate-350 bg-slate-100 dark:bg-slate-700/80 px-2 py-0.5 rounded-md border border-slate-200/50 dark:border-slate-650 truncate max-w-full"
