@@ -9,7 +9,7 @@ export function getSupabaseClient() {
 
     if (!supabaseUrl || !supabaseKey) {
       console.warn(
-        "⚠️ SUPABASE_URL or SUPABASE_KEY is missing from environment variables. " +
+        " SUPABASE_URL or SUPABASE_KEY is missing from environment variables. " +
         "The Supabase Client is initialized with a safe placeholder to avoid crashes on startup."
       );
       // Return a dummy client initialized with placeholder credentials to prevent app startup crashes
@@ -20,7 +20,7 @@ export function getSupabaseClient() {
     }
 
     supabaseInstance = createClient(supabaseUrl, supabaseKey);
-    console.log("⚡ Supabase Client initialized successfully!");
+    console.log(" Supabase Client initialized successfully!");
   }
   return supabaseInstance;
 }

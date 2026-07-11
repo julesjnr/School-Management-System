@@ -231,7 +231,7 @@ export default function LibraryHQ({
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
           </div>
           <h2 className="text-2xl font-black tracking-tight flex items-center gap-2">
-            📚 Core Library Inventory & Circulation
+             Core Library Inventory & Circulation
           </h2>
           <p className="text-xs text-blue-105 font-light max-w-xl">
             Register academic acquisitions, manage loan durations across student and lecturer grades, enforce fine caps, and sync accounts automatically to the central ledgers.
@@ -498,7 +498,7 @@ export default function LibraryHQ({
             activeSubTab === 'catalog' ? 'border-blue-600 text-blue-600 font-extrabold' : 'border-transparent text-slate-450 hover:text-slate-800'
           }`}
         >
-          📖 Catalog Index & Shelf Mapping ({books.length})
+           Catalog Index & Shelf Mapping ({books.length})
         </button>
         <button
           onClick={() => setActiveSubTab('circulation')}
@@ -506,7 +506,7 @@ export default function LibraryHQ({
             activeSubTab === 'circulation' ? 'border-blue-600 text-blue-600 font-extrabold' : 'border-transparent text-slate-450 hover:text-slate-800'
           }`}
         >
-          🔄 Checking, Borrowing & Return Desk ({loans.length})
+           Checking, Borrowing & Return Desk ({loans.length})
         </button>
         <button
           onClick={() => setActiveSubTab('reservations')}
@@ -514,7 +514,7 @@ export default function LibraryHQ({
             activeSubTab === 'reservations' ? 'border-blue-600 text-blue-600 font-extrabold' : 'border-transparent text-slate-450 hover:text-slate-800'
           }`}
         >
-          📌 Holds & Active Patron Reserves Queue ({reservations.length})
+           Holds & Active Patron Reserves Queue ({reservations.length})
         </button>
         <button
           onClick={() => setActiveSubTab('proposals')}
@@ -522,7 +522,7 @@ export default function LibraryHQ({
             activeSubTab === 'proposals' ? 'border-blue-600 text-blue-600 font-extrabold' : 'border-transparent text-slate-450 hover:text-slate-800'
           }`}
         >
-          💡 Acquisitions & Procurements ({bookRequests.length})
+           Acquisitions & Procurements ({bookRequests.length})
         </button>
         <button
           onClick={() => setActiveSubTab('livegatelogs')}
@@ -530,7 +530,7 @@ export default function LibraryHQ({
             activeSubTab === 'livegatelogs' ? 'border-blue-600 text-blue-600 font-extrabold' : 'border-transparent text-slate-450 hover:text-slate-800'
           }`}
         >
-          🎟️ Smart Biometric Gate logs ({libraryGateLogs.length})
+           Smart Biometric Gate logs ({libraryGateLogs.length})
         </button>
       </div>
 
@@ -1157,7 +1157,7 @@ export default function LibraryHQ({
               {reservations.filter(r => r.status === 'pending').length > 0 ? (
                 <div className="space-y-1">
                   <span className="text-xs font-black text-rose-600 flex items-center gap-1">
-                    ⚠️ {reservations.filter(r => r.status === 'pending').length} Unfulfilled Reserve Holds!
+                     {reservations.filter(r => r.status === 'pending').length} Unfulfilled Reserve Holds!
                   </span>
                   <p className="text-[10px] text-slate-500">Suggest purchasing <strong>3 additional copies</strong> of high-demand catalog categories to restore standard checkout ratios.</p>
                 </div>
@@ -1387,8 +1387,8 @@ export default function LibraryHQ({
                         </td>
                         <td className="p-3">
                           <span className="bg-slate-800 px-2 py-0.5 rounded text-slate-300 text-[10px] lowercase">
-                            {log.authMethod === 'biometric_fingerprint' ? '☝ fingerprint biometric' : 
-                             log.authMethod === 'biometric_facial' ? '📷 face scan ID' : '💳 rfid badge tap'}
+                            {log.authMethod === 'biometric_fingerprint' ? ' fingerprint biometric' : 
+                             log.authMethod === 'biometric_facial' ? ' face scan ID' : ' rfid badge tap'}
                           </span>
                         </td>
                         <td className="p-3">

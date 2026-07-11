@@ -804,7 +804,7 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
       <div className="bg-slate-900 text-white rounded-2xl p-4 flex flex-wrap gap-2 justify-between items-center shadow-md">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-bold">
-            💰
+            
           </div>
           <div>
             <h2 className="text-base font-bold tracking-tight">Financial & Accounts Headquarters</h2>

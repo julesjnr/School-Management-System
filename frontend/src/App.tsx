@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   GraduationCap, Users, ShieldCheck, Home, 
   ChevronRight, Sparkles, BookOpen, Clock, Tag, X, FileText,
-  Sun, Moon, Landmark, Bell, BellRing
+  Sun, Moon, Landmark, Bell, BellRing, LayoutGrid
 } from 'lucide-react';
 
 import { 
@@ -21,11 +21,13 @@ import {
 } from './data';
 
 import LandingPage from './components/LandingPage';
+import LoginPage from './components/LoginPage';
 import StudentDashboard from './components/StudentDashboard';
 import LecturerDashboard from './components/LecturerDashboard';
 import AdminDashboard from './components/AdminDashboard';
 import LoginModal from './components/LoginModal';
 import Forbidden403 from './components/Forbidden403';
+import DashboardShowcase from './components/DashboardShowcase';
 
 export default function App() {
   const [darkMode, setDarkMode] = useState<boolean>(() => {
@@ -168,16 +170,8 @@ export default function App() {
     const portalParam = searchParams.get('portal') || new URLSearchParams(window.location.hash.substring(window.location.hash.indexOf('?'))).get('portal');
     
     if (portalParam) {
-      const validStaffPortals = ['lecturer', 'accountant', 'librarian', 'admin'];
-      if (validStaffPortals.includes(portalParam)) {
-        setLoginAllowedPortals(['student', 'lecturer', 'accountant', 'librarian', 'admin']);
-        setLoginInitialPortal(portalParam as any);
-        setShowLoginModal(true);
-      } else if (portalParam === 'staff' || portalParam === 'all') {
-        setLoginAllowedPortals(['student', 'lecturer', 'accountant', 'librarian', 'admin']);
-        setLoginInitialPortal('student');
-        setShowLoginModal(true);
-      }
+      window.history.pushState({}, '', '/login');
+      setCurrentPath('/login');
     }
   }, []);
 
@@ -390,7 +384,7 @@ export default function App() {
 
   const triggerInvoiceAlert = (student: Student, invoice: { invoiceNo: string; description: string; amount: number; date: string }) => {
     const to = `${student.name.toLowerCase().replace(/\s+/g, '.')}@zenti.edu`;
-    const subject = `⚠️ [Invoice Generated] New Billing Invoice #${invoice.invoiceNo}`;
+    const subject = ` [Invoice Generated] New Billing Invoice #${invoice.invoiceNo}`;
     const amountFormatted = Math.abs(invoice.amount).toLocaleString();
     const isCredit = invoice.amount < 0;
     
@@ -413,7 +407,7 @@ Zenti Finance Department`;
 
   const triggerGradeAlert = (student: Student, subjectCode: string, grade: Grade) => {
     const to = `${student.name.toLowerCase().replace(/\s+/g, '.')}@zenti.edu`;
-    const subject = `🎓 [Grade Posted] New Grade for Unit ${subjectCode}`;
+    const subject = ` [Grade Posted] New Grade for Unit ${subjectCode}`;
     const totalScore = (grade.cat || 0) + (grade.exam || 0);
     let letter = 'F';
     if (totalScore >= 70) letter = 'A';
@@ -448,7 +442,7 @@ Zenti Academic Registrar`;
           const student = students.find(s => s.id === loan.patronId);
           if (student) {
             const to = `${student.name.toLowerCase().replace(/\s+/g, '.')}@zenti.edu`;
-            const subject = `📚 [Overdue Warning] Library Book: "${loan.bookTitle}" is PAST DUE`;
+            const subject = ` [Overdue Warning] Library Book: "${loan.bookTitle}" is PAST DUE`;
             
             // Check if alert for this exact loan id is already sent in mockEmails
             const alreadyNotified = mockEmails.some(m => m.type === 'book_due' && m.body.includes(loan.id));
@@ -1393,8 +1387,8 @@ Zenti Library Services`;
   return (
     <div className="bg-[#f8fafc] dark:bg-slate-950 text-slate-800 dark:text-slate-100 min-h-screen flex flex-col font-sans transition-colors duration-300">
       
-      {/* 🛠️ COHESIVE SANDBOX QUICK-NAV SWITCHER BANNER */}
-      {currentUserRole !== null && (
+      {/*  COHESIVE SANDBOX QUICK-NAV SWITCHER BANNER */}
+      {currentUserRole !== null && currentPath !== '/landing' && currentPath !== '/login' && (
         <div className="bg-blue-600 dark:bg-slate-900 border-b border-blue-500 dark:border-slate-800 py-3.5 px-4 text-white z-50 shadow-md transition-colors duration-300">
           <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-3">
             
@@ -1497,7 +1491,7 @@ Zenti Library Services`;
 
               <span className="w-[1px] h-5 bg-blue-500/60 hidden sm:inline-block mx-1"></span>
 
-              {/* 🔔 Live In-App Notification Center */}
+              {/*  Live In-App Notification Center */}
               <div className="relative">
                 <button
                   type="button"
@@ -1620,6 +1614,19 @@ Zenti Library Services`;
 
               <button
                 type="button"
+                onClick={() => {
+                  window.history.pushState({}, '', '/showcase');
+                  setCurrentPath('/showcase');
+                }}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold border border-emerald-500/50 hover:border-emerald-400 bg-emerald-750 hover:bg-emerald-700 text-emerald-100 hover:text-white transition-all flex items-center gap-1.5 cursor-pointer"
+                title="View Dashboard Showcase Layouts"
+              >
+                <LayoutGrid className="w-3.5 h-3.5 text-emerald-300" />
+                <span>Showcase Demos</span>
+              </button>
+
+              <button
+                type="button"
                 id="global-dark-mode-toggle"
                 onClick={() => setDarkMode(!darkMode)}
                 className="px-3 py-1.5 rounded-lg text-xs font-bold border border-blue-500/50 hover:border-blue-400 bg-blue-750 hover:bg-blue-700 text-blue-100 hover:text-white transition-all flex items-center gap-1.5 cursor-pointer"
@@ -1645,7 +1652,39 @@ Zenti Library Services`;
 
       {/* CORE WORKSPACE ENTRY ROUTING */}
       <main className="flex-1 flex flex-col">
-        {currentPath.startsWith('/admin') && currentUserRole !== 'admin' && currentUserRole !== 'accountant' && currentUserRole !== 'librarian' ? (
+        {currentPath === '/showcase' ? (
+          <DashboardShowcase 
+            onBack={() => {
+              window.history.pushState({}, '', '/');
+              setCurrentPath('/');
+            }}
+          />
+        ) : currentPath === '/login' ? (
+          <LoginPage
+            students={students}
+            lecturers={lecturers}
+            onLogin={(role, userId) => {
+              if (role === 'lecturer') {
+                const targetLecturer = lecturers.find(l => l.id === userId);
+                if (targetLecturer?.isAccountant) {
+                  setCurrentUserRole('accountant');
+                  setCurrentUserId(userId);
+                  window.history.pushState({}, '', '/');
+                  setCurrentPath('/');
+                  return;
+                }
+              }
+              setCurrentUserRole(role);
+              setCurrentUserId(userId);
+              window.history.pushState({}, '', '/');
+              setCurrentPath('/');
+            }}
+            onClose={() => {
+              window.history.pushState({}, '', '/');
+              setCurrentPath('/');
+            }}
+          />
+        ) : currentPath.startsWith('/admin') && currentUserRole !== 'admin' && currentUserRole !== 'accountant' && currentUserRole !== 'librarian' ? (
           <Forbidden403
             onBackToDashboard={() => {
               window.history.pushState({}, '', '/');
@@ -1859,53 +1898,13 @@ Zenti Library Services`;
               setCurrentPath('/');
             }}
             onOpenLogin={() => {
-              const searchParams = new URLSearchParams(window.location.search);
-              const portalParam = searchParams.get('portal') || new URLSearchParams(window.location.hash.substring(window.location.hash.indexOf('?'))).get('portal');
-              if (portalParam) {
-                const validStaffPortals = ['lecturer', 'accountant', 'librarian', 'admin'];
-                if (validStaffPortals.includes(portalParam)) {
-                  setLoginAllowedPortals(['student', 'lecturer', 'accountant', 'librarian', 'admin']);
-                  setLoginInitialPortal(portalParam as any);
-                } else if (portalParam === 'staff' || portalParam === 'all') {
-                  setLoginAllowedPortals(['student', 'lecturer', 'accountant', 'librarian', 'admin']);
-                  setLoginInitialPortal('student');
-                } else {
-                  setLoginAllowedPortals(['student']);
-                  setLoginInitialPortal('student');
-                }
-              } else {
-                setLoginAllowedPortals(['student', 'lecturer', 'accountant', 'librarian', 'admin']);
-                setLoginInitialPortal('student');
-              }
-              setShowLoginModal(true);
+              window.history.pushState({}, '', '/login');
+              setCurrentPath('/login');
             }}
             onSelectCourse={(c) => setSelectedCourse(c)}
           />
         )}
       </main>
-
-      {/* ACCESS LOGIN MODAL OVERLAY */}
-      {showLoginModal && (
-        <LoginModal
-          students={students}
-          lecturers={lecturers}
-          allowedPortals={loginAllowedPortals}
-          initialPortal={loginInitialPortal}
-          onLogin={(role, userId) => {
-            if (role === 'lecturer') {
-              const targetLecturer = lecturers.find(l => l.id === userId);
-              if (targetLecturer?.isAccountant) {
-                setCurrentUserRole('accountant');
-                setCurrentUserId(userId);
-                return;
-              }
-            }
-            setCurrentUserRole(role);
-            setCurrentUserId(userId);
-          }}
-          onClose={() => setShowLoginModal(false)}
-        />
-      )}
 
       {/* DETAILED DYNAMIC COURSE DETAILS MODAL */}
       {selectedCourse && (() => {
@@ -2013,7 +2012,8 @@ Zenti Library Services`;
                     type="button"
                     onClick={() => {
                       setSelectedCourse(null);
-                      setShowLoginModal(true);
+                      window.history.pushState({}, '', '/login');
+                      setCurrentPath('/login');
                     }}
                     className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-5 rounded-xl flex items-center gap-1"
                   >

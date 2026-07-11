@@ -6,7 +6,8 @@ import {
 import { 
   BookOpen, Users, DollarSign, Package, FileText, Plus, CheckCircle2, 
   AlertCircle, Bookmark, ClipboardCheck, ArrowRight, Save, Trash2, Check, X,
-  Shield, Lock, Fingerprint, Library, Link, Copy, KeyRound, RefreshCw
+  Shield, Lock, Fingerprint, Library, Link, Copy, KeyRound, RefreshCw,
+  TrendingUp, Calendar, Clock, MapPin, UserCheck, AlertTriangle, Info, School, Landmark, Sliders, Award, Activity, User, LogOut
 } from 'lucide-react';
 import { subjectMap } from '../data';
 import GlobalSearchBar from './GlobalSearchBar';
@@ -15,7 +16,8 @@ import LibraryHQ from './LibraryHQ';
 import SystemDiagnostics from './SystemDiagnostics';
 import StudentAdmissionDossierStation from './StudentAdmissionDossierStation';
 import { 
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer 
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  AreaChart, Area
 } from 'recharts';
 
 interface AdminDashboardProps {
@@ -97,10 +99,10 @@ export default function AdminDashboard({
   mockEmails = [],
   onTriggerOverdueScan
 }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'academics' | 'finances' | 'payroll' | 'inventory' | 'roles' | 'library' | 'diagnostics'>(() => {
+  const [activeTab, setActiveTab] = useState<'overview' | 'academics' | 'finances' | 'payroll' | 'inventory' | 'roles' | 'library' | 'diagnostics'>(() => {
     if (isLibrarianView) return 'library';
     if (isAccountantView) return 'finances';
-    return 'academics';
+    return 'overview';
   });
 
   const [financeSubTab, setFinanceSubTab] = useState<'revenue' | 'vouchers' | 'budgets' | 'payroll' | 'audit'>('revenue');
@@ -776,249 +778,409 @@ export default function AdminDashboard({
     copyList.forEach(p => {
       onReconcilePayment(p.id);
     });
-
-    alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billing statement IDs. Fees receipts reconciled.`);
+alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billing statement IDs. Fees receipts reconciled.`);
   };
 
   return (
-    <div className="bg-slate-55 min-h-screen p-4 sm:p-6 lg:p-8 flex flex-col space-y-6 animate-fade-in" id="admin-dashboard-root">
-      
-      {/* GLOBAL SEARCH CONSOLE */}
-      <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-3xs flex flex-col sm:flex-row items-stretch sm:items-center gap-4 justify-between" id="global-search-row">
-        <div className="flex-1 max-w-xl">
-          <GlobalSearchBar students={students} courses={courses} inventory={inventory} />
-        </div>
-        <div className="hidden sm:flex items-center gap-2 text-slate-400 text-[10px] uppercase font-bold tracking-wider">
-          <span>Search Console Active</span>
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-        </div>
-      </div>
-
-      {/* HEADER ROW */}
-      <div className="bg-white rounded-2xl border border-slate-100 p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-xs">
-        <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-xl border">
-            {isLibrarianView ? '📚' : isAccountantView ? '₦' : '★'}
+    <div className="min-h-screen flex bg-slate-50 dark:bg-slate-950 font-sans transition-colors duration-300 w-full animate-fade-in" id="admin-dashboard-root">
+      {/* LEFT SIDEBAR NAVIGATION */}
+      <aside className="w-64 bg-slate-900 dark:bg-slate-950 text-slate-300 flex flex-col border-r border-slate-800 shrink-0 hidden md:flex font-sans">
+        {/* Brand Header */}
+        <div className="p-6 border-b border-slate-800 flex items-center gap-2">
+          <div className="w-8 h-8 bg-slate-800 rounded-lg flex items-center justify-center shrink-0 border border-slate-700">
+            <School className="w-5 h-5 text-white" />
           </div>
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold text-slate-800">
-                {isLibrarianView ? 'Bibliotheca Catalog & Archivist Portal' : isAccountantView ? 'College Financial Accountant Portal' : 'Administrative MIS Dashboard'}
-              </h1>
-              <span className="text-[10px] bg-slate-900 text-slate-100 px-2.5 py-0.5 rounded font-black tracking-widest uppercase">
-                {isLibrarianView ? 'Librarian Mode' : isAccountantView ? 'Accountant Mode' : 'Staff Master'}
+          <div>
+            <span className="text-sm font-black tracking-tight text-white block uppercase leading-none">ZENTI</span>
+            <span className="text-[8px] text-slate-500 font-bold uppercase tracking-widest block">Admin Console</span>
+          </div>
+        </div>
+        
+        {/* Navigation Menu */}
+        <nav className="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
+          {isLibrarianView ? (
+            <button type="button" onClick={() => setActiveTab('library')} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold bg-amber-600 text-white shadow-md uppercase tracking-wider cursor-pointer">
+              <Library className="w-4 h-4" />
+              <span>Library Registry</span>
+            </button>
+          ) : isAccountantView ? (
+            <>
+              <button type="button" onClick={() => setActiveTab('finances')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'finances' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                <Landmark className="w-4 h-4" />
+                <span>Ledger & Finances</span>
+              </button>
+              <button type="button" onClick={() => setActiveTab('payroll')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'payroll' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                <DollarSign className="w-4 h-4" />
+                <span>HR & Payroll</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" onClick={() => setActiveTab('overview')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'overview' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                <Sliders className="w-4 h-4" />
+                <span>Overview</span>
+              </button>
+              <button type="button" onClick={() => setActiveTab('academics')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'academics' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                <Award className="w-4 h-4" />
+                <span>Academics Allocation</span>
+              </button>
+              <button type="button" onClick={() => setActiveTab('finances')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'finances' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                <Landmark className="w-4 h-4" />
+                <span>Ledger & Finances</span>
+              </button>
+              <button type="button" onClick={() => setActiveTab('payroll')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'payroll' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                <DollarSign className="w-4 h-4" />
+                <span>HR & Payroll</span>
+              </button>
+              <button type="button" onClick={() => setActiveTab('inventory')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'inventory' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                <Activity className="w-4 h-4" />
+                <span>Procurement Stock</span>
+              </button>
+              <button type="button" onClick={() => setActiveTab('roles')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'roles' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                <User className="w-4 h-4" />
+                <span>Role Management</span>
+              </button>
+              <button type="button" onClick={() => setActiveTab('library')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'library' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                <Library className="w-4 h-4" />
+                <span>Library Registry</span>
+              </button>
+              <button type="button" onClick={() => setActiveTab('diagnostics')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'diagnostics' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Diagnostics</span>
+              </button>
+            </>
+          )}
+        </nav>
+        
+        {/* Profile Info & Logout */}
+        <div className="p-4 border-t border-slate-800/60 bg-slate-950/40 space-y-3 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-slate-800 text-white flex items-center justify-center font-bold text-sm shrink-0 border border-slate-700">
+              {isLibrarianView ? 'L' : isAccountantView ? 'A' : 'M'}
+            </div>
+            <div className="truncate max-w-[120px]">
+              <h4 className="text-xs font-bold text-white leading-none truncate">
+                {isLibrarianView ? 'Sarah Kendi' : isAccountantView ? 'Grace Wanjiku' : 'Admin Master'}
+              </h4>
+              <span className="text-[9px] text-slate-500 font-mono block mt-1 truncate">
+                {isLibrarianView ? 'Librarian' : isAccountantView ? 'Accountant' : 'Administrator'}
               </span>
             </div>
-            <p className="text-xs text-slate-500">
-              {isLibrarianView
-                ? 'Catalog textbook inventory, approve student reserves, review checkout periods and monitor physical gate entry logs.'
-                : isAccountantView 
-                  ? 'Secured financial and expenditure logs, student budget reconciliation ledger, and seasonal pattern analysis.'
-                  : 'College Assets Registry, Financial Ledgers, Lecturers Hour Payrolls, and Syllabuses Master.'}
-            </p>
           </div>
-        </div>
-
-        <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
-          <button
-            type="button"
-            onClick={() => {
-              window.history.pushState({}, '', '/landing');
-              window.dispatchEvent(new PopStateEvent('popstate'));
-            }}
-            className="bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold px-4 py-2.5 rounded-xl transition-colors cursor-pointer w-full md:w-auto"
-          >
-            View Website
-          </button>
-          <button
-            type="button"
-            onClick={onLogout}
-            className="bg-slate-100 hover:bg-slate-205 text-slate-700 text-xs font-semibold px-4 py-2.5 rounded-xl transition-colors cursor-pointer w-full md:w-auto"
-          >
-            {isLibrarianView ? 'Sign Out Librarian' : isAccountantView ? 'Sign Out Accountant' : 'Sign Out Master Admin'}
+          <button type="button" onClick={onLogout} className="w-full py-2.5 bg-slate-800 hover:bg-rose-955/30 hover:text-rose-455 text-slate-400 hover:text-white text-xs font-bold rounded-lg uppercase tracking-wider transition-colors flex items-center justify-center gap-1.5 cursor-pointer">
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Logout Portal</span>
           </button>
         </div>
-      </div>
-
-      {/* WARNING BANNER FOR LOW STOCK ALERTS */}
-      {lowStockItems.length > 0 && (
-        <div className="bg-amber-50 text-amber-900 border border-amber-250 p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs leading-relaxed">
-          <div className="flex items-start gap-2">
-            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-            <div>
-              <span className="font-bold block">Internal Low Stock Warning Level!</span>
-              <span>The following college properties have depleted below thresholds: {lowStockItems.map(i => `"${i.name}"`).join(', ')}.</span>
+      </aside>
+      
+      {/* MAIN CONTAINER */}
+      <div className="flex-1 flex flex-col min-h-screen overflow-y-auto bg-slate-50 dark:bg-slate-950">
+        {/* TOP UTILITY BAR */}
+        <header className="bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-2xs shrink-0 font-sans">
+          <div className="flex items-center gap-3">
+            <div className="space-y-0.5 text-center sm:text-left">
+              <h2 className="text-[9px] font-bold text-slate-450 uppercase tracking-widest leading-none font-mono">Restricted MIS Console</h2>
+              <h1 className="text-base font-black text-slate-800 dark:text-white leading-tight font-display">
+                {isLibrarianView ? 'Archival & Textbook Catalog' : isAccountantView ? 'Billing & Ledger Registry' : 'Master School Management'}
+              </h1>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setActiveTab('inventory')}
-            className="text-xs text-amber-950 font-bold hover:underline bg-white/50 py-1.5 px-3 rounded border border-amber-200 shrink-0 self-start sm:self-auto"
-          >
-            Manage Stock Inventory
-          </button>
-        </div>
-      )}
-
-      {/* CORE STATS TILES */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl border border-slate-100 p-4 shadow-2xs flex items-center gap-4">
-          <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
-            <BookOpen className="w-5 h-5" />
-          </div>
-          <div>
-            <span className="text-[10px] text-slate-400 uppercase tracking-widest font-bold block">Total Courses</span>
-            <span className="text-lg font-extrabold text-slate-800">{courses.length} Degrees</span>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl border border-slate-100 p-4 shadow-2xs flex items-center gap-4">
-          <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-650 flex items-center justify-center">
-            <DollarSign className="w-5 h-5" />
-          </div>
-          <div>
-            <span className="text-[10px] text-slate-400 uppercase tracking-widest font-bold block">Accrued Outlays</span>
-            <span className="text-lg font-extrabold text-slate-800">
-              KES {expenses.reduce((sum, e) => sum + e.amount, 0).toLocaleString()}
-            </span>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl border border-slate-100 p-4 shadow-2xs flex items-center gap-4">
-          <div className="w-10 h-10 rounded-lg bg-indigo-50 text-indigo-650 flex items-center justify-center">
-            <Users className="w-5 h-5" />
-          </div>
-          <div>
-            <span className="text-[10px] text-slate-400 uppercase tracking-widest font-bold block">Assigned Lecturers</span>
-            <span className="text-lg font-extrabold text-slate-800">{lecturers.length} Faculties</span>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl border border-slate-100 p-4 shadow-2xs flex items-center gap-4">
-          <div className="w-10 h-10 rounded-lg bg-rose-50 text-rose-650 flex items-center justify-center">
-            <ClipboardCheck className="w-5 h-5" />
-          </div>
-          <div>
-            <span className="text-[10px] text-slate-400 uppercase tracking-widest font-bold block">Requisitions</span>
-            <span className="text-lg font-extrabold text-slate-800">
-              {requisitions.filter(r => r.status === 'pending').length} Pending
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* STUDENT ADMISSION QUICK-SEARCH & LEDGER STATION */}
-      <StudentAdmissionDossierStation
-        students={students}
-        role={isLibrarianView ? 'librarian' : isAccountantView ? 'accountant' : 'admin'}
-        books={books}
-        loans={loans}
-        reservations={reservations}
-        bookRequests={bookRequests}
-        libraryGateLogs={libraryGateLogs}
-        courses={courses}
-      />
-
-      {/* CORE DASHBOARD TAB NAVIGATORS */}
-      {isLibrarianView ? (
-        <div className="bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded-xl p-4 flex items-center justify-between shadow-2xs">
-          <div className="flex items-center gap-2.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-600 animate-pulse shrink-0"></span>
-            <div>
-              <span className="font-bold block">Restricted Librarian Privilege Enabled</span>
-              <span>You have active access permissions only to textbook master catalogs, student hold requests, loans, and gate entry metrics.</span>
+          <div className="flex items-center gap-4 w-full sm:w-auto justify-end">
+            <div className="w-full sm:w-64 md:w-80">
+              <GlobalSearchBar students={students} courses={courses} inventory={inventory} />
+            </div>
+            <span className="hidden sm:inline-block w-px h-6 bg-slate-200 dark:bg-slate-800"></span>
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></div>
+              <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider font-mono">Management Mode</span>
             </div>
           </div>
-          <span className="hidden sm:inline-block font-mono font-black text-[10px] bg-amber-100 text-amber-950 border border-amber-200 px-2.5 py-1 rounded">
-            LEVEL: ARCHIVE_CLERICAL
-          </span>
-        </div>
-      ) : isAccountantView ? (
-        <div className="bg-blue-50 border border-blue-200 text-blue-800 text-xs rounded-xl p-4 flex items-center justify-between shadow-2xs">
-          <div className="flex items-center gap-2.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-pulse shrink-0"></span>
-            <div>
-              <span className="font-bold block">Restricted Accountant Privilege Enabled</span>
-              <span>You have active access permissions only to expense log records, student billing invoice data, and departmental reports.</span>
+        </header>
+        
+        {/* WORKSPACE CONTENT AREA */}
+        <div className="p-6 space-y-6 flex-1 bg-slate-50 dark:bg-slate-950">
+          
+          {/* STUDENT ADMISSION QUICK-SEARCH & LEDGER STATION */}
+          <StudentAdmissionDossierStation
+            students={students}
+            role={isLibrarianView ? 'librarian' : isAccountantView ? 'accountant' : 'admin'}
+            books={books}
+            loans={loans}
+            reservations={reservations}
+            bookRequests={bookRequests}
+            libraryGateLogs={libraryGateLogs}
+            courses={courses}
+          />
+          
+          {/* Restricted Mode Alert Notice Box */}
+          {(isLibrarianView || isAccountantView) && (
+            <div className={`border rounded-xl p-4 flex items-center justify-between text-xs font-medium ${isLibrarianView ? 'bg-amber-50 border-amber-200 text-amber-900' : 'bg-blue-50 border-blue-150 text-blue-800'}`}>
+              <div className="flex items-center gap-2.5">
+                <span className={`w-2.5 h-2.5 rounded-full animate-pulse shrink-0 ${isLibrarianView ? 'bg-amber-600' : 'bg-blue-600'}`}></span>
+                <div>
+                  <span className="font-bold block">{isLibrarianView ? 'Restricted Librarian Privilege Enabled' : 'Restricted Accountant Privilege Enabled'}</span>
+                  <span>{isLibrarianView ? 'You have access to hold requests, checkouts, and text catalogs only.' : 'You have access to payrolls, expense logs and student billings only.'}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* WARNING BANNER FOR LOW STOCK ALERTS */}
+          {lowStockItems.length > 0 && !isLibrarianView && !isAccountantView && (
+            <div className="bg-amber-50 text-amber-900 border border-amber-250 p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs leading-relaxed">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold block">Internal Low Stock Warning Level!</span>
+                  <span>The following college properties have depleted below thresholds: {lowStockItems.map(i => `"${i.name}"`).join(', ')}.</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('inventory')}
+                className="text-xs text-amber-955 font-bold hover:underline bg-white/50 py-1.5 px-3 rounded border border-amber-200 shrink-0 self-start sm:self-auto cursor-pointer"
+              >
+                Manage Stock Inventory
+              </button>
+            </div>
+          )}
+
+          <div className="bg-white rounded-2xl border border-slate-150 p-6 shadow-sm flex-1">
+        
+        {/* TAB 0: OVERVIEW WORKSPACE (DASHBOARD A) */}
+        {activeTab === 'overview' && (
+          <div className="space-y-6">
+            {/* HIGH-DENSITY SUMMARY STRIP */}
+            <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-150 dark:border-slate-800 p-6 shadow-xs grid grid-cols-1 md:grid-cols-4 gap-6 divide-y md:divide-y-0 md:divide-x divide-slate-100 dark:divide-slate-800">
+              
+              {/* Card 1: Total Students */}
+              <div className="flex items-center justify-between pr-4 md:pr-0 md:px-4 first:pl-0">
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Students</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl font-black text-slate-850 dark:text-white font-mono">{students.length || 1482}</span>
+                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400">+3.2%</span>
+                  </div>
+                  <span className="text-[9px] text-slate-550 block">Active admissions this semester</span>
+                </div>
+                <div className="w-10 h-10 bg-blue-500/10 text-blue-600 rounded-lg flex items-center justify-center shrink-0">
+                  <Users className="w-5 h-5" />
+                </div>
+              </div>
+
+              {/* Card 2: Total Faculty */}
+              <div className="flex items-center justify-between pt-4 md:pt-0 pr-4 md:pr-0 md:px-6">
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Faculty</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl font-black text-slate-850 dark:text-white font-mono">{lecturers.length || 64}</span>
+                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">Stable</span>
+                  </div>
+                  <span className="text-[9px] text-slate-550 block">Registered lecturers & staff</span>
+                </div>
+                <div className="w-10 h-10 bg-indigo-500/10 text-indigo-650 rounded-lg flex items-center justify-center shrink-0">
+                  <Users className="w-5 h-5" />
+                </div>
+              </div>
+
+              {/* Card 3: Daily Attendance % */}
+              <div className="flex items-center justify-between pt-4 md:pt-0 pr-4 md:pr-0 md:px-6">
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Daily Attendance %</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl font-black text-slate-855 dark:text-white font-mono">94.2%</span>
+                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400">▲ 0.8%</span>
+                  </div>
+                  <span className="text-[9px] text-slate-555 block">Average system-wide scan today</span>
+                </div>
+                <div className="w-10 h-10 bg-emerald-500/10 text-emerald-650 rounded-lg flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+              </div>
+
+              {/* Card 4: Fees Collected % */}
+              <div className="flex items-center justify-between pt-4 md:pt-0 pr-4 md:pr-0 md:pl-6 last:pr-0">
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Fees Collected %</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl font-black text-slate-855 dark:text-white font-mono">87.5%</span>
+                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/20 dark:text-blue-400">Target: 90%</span>
+                  </div>
+                  <span className="text-[9px] text-slate-555 block">Relative to outstanding ledger balance</span>
+                </div>
+                <div className="w-10 h-10 bg-amber-500/10 text-amber-650 rounded-lg flex items-center justify-center shrink-0">
+                  <DollarSign className="w-5 h-5" />
+                </div>
+              </div>
+
+            </div>
+
+            {/* Main Content Layout (Two Columns) */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Left Column: daily attendance chart and upcoming events */}
+              <div className="lg:col-span-8 space-y-6">
+                {/* Visual daily attendance chart component */}
+                <div className="bg-white rounded-xl border border-slate-150 p-5 shadow-sm">
+                  <div className="flex justify-between items-center border-b border-slate-100 pb-3 mb-4">
+                    <div>
+                      <h3 className="text-xs font-black uppercase text-slate-800 dark:text-white tracking-wider flex items-center gap-1.5 font-display">
+                        <TrendingUp className="w-4 h-4 text-blue-600" />
+                        Daily Attendance Analytics (By Faculty)
+                      </h3>
+                      <p className="text-[10px] text-slate-500 mt-0.5 font-sans">Real-time attendance rates recorded from digital classroom scans.</p>
+                    </div>
+                    <div className="flex items-center gap-3 text-[10px]">
+                      <div className="flex items-center gap-1">
+                        <span className="w-2.5 h-2.5 bg-blue-500 rounded-full inline-block" />
+                        <span className="text-slate-650 font-bold">Computing & AI</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="w-2.5 h-2.5 bg-indigo-500 rounded-full inline-block" />
+                        <span className="text-slate-650 font-bold">Engineering</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="h-64 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={[
+                        { name: 'Mon', CS: 94, EE: 89 },
+                        { name: 'Tue', CS: 96, EE: 91 },
+                        { name: 'Wed', CS: 92, EE: 90 },
+                        { name: 'Thu', CS: 95, EE: 92 },
+                        { name: 'Fri', CS: 97, EE: 93 },
+                      ]}>
+                        <defs>
+                          <linearGradient id="adminColorCS" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#2563eb" stopOpacity={0.2}/>
+                            <stop offset="95%" stopColor="#2563eb" stopOpacity={0}/>
+                          </linearGradient>
+                          <linearGradient id="adminColorEE" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2}/>
+                            <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.5} />
+                        <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                        <YAxis domain={[80, 100]} tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                        <Tooltip contentStyle={{ background: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '10px' }} />
+                        <Area type="monotone" dataKey="CS" name="Computing & AI" stroke="#2563eb" strokeWidth={2} fillOpacity={1} fill="url(#adminColorCS)" />
+                        <Area type="monotone" dataKey="EE" name="Engineering" stroke="#6366f1" strokeWidth={2} fillOpacity={1} fill="url(#adminColorEE)" />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Upcoming school events timeline widget */}
+                <div className="bg-white rounded-xl border border-slate-150 p-5 shadow-sm">
+                  <div className="border-b border-slate-100 pb-3 mb-4">
+                    <h3 className="text-xs font-black uppercase text-slate-800 dark:text-white tracking-wider flex items-center gap-1.5 font-display">
+                      <Calendar className="w-4 h-4 text-blue-600" />
+                      Institutional Events & Deadlines Calendar
+                    </h3>
+                    <p className="text-[10px] text-slate-500 mt-0.5 font-sans">Chronological timeline of upcoming academic and staff administration events.</p>
+                  </div>
+                  <div className="relative pl-6 border-l border-slate-100 dark:border-slate-850 space-y-5 py-2 font-sans">
+                    <div className="relative">
+                      <span className="absolute -left-[30px] top-1 w-2.5 h-2.5 bg-blue-600 border-2 border-white dark:border-slate-900 rounded-full" />
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1">
+                        <h4 className="text-xs font-bold text-slate-850 dark:text-slate-100">Semester II Exam Period Commences</h4>
+                        <span className="text-[9px] font-mono text-slate-400 bg-slate-50 px-2 py-0.5 rounded border border-slate-200/50">July 14, 2026</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 mt-0.5 font-sans">Official examination booklets distributed to departmental chairs. Invigilation roster published.</p>
+                    </div>
+                    <div className="relative">
+                      <span className="absolute -left-[30px] top-1 w-2.5 h-2.5 bg-emerald-600 border-2 border-white dark:border-slate-900 rounded-full" />
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1">
+                        <h4 className="text-xs font-bold text-slate-850 dark:text-slate-100">Zenti Annual Hackathon 2026 Pitching</h4>
+                        <span className="text-[9px] font-mono text-slate-400 bg-slate-50 px-2 py-0.5 rounded border border-slate-200/50">July 18, 2026</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 mt-0.5 font-sans">Student development project panels present before guest judges. Awards ceremony starts at 04:00 PM.</p>
+                    </div>
+                    <div className="relative">
+                      <span className="absolute -left-[30px] top-1 w-2.5 h-2.5 bg-purple-600 border-2 border-white dark:border-slate-900 rounded-full" />
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1">
+                        <h4 className="text-xs font-bold text-slate-850 dark:text-slate-100">Board of Trustees Budget Review</h4>
+                        <span className="text-[9px] font-mono text-slate-400 bg-slate-50 px-2 py-0.5 rounded border border-slate-200/50">July 22, 2026</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 mt-0.5 font-sans">Financial auditor presents Semester I reconciliations and Semester II requisitions approvals.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column: critical system alerts and financial transactions */}
+              <div className="lg:col-span-4 space-y-6">
+                {/* Critical system/staff alerts widget */}
+                <div className="bg-white rounded-xl border border-slate-150 p-5 shadow-sm">
+                  <div className="border-b border-slate-100 pb-3 mb-4">
+                    <h3 className="text-xs font-black uppercase text-slate-800 dark:text-white tracking-wider flex items-center gap-1.5 font-display">
+                      <AlertCircle className="w-4 h-4 text-rose-500" />
+                      Critical Alerts & Alarms
+                    </h3>
+                    <p className="text-[9px] text-slate-500">Real-time system telemetry and action requirements.</p>
+                  </div>
+                  <div className="space-y-3 font-sans">
+                    <div className="p-3 bg-rose-50/45 dark:bg-rose-950/10 border border-rose-100 dark:border-rose-900/30 rounded-lg text-xs flex gap-2.5 items-start text-rose-850">
+                      <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                      <div className="space-y-0.5">
+                        <p className="font-medium leading-relaxed text-[11px]">System Backup failure detected on secondary cluster Node-B.</p>
+                        <span className="text-[9px] opacity-75 font-mono">12 mins ago</span>
+                      </div>
+                    </div>
+                    <div className="p-3 bg-amber-50/45 dark:bg-amber-950/10 border border-amber-100 dark:border-amber-900/30 rounded-lg text-xs flex gap-2.5 items-start text-amber-850">
+                      <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                      <div className="space-y-0.5">
+                        <p className="font-medium leading-relaxed text-[11px]">3 Faculty member timesheets awaiting approval for Period II.</p>
+                        <span className="text-[9px] opacity-75 font-mono">40 mins ago</span>
+                      </div>
+                    </div>
+                    <div className="p-3 bg-blue-50/45 dark:bg-blue-950/10 border border-blue-100 dark:border-blue-900/30 rounded-lg text-xs flex gap-2.5 items-start text-blue-850">
+                      <Info className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+                      <div className="space-y-0.5">
+                        <p className="font-medium leading-relaxed text-[11px]">Automatic library loan scan completed: 18 overdue books auto-notified.</p>
+                        <span className="text-[9px] opacity-75 font-mono">2 hours ago</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Recent financial transactions module */}
+                <div className="bg-white rounded-xl border border-slate-150 p-5 shadow-sm">
+                  <div className="border-b border-slate-100 pb-3 mb-4">
+                    <h3 className="text-xs font-black uppercase text-slate-800 dark:text-white tracking-wider flex items-center gap-1.5 font-display">
+                      <DollarSign className="w-4 h-4 text-emerald-600" />
+                      Recent Financial Transactions
+                    </h3>
+                    <p className="text-[9px] text-slate-500 font-sans">Live ledger invoices and outgoing purchase accounts.</p>
+                  </div>
+                  <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs font-sans">
+                    <div className="py-2.5 first:pt-0 flex items-center justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-1.5 font-bold">
+                          <span>Sarah Wanjiku</span>
+                          <span className="text-[9px] font-mono text-slate-400">INV-4820</span>
+                        </div>
+                        <p className="text-[9px] text-slate-500 font-sans">Tuition Installment • <span className="font-mono">10m ago</span></p>
+                      </div>
+                      <span className="font-bold font-mono text-emerald-600 text-right">+KES 45,000</span>
+                    </div>
+                    <div className="py-2.5 flex items-center justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-1.5 font-bold">
+                          <span>Apex Lab Equipment</span>
+                          <span className="text-[9px] font-mono text-slate-400">PO-9031</span>
+                        </div>
+                        <p className="text-[9px] text-slate-500 font-sans">Physics Lab Equip • <span className="font-mono">1h ago</span></p>
+                      </div>
+                      <span className="font-bold font-mono text-slate-650 text-right">-KES 28,500</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-          <span className="hidden sm:inline-block font-mono font-black text-[10px] bg-blue-100 text-blue-900 border border-blue-200 px-2.5 py-1 rounded">
-            LEVEL: SECURE_LEDGER
-          </span>
-        </div>
-      ) : (
-        <div className="flex bg-white rounded-xl border border-slate-100 p-1 text-[11px] font-bold">
-          <button
-            type="button"
-            onClick={() => setActiveTab('academics')}
-            className={`flex-1 py-3 text-center rounded-lg uppercase tracking-wider transition-all cursor-pointer ${
-              activeTab === 'academics' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            Academics & Subject Allocator
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('finances')}
-            className={`flex-1 py-3 text-center rounded-lg uppercase tracking-wider transition-all cursor-pointer ${
-              activeTab === 'finances' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            Ledger & Statements
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('payroll')}
-            className={`flex-1 py-3 text-center rounded-lg uppercase tracking-wider transition-all cursor-pointer ${
-              activeTab === 'payroll' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            HR Directory & Payroll
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('inventory')}
-            className={`flex-1 py-3 text-center rounded-lg uppercase tracking-wider transition-all cursor-pointer ${
-              activeTab === 'inventory' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            Procurement & Stock
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('roles')}
-            className={`flex-1 py-3 text-center rounded-lg uppercase tracking-wider transition-all cursor-pointer ${
-              activeTab === 'roles' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
-            }`}
-            id="btn-roles-tab"
-          >
-            Role Management
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('library')}
-            className={`flex-1 py-3 text-center rounded-lg uppercase tracking-wider transition-all cursor-pointer ${
-              activeTab === 'library' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
-            }`}
-            id="btn-library-tab"
-          >
-            Library Registry
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('diagnostics')}
-            className={`flex-1 py-3 text-center rounded-lg uppercase tracking-wider transition-all cursor-pointer ${
-              activeTab === 'diagnostics' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
-            }`}
-            id="btn-diagnostics-tab"
-          >
-            Diagnostics
-          </button>
-        </div>
-      )}
-
-      {/* VIEW SPACES CONTROL */}
-      <div className="bg-white rounded-2xl border border-slate-150 p-6 shadow-sm flex-1">
+        )}
         
         {/* TAB 1: ACADEMICS WORKSPACE */}
         {activeTab === 'academics' && (
@@ -1233,7 +1395,7 @@ export default function AdminDashboard({
               </div>
             </div>
 
-            {/* 🎓 REGISTER NEW STUDENT ACCOUNT UNIT */}
+            {/*  REGISTER NEW STUDENT ACCOUNT UNIT */}
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 space-y-4 shadow-sm animate-fadeIn mt-6">
               <div className="flex items-center gap-2.5 border-b border-slate-100 dark:border-slate-800 pb-3">
                 <div className="p-2 bg-indigo-50 dark:bg-slate-820 text-indigo-600 dark:text-indigo-400 rounded-xl">
@@ -2089,7 +2251,7 @@ export default function AdminDashboard({
                 <div className="space-y-3">
                   <div className="relative">
                     <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400">
-                      🔍
+                      
                     </span>
                     <input
                       type="text"
@@ -2504,6 +2666,6 @@ export default function AdminDashboard({
 
       </div>
 
-    </div>
+    </div></div></div>
   );
 }

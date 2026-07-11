@@ -660,7 +660,7 @@ export default function LoginModal({
                         </select>
                       ) : (
                         <div className="bg-amber-50/50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/40 rounded-xl p-3 text-xs text-amber-800 dark:text-amber-300">
-                          <p className="font-semibold mb-1">⚠️ No profiles found in registry</p>
+                          <p className="font-semibold mb-1"> No profiles found in registry</p>
                           <p className="text-[11px] opacity-90 leading-relaxed">
                             There are currently no registered accounts for this portal. Log in to the <strong>System Administrator Gateway</strong> above (passcode: <code className="font-mono bg-amber-100 dark:bg-amber-900/60 px-1 rounded">admin123</code>) to create registrations and assign roles.
                           </p>

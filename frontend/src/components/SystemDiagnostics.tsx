@@ -275,8 +275,8 @@ export default function SystemDiagnostics({
     const timestamp = new Date().toLocaleTimeString();
 
     const testLog: LogEntry = nextState 
-      ? { id: `stress-${Date.now()}`, timestamp, type: 'warning', message: '⚠️ STRESS TESTING MODE ACTIVATED. Simulating thousands of simultaneous student concurrent actions.' }
-      : { id: `stress-${Date.now()}`, timestamp, type: 'success', message: '✅ STRESS TESTING DEACTIVATED. Systems reverting to standard idle operations.' };
+      ? { id: `stress-${Date.now()}`, timestamp, type: 'warning', message: ' STRESS TESTING MODE ACTIVATED. Simulating thousands of simultaneous student concurrent actions.' }
+      : { id: `stress-${Date.now()}`, timestamp, type: 'success', message: ' STRESS TESTING DEACTIVATED. Systems reverting to standard idle operations.' };
 
     setLogs(prev => [testLog, ...prev]);
   };
@@ -640,7 +640,7 @@ export default function SystemDiagnostics({
             </div>
             
             <div className="text-[11px] font-medium text-slate-500 text-center p-2 rounded-xl bg-slate-100 dark:bg-slate-800/50">
-              📍 Local proxy is managed automatically by the environment.
+               Local proxy is managed automatically by the environment.
             </div>
           </div>
         </div>

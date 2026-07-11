@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Award, Calendar, BookOpen, Clock, 
   CheckCircle2, Save, FileSpreadsheet, Plus, 
-  DollarSign, Activity, AlertCircle, Sparkles, LogOut, ChevronDown, Trash2, User, Sliders, X
+  DollarSign, Activity, AlertCircle, Sparkles, LogOut, ChevronDown, Trash2, User, Sliders, X,
+  Megaphone, UserCheck, MapPin, School, ArrowRight
  } from 'lucide-react';
 import { Lecturer, Student, Grade, Course, StockItem, Book, LMSReadingList, TeacherResource, BookRequest, AttendanceSession } from '../types';
 import { subjectMap } from '../data';
@@ -71,8 +72,40 @@ export default function LecturerDashboard({
   onSaveAttendance,
   onLogout
 }: LecturerDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'grading' | 'schedule' | 'attendance' | 'profile' | 'books'>('grading');
-  const [selectedSubject, setSelectedSubject] = useState<string>(lecturer.subjects[0] || '');
+  const [activeTab, setActiveTab] = useState<'workstation' | 'grading' | 'schedule' | 'attendance' | 'profile' | 'books'>('workstation');
+
+  const [timerSeconds, setTimerSeconds] = useState<number>(1500);
+  const [timerActive, setTimerActive] = useState<boolean>(false);
+  const [timerMode, setTimerMode] = useState<'focus' | 'break'>('focus');
+
+  useEffect(() => {
+    let interval: any = null;
+    if (timerActive && timerSeconds > 0) {
+      interval = setInterval(() => {
+        setTimerSeconds(prev => prev - 1);
+      }, 1000);
+    } else if (timerSeconds === 0) {
+      setTimerActive(false);
+      if (timerMode === 'focus') {
+        setTimerMode('break');
+        setTimerSeconds(300);
+      } else {
+        setTimerMode('focus');
+        setTimerSeconds(1500);
+      }
+    }
+    return () => clearInterval(interval);
+  }, [timerActive, timerSeconds, timerMode]);
+
+  const formatTimer = (secs: number) => {
+    const mins = Math.floor(secs / 60);
+    const remainingSecs = secs % 60;
+    return `${mins.toString().padStart(2, '0')}:${remainingSecs.toString().padStart(2, '0')}`;
+  };
+
+  const [selectedSubject, setSelectedSubject] = useState<string>(
+  lecturer.subjects?.[0] ?? ''
+);
   const [showBellCurve, setShowBellCurve] = useState(false);
 
   // Form states for adding open consultation time-blocks
@@ -267,196 +300,373 @@ export default function LecturerDashboard({
   };
 
   return (
-    <div className="bg-slate-55 min-h-screen p-4 sm:p-6 lg:p-8 flex flex-col space-y-6 animate-fade-in" id="lecturer-dashboard-root">
-      
-      {/* GLOBAL SEARCH CONSOLE */}
-      <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-3xs flex flex-col sm:flex-row items-stretch sm:items-center gap-4 justify-between" id="global-search-row">
-        <div className="flex-1 max-w-xl">
-          <GlobalSearchBar students={students} courses={courses} inventory={inventory} />
-        </div>
-        <div className="hidden sm:flex items-center gap-2 text-slate-400 text-[10px] uppercase font-bold tracking-wider">
-          <span>Search Console Active</span>
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-        </div>
-      </div>
-
-      {/* HEADER SECTION */}
-      <div className="bg-white rounded-2xl border border-slate-100 p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-xs">
-        <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-xl bg-blue-105 text-blue-700 bg-blue-50 flex items-center justify-center font-black text-xl border border-blue-200">
-            {lecturer.name.charAt(0)}
-          </div>
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-xl font-bold text-slate-800">{lecturer.name}</h1>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-150 font-bold uppercase tracking-wider">
-                  Lecturer / Professor
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setIsPasscodeModalOpen(true)}
-                  className="inline-flex items-center gap-1 text-[9.5px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2.5 py-0.5 rounded-full border border-indigo-150 font-extrabold cursor-pointer transition-colors"
-                >
-                  Change Passcode
-                </button>
-              </div>
-            </div>
-            <p className="text-xs text-slate-500 font-mono">Fac. ID: {lecturer.designatorCode} • Contact: {lecturer.email}</p>
-          </div>
-        </div>
-
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full md:w-auto">
-          {/* Active/Inactive Switch Toggle */}
-          <div className="flex items-center gap-3 bg-slate-50 border border-slate-150 rounded-xl px-4 py-2 hover:border-slate-300 transition-colors">
-            <div className="flex flex-col">
-              <span className="text-[9px] uppercase font-black text-slate-400 tracking-wider">Consultation Status</span>
-              <span className={`text-[11px] font-bold ${lecturer.isActive !== false ? 'text-emerald-600' : 'text-rose-600 animate-pulse'}`}>
-                {lecturer.isActive !== false ? '● Active / Available' : '○ Inactive / Away'}
-              </span>
-            </div>
-            
-            {/* Custom UI toggle */}
-            <button
-              type="button"
-              onClick={() => onUpdateProfile(lecturer.id, { isActive: lecturer.isActive === false })}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
-                lecturer.isActive !== false ? 'bg-emerald-500' : 'bg-slate-300'
-              }`}
-              role="switch"
-              aria-checked={lecturer.isActive !== false}
-              title="Toggle Consultation Availability Status"
-            >
-              <span
-                aria-hidden="true"
-                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-xs transition duration-200 ease-in-out ${
-                  lecturer.isActive !== false ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-            </button>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              window.history.pushState({}, '', '/landing');
-              window.dispatchEvent(new PopStateEvent('popstate'));
-            }}
-            className="bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold px-4 py-2.5 rounded-xl transition-colors cursor-pointer w-full md:w-auto"
-          >
-            View Website
-          </button>
-          <button
-            type="button"
-            onClick={onLogout}
-            className="bg-slate-100 hover:bg-slate-205 text-slate-750 text-xs font-semibold px-4 py-2.5 rounded-xl transition-colors cursor-pointer w-full md:w-auto"
-          >
-            Sign Out Faculty
-          </button>
-        </div>
-      </div>
-
-      {/* THREE CARDS SUMMARY ROW (Rates & Payout Hours) */}
-      <div className="grid sm:grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl border border-slate-100 p-4 shadow-2xs flex items-center gap-4">
-          <div className="w-10 h-10 rounded-lg bg-indigo-50 text-indigo-650 flex items-center justify-center">
-            <Award className="w-5 h-5" />
+    <div className="min-h-screen flex bg-slate-50 dark:bg-slate-950 font-sans transition-colors duration-300 w-full animate-fade-in" id="lecturer-dashboard-root">
+      {/* LEFT SIDEBAR NAVIGATION */}
+      <aside className="w-64 bg-slate-900 dark:bg-slate-950 text-slate-300 flex flex-col border-r border-slate-800 shrink-0 hidden md:flex font-sans">
+        {/* Brand Header */}
+        <div className="p-6 border-b border-slate-800 flex items-center gap-2">
+          <div className="w-8 h-8 bg-violet-650 rounded-lg flex items-center justify-center shrink-0">
+            <School className="w-5 h-5 text-white" />
           </div>
           <div>
-            <span className="text-[10px] text-slate-400 uppercase tracking-widest font-bold block">Assigned Modules</span>
-            <span className="text-lg font-extrabold text-slate-800">{(lecturer.subjects ?? []).length}Course Subjects</span>
+            <span className="text-sm font-black tracking-tight text-white block uppercase leading-none">ZENTI</span>
+            <span className="text-[8px] text-slate-500 font-bold uppercase tracking-widest block">Faculty Portal</span>
           </div>
         </div>
-
-        <div className="bg-white rounded-xl border border-slate-100 p-4 shadow-2xs flex items-center gap-4">
-          <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-650 flex items-center justify-center">
-            <Clock className="w-5 h-5" />
-          </div>
-          <div>
-            <span className="text-[10px] text-slate-400 uppercase tracking-widest font-bold block">Logged Teaching Hours</span>
-            <span className="text-lg font-extrabold text-slate-800">{lecturer.loggedHours} Accumulated Hrs</span>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl border border-slate-100 p-4 shadow-2xs flex items-center gap-4">
-          <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-650 flex items-center justify-center">
-            <DollarSign className="w-5 h-5" />
-          </div>
-          <div>
-            <span className="text-[10px] text-slate-400 uppercase tracking-widest font-bold block">Estimated Sandbox Payout</span>
-            <span className="text-lg font-extrabold text-slate-800">
-              KES {((lecturer.loggedHours || 0) * (lecturer.hourlyRate || 0)).toLocaleString()}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* STUDENT ADMISSION QUICK-SEARCH & DOSSIER STATION */}
-      <StudentAdmissionDossierStation
-        students={students}
-        role="lecturer"
-        courses={courses}
-        currentLecturer={lecturer}
-      />
-
-      {/* WORKSPACE MIDDLE PANELS GRID */}
-      <div className="grid lg:grid-cols-12 gap-6 items-start">
         
-        {/* LEFT COLUMN: ACTIVE VIEW OPTIONS (TABBED) */}
-        <div className="lg:col-span-8 space-y-6">
-          
-          {/* TAB BAR HEADER */}
-          <div className="flex bg-white rounded-xl border border-slate-100 p-1 text-[11px] font-bold">
-            <button
-              type="button"
-              onClick={() => setActiveTab('grading')}
-              className={`flex-1 py-3 text-center rounded-lg uppercase tracking-wider transition-all cursor-pointer ${
-                activeTab === 'grading' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              Assessments & Grading
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('schedule')}
-              className={`flex-1 py-3 text-center rounded-lg uppercase tracking-wider transition-all cursor-pointer ${
-                activeTab === 'schedule' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              Subjects & Rosters
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('attendance')}
-              className={`flex-1 py-3 text-center rounded-lg uppercase tracking-wider transition-all cursor-pointer ${
-                activeTab === 'attendance' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              Session Attendance
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('profile')}
-              className={`flex-1 py-3 text-center rounded-lg uppercase tracking-wider transition-all cursor-pointer ${
-                activeTab === 'profile' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              Profile & Portfolio
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('books')}
-              className={`flex-1 py-3 text-center rounded-lg uppercase tracking-wider transition-all cursor-pointer ${
-                activeTab === 'books' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
-              }`}
-              id="btn-lecturer-books-tab"
-            >
-              📚 Syllabus Reading Lists
-            </button>
+        {/* Navigation Menu */}
+        <nav className="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
+          <button type="button" onClick={() => setActiveTab('workstation')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'workstation' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+            <Sliders className="w-4 h-4" />
+            <span>My Workstation</span>
+          </button>
+          <button type="button" onClick={() => setActiveTab('grading')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'grading' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+            <Award className="w-4 h-4" />
+            <span>Assess & Grade</span>
+          </button>
+          <button type="button" onClick={() => setActiveTab('schedule')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'schedule' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+            <Calendar className="w-4 h-4" />
+            <span>Subjects Roster</span>
+          </button>
+          <button type="button" onClick={() => setActiveTab('attendance')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'attendance' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+            <UserCheck className="w-4 h-4" />
+            <span>Attendance Log</span>
+          </button>
+          <button type="button" onClick={() => setActiveTab('profile')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'profile' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+            <User className="w-4 h-4" />
+            <span>Faculty Profile</span>
+          </button>
+          <button type="button" onClick={() => setActiveTab('books')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'books' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+            <BookOpen className="w-4 h-4" />
+            <span>Reading Lists</span>
+          </button>
+        </nav>
+        
+        {/* Profile Info & Logout */}
+        <div className="p-4 border-t border-slate-800/60 bg-slate-950/40 space-y-3 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-violet-650 text-white flex items-center justify-center font-bold text-sm shrink-0">
+              {lecturer.name.charAt(0)}
+            </div>
+            <div className="truncate max-w-[120px]">
+              <h4 className="text-xs font-bold text-white leading-none truncate">{lecturer.name}</h4>
+              <span className="text-[9px] text-slate-500 font-mono block mt-1 truncate">{lecturer.designatorCode}</span>
+            </div>
           </div>
-
-          <div className="bg-white rounded-2xl border border-slate-150 p-6 shadow-sm">
+          <button type="button" onClick={onLogout} className="w-full py-2.5 bg-slate-800 hover:bg-rose-955/30 hover:text-rose-450 text-slate-400 hover:text-white text-xs font-bold rounded-lg uppercase tracking-wider transition-colors flex items-center justify-center gap-1.5 cursor-pointer">
+            <X className="w-3.5 h-3.5" />
+            <span>Logout Portal</span>
+          </button>
+        </div>
+      </aside>
+      
+      {/* MAIN CONTAINER */}
+      <div className="flex-1 flex flex-col min-h-screen overflow-y-auto bg-slate-50 dark:bg-slate-950">
+        {/* TOP UTILITY BAR */}
+        <header className="bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-2xs shrink-0 font-sans">
+          <div className="flex items-center gap-3">
+            <div className="space-y-0.5 text-center sm:text-left">
+              <h2 className="text-[9px] font-bold text-slate-450 uppercase tracking-widest leading-none font-mono font-sans">Faculty Command Console</h2>
+              <h1 className="text-base font-black text-slate-800 dark:text-white leading-tight">Welcome, Prof. {lecturer.name.split(' ').pop()}</h1>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-4 w-full sm:w-auto justify-end">
+            <div className="w-full sm:w-64 md:w-80">
+              <GlobalSearchBar students={students} courses={courses} inventory={inventory} />
+            </div>
+            <span className="hidden sm:inline-block w-px h-6 bg-slate-200 dark:bg-slate-800"></span>
             
+            {/* Consultation Available toggle */}
+            <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-850 border border-slate-205 dark:border-slate-800 rounded-xl px-3 py-1.5 shrink-0">
+              <span className={`text-[10px] font-bold ${lecturer.isActive !== false ? 'text-emerald-600' : 'text-rose-600'}`}>
+                {lecturer.isActive !== false ? 'Available' : 'Away'}
+              </span>
+              <button
+                type="button"
+                onClick={() => onUpdateProfile(lecturer.id, { isActive: lecturer.isActive === false })}
+                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                  lecturer.isActive !== false ? 'bg-emerald-500' : 'bg-slate-350'
+                }`}
+                role="switch"
+                aria-checked={lecturer.isActive !== false}
+              >
+                <span
+                  aria-hidden="true"
+                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition duration-200 ease-in-out ${
+                    lecturer.isActive !== false ? 'translate-x-4' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+        </header>
+        
+        {/* WORKSPACE CONTENT AREA */}
+        <div className="p-6 space-y-6 flex-1 bg-slate-50 dark:bg-slate-950">
+          
+          {/* STUDENT ADMISSION QUICK-SEARCH & DOSSIER STATION */}
+          <StudentAdmissionDossierStation
+            students={students}
+            role="lecturer"
+            courses={courses}
+            currentLecturer={lecturer}
+          />
+          
+          {/* WORKSPACE MIDDLE PANELS GRID */}
+          <div className="grid lg:grid-cols-12 gap-6 items-start">
+            
+            {/* LEFT COLUMN: ACTIVE VIEW OPTIONS (TABBED) */}
+            <div className="lg:col-span-8 space-y-6">
+              
+              <div className="bg-white rounded-2xl border border-slate-150 p-6 shadow-sm">
+                
+                {/* VIEW 0: WORKSTATION (DASHBOARD B) */}
+                {activeTab === 'workstation' && (
+              <div className="space-y-6">
+                {/* HIGH-DENSITY SUMMARY STRIP */}
+                <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-150 dark:border-slate-800 p-6 shadow-xs grid grid-cols-1 md:grid-cols-4 gap-6 divide-y md:divide-y-0 md:divide-x divide-slate-100 dark:divide-slate-800">
+                  
+                  {/* Assigned Subjects */}
+                  <div className="flex items-center justify-between pr-4 md:pr-0 md:px-4 first:pl-0">
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block font-sans">Assigned Subjects</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-2xl font-black text-slate-800 dark:text-white font-mono">{(lecturer.subjects ?? []).length} Units</span>
+                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-650 dark:bg-indigo-950/20 dark:text-indigo-400">Active</span>
+                      </div>
+                    </div>
+                    <div className="p-3 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-650 dark:text-indigo-400 rounded-xl">
+                      <Award className="w-5 h-5" />
+                    </div>
+                  </div>
+
+                  {/* Teaching Hours */}
+                  <div className="flex items-center justify-between pt-4 md:pt-0 pr-4 md:pr-0 md:px-6">
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block font-sans">Hours Logged</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-2xl font-black text-slate-800 dark:text-white font-mono">{lecturer.loggedHours || 0} Hrs</span>
+                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/20 dark:text-blue-400">Milestone</span>
+                      </div>
+                    </div>
+                    <div className="p-3 bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 rounded-xl">
+                      <Clock className="w-5 h-5" />
+                    </div>
+                  </div>
+
+                  {/* Hourly Rate */}
+                  <div className="flex items-center justify-between pt-4 md:pt-0 pr-4 md:pr-0 md:px-6">
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block font-sans">Hourly Rate</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-2xl font-black text-slate-800 dark:text-white font-mono">KES {(lecturer.hourlyRate || 0).toLocaleString()}</span>
+                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400">Standard</span>
+                      </div>
+                    </div>
+                    <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 rounded-xl">
+                      <DollarSign className="w-5 h-5" />
+                    </div>
+                  </div>
+
+                  {/* Estimated Payout */}
+                  <div className="flex items-center justify-between pt-4 md:pt-0 pr-4 md:pr-0 md:pl-6 last:pr-0">
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block font-sans">Estimated Payout</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl font-black text-emerald-650 font-mono">KES {((lecturer.loggedHours || 0) * (lecturer.hourlyRate || 0)).toLocaleString()}</span>
+                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400">Accrued</span>
+                      </div>
+                    </div>
+                    <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 rounded-xl">
+                      <Activity className="w-5 h-5" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* MIDDLE ROW: 2-column Analytics & Schedule */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+                  {/* Col 1: Hours Analytics Chart */}
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-150 dark:border-slate-800 p-5 shadow-xs lg:col-span-8 flex flex-col justify-between">
+                    <div className="border-b border-slate-100 dark:border-slate-800 pb-3 mb-4 flex justify-between items-center">
+                      <div>
+                        <h3 className="text-xs font-black uppercase text-slate-800 dark:text-white tracking-wider flex items-center gap-1.5 font-display">
+                          <Activity className="w-4 h-4 text-blue-600" />
+                          Teaching Hours Analytics
+                        </h3>
+                        <p className="text-[9px] text-slate-500">Weekly teaching load telemetry and logged session milestones.</p>
+                      </div>
+                    </div>
+                    <div className="h-60 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={[
+                          { name: 'Week 1', hours: 10 },
+                          { name: 'Week 2', hours: 12 },
+                          { name: 'Week 3', hours: 15 },
+                          { name: 'Week 4', hours: lecturer.loggedHours ? Math.min(lecturer.loggedHours - 37, 20) : 5 }
+                        ]} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="colorHours" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.2}/>
+                              <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" className="dark:hidden" />
+                          <XAxis dataKey="name" stroke="#94a3b8" fontSize={9} className="font-mono" />
+                          <YAxis stroke="#94a3b8" fontSize={9} className="font-mono" />
+                          <Tooltip contentStyle={{ fontSize: '11px', borderRadius: '8px' }} />
+                          <Area type="monotone" dataKey="hours" stroke="#8b5cf6" strokeWidth={2} fillOpacity={1} fill="url(#colorHours)" />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  {/* Col 2: Next Up calendar card */}
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-150 dark:border-slate-800 p-5 shadow-xs lg:col-span-4 flex flex-col justify-between">
+                    <div className="border-b border-slate-100 dark:border-slate-800 pb-3 mb-4">
+                      <span className="text-[9px] font-bold text-slate-450 uppercase tracking-widest block font-mono">Class Roster Schedule</span>
+                      <h3 className="text-xs font-bold text-slate-800 dark:text-white mt-0.5 flex items-center gap-1.5">
+                        <Calendar className="w-4 h-4 text-violet-650 animate-pulse" />
+                        Next Assigned Class
+                      </h3>
+                    </div>
+                    <div className="py-4 space-y-4 flex-1 flex flex-col justify-center">
+                      <div className="bg-violet-50/50 dark:bg-violet-950/20 border border-violet-100/50 dark:border-violet-900/30 rounded-xl p-4 space-y-2">
+                        <span className="text-[8px] bg-violet-100 dark:bg-violet-900 text-violet-850 dark:text-violet-250 px-2 py-0.5 rounded font-black uppercase tracking-wider">
+                          {lecturer.subjects?.[1] || 'DS-202'}
+                        </span>
+                        <h4 className="text-xs font-extrabold text-slate-800 dark:text-slate-205 leading-tight">
+                          {subjectMap[lecturer.subjects?.[1] ?? 'DS-202'] ?? 'Intro to Machine Learning'}
+                        </h4>
+                        <div className="flex items-center gap-4 text-[10px] text-slate-550 font-medium font-mono pt-1">
+                          <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-slate-400" /> 11:00 AM</span>
+                          <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-slate-400" /> Comp Lab 3</span>
+                        </div>
+                      </div>
+                    </div>
+                    <button 
+                      type="button" 
+                      onClick={() => setActiveTab('attendance')}
+                      className="w-full py-3 bg-violet-600 hover:bg-violet-700 text-white font-extrabold rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-violet-100 dark:shadow-none"
+                    >
+                      <span>Mark Class Attendance</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* BOTTOM ROW: 3-column deliverables feed, syllabus coverage gauge, focus study timer */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* Column 1: Task Checklist */}
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-150 dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between h-[360px]">
+                    <div>
+                      <div className="border-b border-slate-100 dark:border-slate-800 pb-3 mb-4 flex justify-between items-center">
+                        <div>
+                          <h3 className="text-xs font-black uppercase text-slate-800 dark:text-white tracking-wider flex items-center gap-1.5 font-display">
+                            <AlertCircle className="w-4 h-4 text-violet-650" />
+                            Faculty Task List
+                          </h3>
+                          <p className="text-[9px] text-slate-550">Action items for this week.</p>
+                        </div>
+                        <span className="text-[8px] bg-red-100 text-red-700 px-2 py-0.5 rounded font-black tracking-wider uppercase">Active</span>
+                      </div>
+                      <div className="space-y-3 overflow-y-auto max-h-[220px] pr-1 text-xs">
+                        <div className="flex items-start gap-2.5 p-2 bg-slate-50 dark:bg-slate-850 rounded-lg">
+                          <input type="checkbox" defaultChecked className="mt-0.5 rounded text-violet-650 focus:ring-violet-500 cursor-pointer" />
+                          <div className="space-y-0.5 text-xs">
+                            <p className="font-bold text-slate-400 line-through">Grading Assignment 2</p>
+                            <p className="text-[9.5px] text-slate-500">Graded: Cohort II results dispatched.</p>
+                          </div>
+                        </div>
+                        <div className="flex items-start gap-2.5 p-2 bg-slate-50 dark:bg-slate-850 rounded-lg border-l-2 border-red-500">
+                          <input type="checkbox" className="mt-0.5 rounded text-violet-650 focus:ring-violet-500 cursor-pointer" />
+                          <div className="space-y-0.5 text-xs">
+                            <p className="font-bold text-slate-800 dark:text-slate-205">Submit Exam Drafts</p>
+                            <p className="text-[9.5px] text-red-505 font-semibold">Due: In 2 days (Semester Finals)</p>
+                          </div>
+                        </div>
+                        <div className="flex items-start gap-2.5 p-2 bg-slate-50 dark:bg-slate-850 rounded-lg">
+                          <input type="checkbox" className="mt-0.5 rounded text-violet-650 focus:ring-violet-500 cursor-pointer" />
+                          <div className="space-y-0.5 text-xs">
+                            <p className="font-bold text-slate-800 dark:text-slate-205">Upload CAT Marks</p>
+                            <p className="text-[9.5px] text-slate-500">Log grades for CS-101 registered profiles.</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-[10px] text-slate-400 font-semibold text-center pt-2 font-mono">
+                      Check tasks regularly
+                    </div>
+                  </div>
+
+                  {/* Column 2: Syllabus Progress Radial Gauge */}
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-150 dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between h-[360px] items-center">
+                    <div className="w-full text-left">
+                      <div className="border-b border-slate-100 dark:border-slate-800 pb-3 mb-4">
+                        <h3 className="text-xs font-black uppercase text-slate-800 dark:text-white tracking-wider flex items-center gap-1.5 font-display">
+                          <Activity className="w-4 h-4 text-emerald-600 animate-pulse" />
+                          Course Syllabus Gauge
+                        </h3>
+                        <p className="text-[9px] text-slate-550">Overall curriculum coverage milestone.</p>
+                      </div>
+                    </div>
+                    <div className="relative inline-flex items-center justify-center py-4">
+                      <svg className="w-32 h-32 transform -rotate-90">
+                        <circle cx="64" cy="64" r="50" className="stroke-slate-100 dark:stroke-slate-800" strokeWidth="8" fill="transparent" />
+                        <circle cx="64" cy="64" r="50" className="stroke-emerald-500" strokeWidth="8" fill="transparent" strokeDasharray={314.16} strokeDashoffset={314.16 - (314.16 * 55) / 100} strokeLinecap="round" />
+                      </svg>
+                      <div className="absolute text-center">
+                        <span className="text-2xl font-black text-slate-800 dark:text-white font-mono block">55%</span>
+                        <span className="text-[7.5px] bg-emerald-500/10 text-emerald-600 px-1.5 py-0.5 rounded-full font-extrabold uppercase tracking-wide">On Track</span>
+                      </div>
+                    </div>
+                    <div className="text-[10px] text-slate-500 font-medium text-center font-mono leading-relaxed px-4">
+                      Module syllabus coverage is currently meeting standard milestone pacing.
+                    </div>
+                  </div>
+
+                  {/* Column 3: Focus Study Timer */}
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-150 dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between h-[360px]">
+                    <div>
+                      <div className="border-b border-slate-100 dark:border-slate-800 pb-3 mb-4">
+                        <h3 className="text-xs font-black uppercase text-slate-800 dark:text-white tracking-wider flex items-center gap-1.5">
+                          <Clock className="w-4 h-4 text-amber-500 animate-pulse" />
+                          Focus Study Timer
+                        </h3>
+                        <p className="text-[9px] text-slate-555">Pomodoro focus session timer.</p>
+                      </div>
+                      <div className="text-center py-4 space-y-3">
+                        <div className="font-mono text-4xl font-black text-slate-800 dark:text-white tracking-widest bg-slate-55 dark:bg-slate-850 py-3 rounded-2xl border border-slate-100 dark:border-slate-800">
+                          {formatTimer(timerSeconds)}
+                        </div>
+                        <div className="flex items-center justify-center gap-2">
+                          <span className={`text-[9.5px] uppercase font-bold px-3 py-1 rounded-full ${timerMode === 'focus' ? 'bg-amber-50 text-amber-700 border border-amber-100' : 'bg-emerald-50 text-emerald-700 border border-emerald-100'}`}>
+                            {timerMode === 'focus' ? '📚 FOCUSING WORK' : '☕ SHORT BREAK'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button 
+                        type="button" 
+                        onClick={() => setTimerActive(!timerActive)}
+                        className={`flex-1 py-2.5 text-white font-extrabold rounded-xl text-[10px] uppercase tracking-wider cursor-pointer shadow-xs transition-colors ${timerActive ? 'bg-red-600 hover:bg-red-700' : 'bg-violet-650 hover:bg-violet-700'}`}
+                      >
+                        {timerActive ? 'Pause Session' : 'Start Focus'}
+                      </button>
+                      <button 
+                        type="button" 
+                        onClick={() => { setTimerActive(false); setTimerSeconds(timerMode === 'focus' ? 1500 : 300); }}
+                        className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-350 font-bold rounded-xl text-[10px] uppercase tracking-wider transition-colors cursor-pointer"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* VIEW 1: GRADING SPREADSHEEET */}
             {activeTab === 'grading' && (
               <div className="space-y-6">
@@ -479,14 +689,16 @@ export default function LecturerDashboard({
                       onChange={(e) => { setSelectedSubject(e.target.value); setGradeInputs({}); }}
                       className="bg-white border border-slate-200 rounded-lg p-2 text-xs font-bold text-slate-800 focus:outline-hidden"
                     >
-                      (lecturer.subjects ?? []).map(
-                        <option key={s} value={s}>{subjectMap[s] || s}</option>
-                      )
+                      {(lecturer.subjects ?? []).map((s) => (
+                        <option key={s} value={s}>
+                          {subjectMap[s] || s}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </div>
 
-                {/* 📊 LECTURER GRADE DISTRIBUTION ANALYTICS SECTION */}
+                {/* LECTURER GRADE DISTRIBUTION ANALYTICS SECTION */}
                 <div className="bg-slate-50/60 border border-slate-150 rounded-2xl p-4 md:p-5 space-y-5">
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                     <div>
@@ -516,7 +728,9 @@ export default function LecturerDashboard({
                     let totalGraded = 0;
                     const modulePerformance: Record<string, { totalScore: number; count: number }> = {};
 
-                    lecturer.subjects.forEach(subj => {
+                    const subjects = lecturer.subjects ?? [];
+
+subjects.forEach(subj => {
                       const enrolled = students.filter(s => s.enrolledUnits.includes(subj));
                       enrolled.forEach(student => {
                         const grade = student.grades[subj];
@@ -549,7 +763,7 @@ export default function LecturerDashboard({
                       { name: 'Grade E/F', value: efCount, range: '<40%', label: 'Fail / Retake', color: '#ef4444' }
                     ];
 
-                    const moduleAverageData = lecturer.subjects.map(subj => {
+                    const moduleAverageData = (lecturer.subjects ?? []).map(subj => {
                       const record = modulePerformance[subj];
                       return {
                         subject: subj,
@@ -1073,31 +1287,39 @@ export default function LecturerDashboard({
                   </div>
 
                   <div className="grid sm:grid-cols-2 gap-4">
-                    (lecturer.subjects ?? []).map(
-                      const matchedStudents = students.filter(s =s.enrolledUnits.includes(code)));
+                    {(lecturer.subjects ?? []).map(code => {
+                      const matchedStudents = students.filter(
+                        s => s.enrolledUnits.includes(code)
+                      );
+
                       return (
-                        <div key={code} className="bg-slate-50 border border-slate-100 p-4 rounded-xl flex items-start gap-4">
+                        <div
+                          key={code}
+                          className="bg-slate-50 border border-slate-100 p-4 rounded-xl flex items-start gap-4"
+                        >
                           <div className="w-10 h-10 bg-blue-50 text-blue-800 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 border border-blue-105">
-                            {code.split('-')[0] || code}
+                            {code.split("-")[0] || code}
                           </div>
+
                           <div className="space-y-2">
                             <div>
-                              <span className="text-[10px] uppercase font-bold text-slate-400 block">{code}</span>
-                              <h4 className="font-extrabold text-slate-800 text-sm">{subjectMap[code] || 'General Elective'}</h4>
+                              <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                                {code}
+                              </span>
+                              <h4 className="font-extrabold text-slate-800 text-sm">
+                                {subjectMap[code] || "General Elective"}
+                              </h4>
                             </div>
-                            
+
                             <div className="text-[11px] text-slate-500 space-y-1">
-                              <p>• Roster Size: <span className="font-semibold text-slate-800">{matchedStudents.length} Students</span></p>
-                              <p>• Room Venue: <span className="font-semibold text-slate-800">Advanced Complex, Seminar Room 2</span></p>
-                              <p>• Timetable Slot: <span className="font-semibold text-slate-800">Tue & Fri 10:00 AM</span></p>
+                              <p>Students Enrolled: {matchedStudents.length}</p>
                             </div>
                           </div>
                         </div>
                       );
-                    
+                    })}
                   </div>
                 </div>
-
                 {/* 2.2 OFFICE HOURS PLANNER */}
                 <div className="border-t border-slate-150 pt-8 space-y-6">
                   <div>
@@ -1343,7 +1565,7 @@ export default function LecturerDashboard({
             {activeTab === 'attendance' && (
               <div className="space-y-6">
                 
-                {/* 📈 SEMESTER STUDENT ATTENDANCE TREND LINE CHART */}
+                {/*  SEMESTER STUDENT ATTENDANCE TREND LINE CHART */}
                 {selectedSubject && (
                   <div className="bg-white border border-slate-150 rounded-2xl p-4 md:p-5 shadow-3xs space-y-4">
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-100 pb-3">
@@ -1577,7 +1799,7 @@ export default function LecturerDashboard({
                         className="bg-white border border-slate-200 rounded p-1.5 text-xs text-slate-800 font-bold focus:outline-hidden"
                         title="Choose active class"
                       >
-                        {lecturer.subjects.map(s => (
+                       {(lecturer.subjects ?? []).map(s => (
                           <option key={s} value={s}>{s}</option>
                         ))}
                       </select>
@@ -1585,12 +1807,11 @@ export default function LecturerDashboard({
                   </div>
 
                   {attendanceSuccess && (
-                    <div className="bg-emerald-50 text-emerald-800 border border-emerald-100 p-4 rounded-xl text-xs font-semibold flex items-center gap-1.5 animate-bounce">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      <span>Attendance session records locked and uploaded successfully!</span>
-                    </div>
-                  )}
-
+  <div className="bg-emerald-50 text-emerald-800 border border-emerald-100 p-4 rounded-xl text-xs font-semibold flex items-center gap-1.5 animate-bounce">
+    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+    <span>Attendance session records locked and uploaded successfully!</span>
+  </div>
+)}
                   {subjectStudents.length === 0 ? (
                     <p className="text-slate-400 italic text-xs py-8 text-center">Select an active class with registered students.</p>
                   ) : (
@@ -1946,7 +2167,7 @@ export default function LecturerDashboard({
                 className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs text-slate-800 focus:outline-hidden"
                 required
               >
-                {lecturer.subjects.map(s => (
+                {(lecturer.subjects ?? []).map(s => (
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>
@@ -2096,6 +2317,6 @@ export default function LecturerDashboard({
         </div>
       )}
 
-    </div>
+    </div></div></div>
   );
 }

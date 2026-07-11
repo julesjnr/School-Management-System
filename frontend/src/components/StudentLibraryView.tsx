@@ -707,7 +707,7 @@ export default function StudentLibraryView({
                   ) : (
                     <div className="space-y-4">
                       <div className="flex justify-between items-center bg-blue-950/40 border border-blue-900/35 p-2 rounded-lg text-blue-200">
-                        <span>💳 CHIP: COMP-STUD-{student.id}</span>
+                        <span> CHIP: COMP-STUD-{student.id}</span>
                         <span className="font-bold">AUTHORIZED: {student.name}</span>
                       </div>
 
@@ -846,7 +846,7 @@ export default function StudentLibraryView({
                       bioMethod === 'fingerprint' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
                     }`}
                   >
-                    🔬 Fingerprint Scanner
+                     Fingerprint Scanner
                   </button>
                   <button
                     type="button"
@@ -855,7 +855,7 @@ export default function StudentLibraryView({
                       bioMethod === 'face' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
                     }`}
                   >
-                    👁️ Facial Cam Scanner
+                     Facial Cam Scanner
                   </button>
                 </div>
 
@@ -1242,7 +1242,7 @@ export default function StudentLibraryView({
                         </div>
                         <p className="text-[10px] text-slate-500 font-light leading-relaxed">{badge.desc}</p>
                         <p className="text-[9px] font-bold mt-1 font-mono">
-                          {badge.unlocked ? '🔓 UNLOCKED ACCREDITATION' : '🔒 REQUIREMENT NOT MET'}
+                          {badge.unlocked ? ' UNLOCKED ACCREDITATION' : ' REQUIREMENT NOT MET'}
                         </p>
                       </div>
                     </div>

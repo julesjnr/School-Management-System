@@ -3,9 +3,21 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { db } from "./src/db/index.ts";
-import { systemState,students,studentEnrollments,payments,invoices,studentAttendance,examPapers} from "./src/db/schema.ts";
-import { lecturers } from "./src/db/schema.ts";
-import {courses} from "./src/db/schema.ts";
+import {
+  systemState,
+  students,
+  studentEnrollments,
+  payments,
+  invoices,
+  studentAttendance,
+  examPapers,
+  lecturers,
+  courses,
+  lecturerSubjects,
+  lecturerPublications,
+  lecturerResearchInterests,
+  officeHourSlots,
+} from "./src/db/schema.ts";
 import { eq } from "drizzle-orm";
 import { supabase } from "./src/db/supabaseClient.ts";
 
@@ -24,6 +36,17 @@ const PORT = 3000;
 
 // Set up larger limit for full state synchronizations
 app.use(express.json({ limit: "20mb" }));
+
+// Enable CORS for frontend API calls
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-user-role");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
 const DB_FILE = path.join(process.cwd(), "db_store.json");
 
@@ -130,7 +153,7 @@ function saveDatabase(dbState: any) {
       target: systemState.id,
       set: {
         data: dbState,
-        updatedAt: new Date(),
+        updatedAt: new Date().toISOString(),
       },
     })
     .then(() => {
@@ -889,7 +912,33 @@ app.post("/api/student-attendance", async (req, res) => {
 // 5. REST Resource: Lecturers
 app.get("/api/lecturers", async (req, res) => {
   try {
-    const result = await db.select().from(lecturers);
+    const lecturerRows = await db.select().from(lecturers);
+
+    const subjectRows = await db.select().from(lecturerSubjects);
+    const publicationRows = await db.select().from(lecturerPublications);
+    const researchRows = await db.select().from(lecturerResearchInterests);
+    const officeRows = await db.select().from(officeHourSlots);
+
+    const result = lecturerRows.map((lecturer) => ({
+      ...lecturer,
+
+      subjects: subjectRows
+        .filter((s) => s.lecturerId === lecturer.id)
+        .map((s) => s.subjectCode),
+
+      publications: publicationRows
+        .filter((p) => p.lecturerId === lecturer.id)
+        .map((p) => p.publicationText),
+
+      researchInterests: researchRows
+        .filter((r) => r.lecturerId === lecturer.id)
+        .map((r) => r.interestText),
+
+      officeHours: officeRows.filter(
+        (o) => o.lecturerId === lecturer.id
+      ),
+    }));
+
     res.json(result);
   } catch (error) {
     console.error("Failed to fetch lecturers:", error);
@@ -1161,22 +1210,22 @@ async function startServer() {
   await initPostgresDB();
 
   if (process.env.NODE_ENV !== "production") {
-    // Development Mode: Mount Vite dev server middleware to support hot reloads
-    const { createServer: createViteServer } = await import("vite");
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa"
-    });
-    app.use(vite.middlewares);
-    console.log("Vite development middleware loaded");
+    console.log("Backend API server running in development mode (port " + PORT + ")");
   } else {
-    // Production Mode: Serve compiled static frontend bundle
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
-    console.log("Production static build routing loaded");
+    // Production Mode: Serve compiled static frontend bundle from frontend workspace
+    const distPath = path.resolve(process.cwd(), "../frontend/dist");
+    if (fs.existsSync(distPath)) {
+      app.use(express.static(distPath));
+      app.get("*", (req, res) => {
+        res.sendFile(path.join(distPath, "index.html"));
+      });
+      console.log("Production static build routing loaded from " + distPath);
+    } else {
+      app.get("/", (req, res) => {
+        res.json({ message: "Zenti School Portal Backend API is running." });
+      });
+      console.log("Production mode: frontend build directory not found, serving API only");
+    }
   }
 
   if (!process.env.VERCEL) {
