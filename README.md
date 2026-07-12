@@ -1,10 +1,10 @@
-<<<<<<< HEAD
+
 # Zenti Portal — School Management System
 
 A full-stack, multi-role school management platform. It brings academics, finance, and the library under one roof, with a dashboard tailored to each type of user.
-=======
 
->>>>>>> 13639d3ac553372c9f6d5523404c69ffd816f8b3
+
+
 
 ## What it does
 
