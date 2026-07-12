@@ -100,79 +100,25 @@ export default function StudentAdmissionDossierStation({
         </div>
       </div>
 
-      {/* SEARCH AND QUICK SELECT COMPONENT */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
-        <div className="md:col-span-8 relative">
-          <label htmlFor="admission-search-input" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+      {/* SEARCH COMPONENT ONLY */}
+      <div className="grid grid-cols-1 gap-4 items-center">
+        <div className="relative">
+          <label htmlFor="admission-search-input" className="block text-[10px] font-bold text-slate-550 dark:text-slate-400 uppercase tracking-wider mb-1.5">
             Search Admission Number
           </label>
           <div className="relative">
             <input
               id="admission-search-input"
               type="text"
-              placeholder="Enter student admission number (e.g. ED-CS-2026-048)..."
+              placeholder="Enter student admission number (e.g. ED-CS-2026-048) and press Enter..."
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
-                setIsDropdownOpen(true);
               }}
-              onFocus={() => setIsDropdownOpen(true)}
               className="w-full bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-750 rounded-xl py-2.5 pl-10 pr-4 text-xs focus:outline-hidden focus:ring-1 focus:ring-indigo-500 text-slate-850 dark:text-slate-100 font-mono"
             />
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-            
-            {/* Auto-suggest dropdown of existing matching student admission numbers */}
-            {isDropdownOpen && searchQuery && (
-              <div className="absolute left-0 right-0 mt-1 bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-750 rounded-xl shadow-lg z-50 max-h-48 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
-                {matchedStudents.length === 0 ? (
-                  <div className="p-3 text-xs text-slate-500 italic">No students match "{searchQuery}"</div>
-                ) : (
-                  matchedStudents.map(student => (
-                    <button
-                      key={student.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedStudentId(student.id);
-                        setSearchQuery(student.admissionNo);
-                        setIsDropdownOpen(false);
-                      }}
-                      className="w-full text-left px-4 py-2.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-800 flex justify-between items-center transition-colors"
-                    >
-                      <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{student.admissionNo}</span>
-                      <span className="text-slate-500">{student.name}</span>
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
           </div>
-        </div>
-
-        {/* Quick select dropdown */}
-        <div className="md:col-span-4">
-          <label htmlFor="quick-admission-select" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-            Quick Admission Select
-          </label>
-          <select
-            id="quick-admission-select"
-            value={selectedStudentId || ''}
-            onChange={(e) => {
-              const val = e.target.value;
-              setSelectedStudentId(val || null);
-              if (val) {
-                const std = students.find(s => s.id === val);
-                if (std) setSearchQuery(std.admissionNo);
-              } else {
-                setSearchQuery('');
-              }
-            }}
-            className="w-full bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-750 rounded-xl p-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-hidden font-mono"
-          >
-            <option value="">-- Choose Admission No --</option>
-            {students.map(s => (
-              <option key={s.id} value={s.id}>{s.admissionNo} ({s.name})</option>
-            ))}
-          </select>
         </div>
       </div>
 

@@ -86,25 +86,16 @@ export default function LoginModal({
     setErrorText('');
     setPasscode('');
     
-    if (portal === 'student' && students.length > 0) {
-      setSelectedUser(students[0].id);
-    } else if (portal === 'lecturer' && lecturers.length > 0) {
-      // Find a non-accountant/non-librarian lecturer if possible, or just first
-      const standardLec = lecturers.find(l => !l.isAccountant && !l.isLibrarian) || lecturers[0];
-      setSelectedUser(standardLec.id);
-    } else if (portal === 'accountant') {
-      const accountantLec = lecturers.find(l => l.isAccountant) || lecturers[0];
-      setSelectedUser(accountantLec ? accountantLec.id : '');
-      setPasscode('acc123');
-    } else if (portal === 'librarian') {
-      const librarianLec = lecturers.find(l => l.isLibrarian) || lecturers.find(l => l.id === 'l3') || lecturers[0];
-      setSelectedUser(librarianLec ? librarianLec.id : '');
-      setPasscode('lib123');
-    } else if (portal === 'admin') {
+    if (portal === 'admin') {
       setSelectedUser('admin');
       setPasscode('admin123');
     } else {
       setSelectedUser('');
+      if (portal === 'accountant') {
+        setPasscode('acc123');
+      } else if (portal === 'librarian') {
+        setPasscode('lib123');
+      }
     }
   };
 
@@ -222,8 +213,8 @@ export default function LoginModal({
     e.preventDefault();
     setErrorText('');
 
-    if (activePortal !== 'admin' && !selectedUser) {
-      setErrorText(`Please select an active ${activePortal === 'student' ? 'student profile' : 'staff identity'} account.`);
+    if (activePortal !== 'admin' && !selectedUser.trim()) {
+      setErrorText(`Please enter your ${activePortal === 'student' ? 'Admission Number or Email' : 'Staff ID or Email'}.`);
       return;
     }
 
@@ -236,7 +227,7 @@ export default function LoginModal({
       },
       body: JSON.stringify({
         role: activePortal,
-        userId: activePortal === 'admin' ? 'admin' : selectedUser,
+        userId: activePortal === 'admin' ? 'admin' : selectedUser.trim(),
         passcode: passcode,
       }),
     })
@@ -635,39 +626,31 @@ export default function LoginModal({
                       </div>
                     )}
 
-                    {/* Dynamic Account profile dropdown (for Students, Lecturers, Accountant, Librarians) */}
-                  {activePortal !== 'admin' && (
-                    <div className="space-y-1.5">
-                      <label htmlFor="user-identity-selector" className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">
-                        Choose Your {activePortal === 'student' ? 'Student Registration' : 'Staff Identity'} Account:
-                      </label>
-                      {getActiveOptions().length > 0 ? (
-                        <select
-                          id="user-identity-selector"
-                          value={selectedUser}
-                          onChange={(e) => {
-                            setSelectedUser(e.target.value);
-                            setErrorText('');
-                          }}
-                          className="w-full bg-slate-50 dark:bg-slate-850 dark:text-slate-100 border border-slate-200 dark:border-slate-850 rounded-xl p-3 text-xs text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-slate-100 focus:border-slate-400"
-                        >
-                          <option value="">-- Choose Profile --</option>
-                          {getActiveOptions().map((opt) => (
-                            <option key={opt.id} value={opt.id}>
-                              {opt.name} ({opt.extra})
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <div className="bg-amber-50/50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/40 rounded-xl p-3 text-xs text-amber-800 dark:text-amber-300">
-                          <p className="font-semibold mb-1"> No profiles found in registry</p>
-                          <p className="text-[11px] opacity-90 leading-relaxed">
-                            There are currently no registered accounts for this portal. Log in to the <strong>System Administrator Gateway</strong> above (passcode: <code className="font-mono bg-amber-100 dark:bg-amber-900/60 px-1 rounded">admin123</code>) to create registrations and assign roles.
-                          </p>
+                    {/* Manual Blind Input Selection */}
+                    {activePortal !== 'admin' && (
+                      <div className="space-y-1.5">
+                        <label htmlFor="user-identity-input" className="block text-xs font-bold text-slate-550 dark:text-slate-400 uppercase tracking-widest">
+                          {activePortal === 'student' ? 'Admission Number / Email' : 'Staff Code / Email'}:
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500">
+                            <User className="w-4 h-4" />
+                          </span>
+                          <input
+                            id="user-identity-input"
+                            type="text"
+                            required
+                            value={selectedUser}
+                            onChange={(e) => {
+                              setSelectedUser(e.target.value);
+                              setErrorText('');
+                            }}
+                            placeholder={activePortal === 'student' ? 'e.g. CSC6/0639/24 or email' : 'e.g. LEC-402 or email'}
+                            className="w-full bg-slate-50 dark:bg-slate-850 dark:text-slate-100 border border-slate-200 dark:border-slate-850 rounded-xl pl-10 pr-3 py-3 text-xs text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-slate-100 focus:border-slate-400"
+                          />
                         </div>
-                      )}
-                    </div>
-                  )}
+                      </div>
+                    )}
 
                   {/* Dynamic Passcode fields for All Portals */}
                   <div className="space-y-1.5">
@@ -678,59 +661,22 @@ export default function LoginModal({
                           : activePortal === 'accountant' 
                             ? 'Financial Security passkey' 
                             : activePortal === 'librarian' 
-                              ? 'Archivist Clearance code' 
-                              : activePortal === 'student'
-                                ? 'Student Passcode'
-                                : 'Instructor Passcode'}
+                              ? 'Librarian Security passcode' 
+                              : 'Account passcode'}
                       </label>
-                      <span className="text-[10px] font-mono text-slate-450 uppercase">Security key required</span>
                     </div>
                     <div className="relative">
                       <input
                         id="portal-passcode-field"
                         type="password"
                         value={passcode}
-                        onChange={(e) => { setPasscode(e.target.value); setErrorText(''); }}
-                        placeholder={
-                          activePortal === 'admin' 
-                            ? 'admin123' 
-                            : activePortal === 'accountant' 
-                              ? 'acc123' 
-                              : activePortal === 'librarian' 
-                                ? 'lib123' 
-                                : activePortal === 'student'
-                                  ? 'student123'
-                                  : 'staff123'
-                        }
+                        onChange={(e) => setPasscode(e.target.value)}
+                        placeholder="••••••••"
                         className="w-full bg-slate-50 dark:bg-slate-850 dark:text-slate-100 border border-slate-200 dark:border-slate-850 rounded-xl p-3 text-xs text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-slate-100 focus:border-slate-500 font-mono"
                         required
                       />
                       <KeyRound className="w-4 h-4 text-slate-400 absolute right-3.5 top-3.5" />
                     </div>
-                  </div>
-
-                  {/* Explanatory demo info card tailored to each specific Role */}
-                  <div className={`p-4 rounded-xl border ${currentConfig.accentBg} text-[11px] leading-relaxed space-y-2`}>
-                    <div className="flex items-center gap-1.5 font-bold">
-                      <Sparkles className="w-3.5 h-3.5 animate-pulse" />
-                      <span>Interactive Sandbox Simulation Instructions:</span>
-                    </div>
-                    
-                    {activePortal === 'student' && (
-                      <p>Select any student profile. Enter the default passcode <code className="bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 rounded text-slate-800 dark:text-slate-200 font-mono font-bold">student123</code> (or your custom password if you have changed it) to authenticate securely.</p>
-                    )}
-                    {activePortal === 'lecturer' && (
-                      <p>Select any lecturer profile. Enter the default passcode <code className="bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 rounded text-slate-800 dark:text-slate-200 font-mono font-bold">staff123</code> (or your custom password if you have changed it) to authenticate securely.</p>
-                    )}
-                    {activePortal === 'accountant' && (
-                      <p>Accountant role is tied to our authorized staff directory. Use passcode <code className="bg-emerald-100 dark:bg-emerald-900/60 px-1.5 py-0.5 rounded text-emerald-950 dark:text-emerald-300 font-mono font-bold">acc123</code> to enter. Confirms financial ledger restrictions.</p>
-                    )}
-                    {activePortal === 'librarian' && (
-                      <p>Librarian role is tied to our archive directory. Use passcode <code className="bg-amber-100 dark:bg-amber-900/60 px-1.5 py-0.5 rounded text-amber-950 dark:text-amber-300 font-mono font-bold">lib123</code> to enter. Confirms catalog checkouts control.</p>
-                    )}
-                    {activePortal === 'admin' && (
-                      <p>Global Admin privileges enable all dashboards. Enter administrative passcode <code className="bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 rounded text-slate-800 dark:text-slate-200 font-mono font-bold">admin123</code> to enter the unrestricted operational panel.</p>
-                    )}
                   </div>
 
                   {/* Submit trigger button */}

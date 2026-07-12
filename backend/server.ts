@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from "express";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import { db } from "./src/db/index.ts";
 import {
   systemState,
@@ -10,6 +11,7 @@ import {
   payments,
   invoices,
   studentAttendance,
+  grades,
   examPapers,
   lecturers,
   courses,
@@ -17,8 +19,24 @@ import {
   lecturerPublications,
   lecturerResearchInterests,
   officeHourSlots,
+  courseReviews,
+  expenses,
+  stockItems,
+  requisitions,
+  testimonies,
+  books,
+  loans,
+  reservations,
+  readingLists,
+  readingListBooks,
+  bookReviews,
+  bookRequests,
+  teacherResources,
+  libraryGateLogs,
+  notifications,
+  passwordResetRequests,
 } from "./src/db/schema.ts";
-import { eq } from "drizzle-orm";
+import { eq, notInArray, and } from "drizzle-orm";
 import { supabase } from "./src/db/supabaseClient.ts";
 
 // Import initial mock databases from src/data.ts to bootstrap our persistent store
@@ -53,6 +71,1051 @@ const DB_FILE = path.join(process.cwd(), "db_store.json");
 // Local cache for Postgres DB state to support synchronous access inside existing API controllers
 let cachedDb: any = null;
 
+// Load full state from individual database tables
+export async function loadFullDatabaseState(): Promise<any> {
+  const existing = await db.select().from(systemState).where(eq(systemState.id, 1));
+  let dbState: any = {};
+  if (existing.length > 0) {
+    dbState = { ...(existing[0].data as any) };
+  } else {
+    dbState = {
+      news: initialNews,
+      attendanceSessions: [],
+    };
+  }
+
+  // 1. Courses
+  const courseRows = await db.select().from(courses);
+  dbState.courses = courseRows.map(c => ({
+    id: c.id,
+    code: c.code,
+    title: c.title,
+    description: c.description ?? "",
+    duration: c.duration,
+    fees: Number(c.fees),
+    thumbnail: c.thumbnail ?? "",
+    faculty: c.faculty,
+    active: c.active
+  }));
+
+  // 2. Reviews (Course reviews)
+  const courseReviewRows = await db.select().from(courseReviews);
+  dbState.reviews = courseReviewRows.map(r => ({
+    id: r.id,
+    courseId: r.courseId ?? "",
+    studentId: r.studentId,
+    studentName: r.studentName,
+    rating: r.rating,
+    comment: r.comment ?? "",
+    date: r.date
+  }));
+
+  // 3. Lecturers
+  const lecturerRows = await db.select().from(lecturers);
+  const lecturerSubjRows = await db.select().from(lecturerSubjects);
+  const lecturerPubRows = await db.select().from(lecturerPublications);
+  const lecturerResRows = await db.select().from(lecturerResearchInterests);
+  const officeSlotRows = await db.select().from(officeHourSlots);
+
+  dbState.lecturers = lecturerRows.map(l => ({
+    id: l.id,
+    name: l.name,
+    email: l.email,
+    phone: l.phone,
+    hourlyRate: Number(l.hourlyRate),
+    loggedHours: Number(l.loggedHours),
+    bankDetails: l.bankDetails ?? "",
+    contractLength: l.contractLength,
+    designatorCode: l.designatorCode,
+    bio: l.bio ?? "",
+    avatar: l.avatar ?? "",
+    isActive: l.isActive,
+    isAccountant: l.isAccountant,
+    isLibrarian: l.isLibrarian,
+    passcode: l.passcode ?? "",
+    subjects: lecturerSubjRows.filter(s => s.lecturerId === l.id).map(s => s.subjectCode),
+    publications: lecturerPubRows.filter(p => p.lecturerId === l.id).map(p => p.publicationText),
+    researchInterests: lecturerResRows.filter(r => r.lecturerId === l.id).map(r => r.interestText),
+    officeHours: officeSlotRows.filter(o => o.lecturerId === l.id).map(o => ({
+      id: o.id,
+      day: o.day,
+      time: o.timeSlot,
+      status: o.status as 'available' | 'booked',
+      studentId: o.studentId ?? undefined,
+      studentName: o.studentName ?? undefined,
+      studentEmail: o.studentEmail ?? undefined,
+      studentNotes: o.studentNotes ?? undefined
+    }))
+  }));
+
+  // 4. Students
+  const studentRows = await db.select().from(students);
+  const enrollmentRows = await db.select().from(studentEnrollments);
+  const gradeRows = await db.select().from(grades);
+  const invoiceRows = await db.select().from(invoices);
+  const paymentRows = await db.select().from(payments);
+  const attendanceRows = await db.select().from(studentAttendance);
+
+  dbState.students = studentRows.map(s => {
+    const enrolledUnits = enrollmentRows.filter(e => e.studentId === s.id).map(e => e.courseCode);
+    
+    const studentGrades: Record<string, { cat: number; exam: number }> = {};
+    gradeRows.filter(g => g.studentId === s.id).forEach(g => {
+      studentGrades[g.subjectCode] = {
+        cat: g.catScore ? Number(g.catScore) : 0,
+        exam: g.examScore ? Number(g.examScore) : 0
+      };
+    });
+
+    const ledger = invoiceRows.filter(i => i.studentId === s.id).map(i => ({
+      id: i.id,
+      invoiceNo: i.invoiceNo,
+      description: i.description,
+      amount: Number(i.amount),
+      date: i.date,
+      status: i.status as 'unpaid' | 'paid'
+    }));
+
+    const paymentsList = paymentRows.filter(p => p.studentId === s.id).map(p => ({
+      id: p.id,
+      amount: Number(p.amount),
+      invoiceId: p.invoiceId ?? "",
+      studentId: p.studentId,
+      paymentMethod: p.paymentMethod as 'M-Pesa' | 'Bank Transfer' | 'Card',
+      transactionId: p.transactionId,
+      date: p.date,
+      status: p.status as 'unreconciled' | 'reconciled'
+    }));
+
+    const attendanceMap: Record<string, number> = {};
+    attendanceRows.filter(a => a.studentId === s.id).forEach(a => {
+      attendanceMap[a.subjectCode] = a.attendanceRate;
+    });
+
+    return {
+      id: s.id,
+      name: s.name,
+      email: s.email,
+      phone: s.phone,
+      admissionNo: s.admissionNo,
+      cohort: s.cohort,
+      avatar: s.avatar ?? undefined,
+      passcode: s.passcode ?? undefined,
+      createdAt: s.createdAt ?? undefined,
+      enrolledUnits,
+      grades: studentGrades,
+      ledger,
+      payments: paymentsList,
+      attendance: attendanceMap
+    };
+  });
+
+  // 5. Expenses
+  const expenseRows = await db.select().from(expenses);
+  dbState.expenses = expenseRows.map(e => ({
+    id: e.id,
+    description: e.description,
+    category: e.category,
+    amount: Number(e.amount),
+    date: e.date
+  }));
+
+  // 6. Inventory (Stock Items)
+  const stockRows = await db.select().from(stockItems);
+  dbState.inventory = stockRows.map(s => ({
+    id: s.id,
+    name: s.name,
+    quantity: s.quantity,
+    category: s.category,
+    location: s.location,
+    lowestThreshold: s.lowestThreshold
+  }));
+
+  // 7. Requisitions
+  const reqRows = await db.select().from(requisitions);
+  dbState.requisitions = reqRows.map(r => ({
+    id: r.id,
+    itemName: r.itemName,
+    quantity: r.quantity,
+    staffName: r.staffName,
+    date: r.date,
+    status: r.status as 'pending' | 'approved' | 'rejected'
+  }));
+
+  // 8. Testimonies
+  const testimonyRows = await db.select().from(testimonies);
+  dbState.testimonies = testimonyRows.map(t => ({
+    id: t.id,
+    name: t.name,
+    role: t.role,
+    content: t.content,
+    avatar: t.avatar ?? ""
+  }));
+
+  // 9. Books
+  const bookRows = await db.select().from(books);
+  dbState.books = bookRows.map(b => ({
+    id: b.id,
+    title: b.title,
+    author: b.author,
+    isbn: b.isbn,
+    publisher: b.publisher ?? "",
+    edition: b.edition ?? "",
+    purchasePrice: Number(b.purchasePrice),
+    rackNumber: b.rackNumber,
+    shelfRow: b.shelfRow,
+    libraryCode: b.libraryCode,
+    type: b.type as 'Physical Book' | 'E-Book',
+    eUrl_aid: b.eUrl ?? undefined,
+    copiesTotal: b.copiesTotal,
+    copiesAvailable: b.copiesAvailable,
+    category: b.category
+  }));
+
+  // 10. Loans
+  const loanRows = await db.select().from(loans);
+  dbState.loans = loanRows.map(l => ({
+    id: l.id,
+    bookId: l.bookId,
+    bookTitle: l.bookTitle,
+    patronId: l.patronId,
+    patronName: l.patronName,
+    patronRole: l.patronRole as 'student' | 'lecturer',
+    checkoutDate: l.checkoutDate,
+    dueDate: l.dueDate,
+    returnDate: l.returnDate ?? undefined,
+    status: l.status as 'borrowed' | 'returned' | 'overdue' | 'lost' | 'damaged',
+    lateFeeAssessed: l.lateFeeAssessed ? Number(l.lateFeeAssessed) : 0
+  }));
+
+  // 11. Reservations
+  const reservationRows = await db.select().from(reservations);
+  dbState.reservations = reservationRows.map(r => ({
+    id: r.id,
+    bookId: r.bookId,
+    bookTitle: r.bookTitle,
+    patronId: r.patronId,
+    patronName: r.patronName,
+    reservationDate: r.reservationDate,
+    status: r.status as 'pending' | 'fulfilled' | 'cancelled'
+  }));
+
+  // 12. Reading Lists
+  const readingListRows = await db.select().from(readingLists);
+  const readingListBookRows = await db.select().from(readingListBooks);
+  dbState.readingLists = readingListRows.map(rl => ({
+    id: rl.id,
+    subjectCode: rl.subjectCode,
+    lecturerId: rl.lecturerId,
+    notes: rl.notes ?? "",
+    bookIds: readingListBookRows.filter(b => b.readingListId === rl.id).map(b => b.bookId)
+  }));
+
+  // 13. Book Reviews
+  const bookReviewRows = await db.select().from(bookReviews);
+  dbState.bookReviews = bookReviewRows.map(br => ({
+    id: br.id,
+    bookId: br.bookId,
+    studentId: br.studentId,
+    studentName: br.studentName,
+    rating: br.rating,
+    comment: br.comment ?? "",
+    date: br.date
+  }));
+
+  // 14. Book Requests
+  const bookRequestRows = await db.select().from(bookRequests);
+  dbState.bookRequests = bookRequestRows.map(br => ({
+    id: br.id,
+    title: br.title,
+    author: br.author,
+    isbn: br.isbn ?? undefined,
+    suggestedBy: br.suggestedBy,
+    suggestorRole: br.suggestorRole as 'student' | 'lecturer',
+    date: br.date,
+    reason: br.reason ?? undefined,
+    status: br.status as 'pending' | 'approved' | 'rejected',
+    adminFeedback: br.adminFeedback ?? undefined
+  }));
+
+  // 15. Exam Papers
+  const examPaperRows = await db.select().from(examPapers);
+  dbState.examPapers = examPaperRows.map(ep => ({
+    id: ep.id,
+    title: ep.title,
+    subjectCode: ep.subjectCode,
+    year: ep.year,
+    semester: ep.semester,
+    examType: ep.examType as 'Midterm' | 'Final' | 'National Exam (KCSE/IGCSE)',
+    downloadUrl_aid: ep.downloadUrl,
+    downloadsCount: ep.downloadsCount
+  }));
+
+  // 16. Teacher Resources
+  const resourceRows = await db.select().from(teacherResources);
+  dbState.teacherResources = resourceRows.map(tr => ({
+    id: tr.id,
+    name: tr.name,
+    category: tr.category as 'Instructional Guide' | 'Lab Manual' | 'Hardware/Projector' | 'Scientific Kit',
+    serialNo: tr.serialNo,
+    status: tr.status as 'available' | 'reserved',
+    reservedByLecturerId: tr.reservedByLecturerId ?? undefined,
+    reservedByLecturerName: tr.reservedByLecturerName ?? undefined,
+    reservationDate: tr.reservationDate ?? undefined
+  }));
+
+  // 17. Library Gate Logs
+  const gateLogRows = await db.select().from(libraryGateLogs);
+  dbState.libraryGateLogs = gateLogRows.map(gl => ({
+    id: gl.id,
+    timestamp: gl.timestamp,
+    patronName: gl.patronName,
+    patronId: gl.patronId,
+    role: gl.role as 'student' | 'lecturer',
+    authMethod: gl.authMethod as 'biometric_fingerprint' | 'biometric_facial' | 'rfid_tap',
+    gateAction: gl.gateAction as 'Entry' | 'Exit',
+    status: 'success'
+  }));
+
+  // 18. Notifications
+  const notificationRows = await db.select().from(notifications);
+  dbState.notifications = notificationRows.map(n => ({
+    id: n.id,
+    targetUserId: n.targetUserId ?? undefined,
+    targetUserRole: n.targetUserRole as 'student' | 'lecturer' | 'accountant' | 'librarian' | 'admin' | 'all',
+    type: n.type as 'library' | 'payment' | 'announcement',
+    title: n.title,
+    message: n.message,
+    status: n.status as 'unread' | 'read',
+    dateTime: n.dateTime
+  }));
+
+  // 19. Password Reset Requests
+  const pwdReqRows = await db.select().from(passwordResetRequests);
+  dbState.passwordResetRequests = pwdReqRows.map(pr => ({
+    id: pr.id,
+    userId: pr.userId,
+    name: pr.name,
+    email: pr.email,
+    role: pr.role as 'student' | 'lecturer' | 'accountant' | 'librarian' | 'admin',
+    date: pr.date,
+    reason: pr.reason,
+    status: pr.status as 'pending' | 'resolved' | 'rejected',
+    adminFeedback: pr.adminFeedback ?? undefined,
+    temporaryPasscode: pr.temporaryPasscode ?? undefined
+  }));
+
+  return dbState;
+}
+
+function toUuid(str: any): any {
+  if (typeof str !== 'string') return str;
+  // If it's already a valid UUID, return it
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (uuidRegex.test(str)) {
+    return str.toLowerCase();
+  }
+  // Deterministic MD5 hash to produce a 32-character hex string
+  const hash = crypto.createHash('md5').update(str).digest('hex');
+  // Format as 8-4-4-4-12
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-${hash.slice(12, 16)}-${hash.slice(16, 20)}-${hash.slice(20, 32)}`;
+}
+
+// Recursively traverse and convert all ID fields to valid UUIDs
+export function sanitizeStateIds(obj: any): any {
+  if (obj === null || obj === undefined) return obj;
+  if (Array.isArray(obj)) {
+    return obj.map(sanitizeStateIds);
+  }
+  if (typeof obj === 'object') {
+    const res: any = {};
+    const idKeys = new Set([
+      'id', 'courseId', 'studentId', 'lecturerId', 'patronId', 
+      'bookId', 'readingListId', 'invoiceId', 'targetUserId', 
+      'userId', 'reservedByLecturerId'
+    ]);
+    for (const [key, val] of Object.entries(obj)) {
+      if (idKeys.has(key) && typeof val === 'string' && val.trim() !== '') {
+        res[key] = toUuid(val);
+      } else {
+        res[key] = sanitizeStateIds(val);
+      }
+    }
+    return res;
+  }
+  return obj;
+}
+
+let isSavingFullState = false;
+let pendingSaveState: any = null;
+
+// Synchronize application state to relational database tables
+export async function saveFullDatabaseState(dbState: any): Promise<void> {
+  dbState = sanitizeStateIds(dbState);
+  if (isSavingFullState) {
+    pendingSaveState = dbState;
+    return;
+  }
+  isSavingFullState = true;
+
+  try {
+    await db.transaction(async (tx) => {
+    // 1. Courses
+    if (dbState.courses) {
+      const ids = dbState.courses.map((c: any) => c.id).filter(Boolean);
+      if (ids.length > 0) {
+        await tx.delete(courses).where(notInArray(courses.id, ids));
+      } else {
+        await tx.delete(courses);
+      }
+      for (const c of dbState.courses) {
+        const val = {
+          id: c.id,
+          code: c.code,
+          title: c.title,
+          description: c.description || null,
+          duration: c.duration,
+          fees: String(c.fees || 0),
+          thumbnail: c.thumbnail || null,
+          active: c.active !== false,
+          faculty: c.faculty || "School of Computing"
+        };
+        await tx.insert(courses).values(val).onConflictDoUpdate({
+          target: courses.id,
+          set: val
+        });
+      }
+    }
+
+    // 2. Course Reviews (dbState.reviews)
+    if (dbState.reviews) {
+      const ids = dbState.reviews.map((r: any) => r.id).filter(Boolean);
+      if (ids.length > 0) {
+        await tx.delete(courseReviews).where(notInArray(courseReviews.id, ids));
+      } else {
+        await tx.delete(courseReviews);
+      }
+      for (const r of dbState.reviews) {
+        const val = {
+          id: r.id,
+          courseId: r.courseId || null,
+          studentId: r.studentId,
+          studentName: r.studentName,
+          rating: Number(r.rating) || 5,
+          comment: r.comment || null,
+          date: r.date || new Date().toISOString().split('T')[0]
+        };
+        await tx.insert(courseReviews).values(val).onConflictDoUpdate({
+          target: courseReviews.id,
+          set: val
+        });
+      }
+    }
+
+    // 3. Lecturers
+    if (dbState.lecturers) {
+      const ids = dbState.lecturers.map((l: any) => l.id).filter(Boolean);
+      if (ids.length > 0) {
+        await tx.delete(lecturers).where(notInArray(lecturers.id, ids));
+      } else {
+        await tx.delete(lecturers);
+      }
+
+      for (const l of dbState.lecturers) {
+        const lecturerVal = {
+          id: l.id,
+          name: l.name,
+          email: l.email,
+          phone: l.phone,
+          hourlyRate: String(l.hourlyRate || 0),
+          loggedHours: String(l.loggedHours || 0),
+          bankDetails: l.bankDetails || null,
+          contractLength: l.contractLength || "Permanent",
+          designatorCode: l.designatorCode || `LEC-${Date.now()}`,
+          bio: l.bio || null,
+          avatar: l.avatar || null,
+          isActive: l.isActive !== false,
+          isAccountant: l.isAccountant === true,
+          isLibrarian: l.isLibrarian === true,
+          passcode: l.passcode || "lecturer123"
+        };
+        await tx.insert(lecturers).values(lecturerVal).onConflictDoUpdate({
+          target: lecturers.id,
+          set: lecturerVal
+        });
+
+        await tx.delete(lecturerPublications).where(eq(lecturerPublications.lecturerId, l.id));
+        if (l.publications) {
+          for (const pub of l.publications) {
+            await tx.insert(lecturerPublications).values({
+              lecturerId: l.id,
+              publicationText: pub
+            });
+          }
+        }
+
+        await tx.delete(lecturerResearchInterests).where(eq(lecturerResearchInterests.lecturerId, l.id));
+        if (l.researchInterests) {
+          for (const res of l.researchInterests) {
+            await tx.insert(lecturerResearchInterests).values({
+              lecturerId: l.id,
+              interestText: res
+            });
+          }
+        }
+
+        await tx.delete(lecturerSubjects).where(eq(lecturerSubjects.lecturerId, l.id));
+        if (l.subjects) {
+          for (const sub of l.subjects) {
+            await tx.insert(lecturerSubjects).values({
+              lecturerId: l.id,
+              subjectCode: sub
+            });
+          }
+        }
+
+        const slotIds = (l.officeHours || []).map((s: any) => s.id).filter(Boolean);
+        if (slotIds.length > 0) {
+          await tx.delete(officeHourSlots).where(and(eq(officeHourSlots.lecturerId, l.id), notInArray(officeHourSlots.id, slotIds)));
+        } else {
+          await tx.delete(officeHourSlots).where(eq(officeHourSlots.lecturerId, l.id));
+        }
+        for (const s of (l.officeHours || [])) {
+          const slotVal = {
+            id: s.id,
+            lecturerId: l.id,
+            day: s.day,
+            timeSlot: s.time,
+            status: s.status || 'available',
+            studentId: s.studentId || null,
+            studentName: s.studentName || null,
+            studentEmail: s.studentEmail || null,
+            studentNotes: s.studentNotes || null
+          };
+          await tx.insert(officeHourSlots).values(slotVal).onConflictDoUpdate({
+            target: officeHourSlots.id,
+            set: slotVal
+          });
+        }
+      }
+    }
+
+    // 4. Students
+    if (dbState.students) {
+      const ids = dbState.students.map((s: any) => s.id).filter(Boolean);
+      if (ids.length > 0) {
+        await tx.delete(students).where(notInArray(students.id, ids));
+      } else {
+        await tx.delete(students);
+      }
+
+      for (const s of dbState.students) {
+        const studentVal = {
+          id: s.id,
+          name: s.name,
+          email: s.email,
+          phone: s.phone,
+          admissionNo: s.admissionNo,
+          cohort: s.cohort,
+          avatar: s.avatar || null,
+          passcode: s.passcode || "student123"
+        };
+        await tx.insert(students).values(studentVal).onConflictDoUpdate({
+          target: students.id,
+          set: studentVal
+        });
+
+        await tx.delete(studentEnrollments).where(eq(studentEnrollments.studentId, s.id));
+        if (s.enrolledUnits) {
+          for (const code of s.enrolledUnits) {
+            await tx.insert(studentEnrollments).values({
+              studentId: s.id,
+              courseCode: code
+            });
+          }
+        }
+
+        await tx.delete(grades).where(eq(grades.studentId, s.id));
+        if (s.grades) {
+          for (const [subjCode, gr] of Object.entries(s.grades)) {
+            const g = gr as { cat: number; exam: number };
+            await tx.insert(grades).values({
+              studentId: s.id,
+              subjectCode: subjCode,
+              catScore: String(g.cat || 0),
+              examScore: String(g.exam || 0)
+            });
+          }
+        }
+
+        const invoiceIds = (s.ledger || []).map((i: any) => i.id).filter(Boolean);
+        if (invoiceIds.length > 0) {
+          await tx.delete(invoices).where(and(eq(invoices.studentId, s.id), notInArray(invoices.id, invoiceIds)));
+        } else {
+          await tx.delete(invoices).where(eq(invoices.studentId, s.id));
+        }
+        for (const inv of (s.ledger || [])) {
+          const invVal = {
+            id: inv.id,
+            studentId: s.id,
+            invoiceNo: inv.invoiceNo,
+            description: inv.description,
+            amount: String(inv.amount || 0),
+            date: inv.date || new Date().toISOString().split('T')[0],
+            status: inv.status || 'unpaid'
+          };
+          await tx.insert(invoices).values(invVal).onConflictDoUpdate({
+            target: invoices.id,
+            set: invVal
+          });
+        }
+
+        const paymentIds = (s.payments || []).map((p: any) => p.id).filter(Boolean);
+        if (paymentIds.length > 0) {
+          await tx.delete(payments).where(and(eq(payments.studentId, s.id), notInArray(payments.id, paymentIds)));
+        } else {
+          await tx.delete(payments).where(eq(payments.studentId, s.id));
+        }
+        for (const p of (s.payments || [])) {
+          const payVal = {
+            id: p.id,
+            studentId: s.id,
+            invoiceId: p.invoiceId || null,
+            amount: String(p.amount || 0),
+            paymentMethod: p.paymentMethod,
+            transactionId: p.transactionId,
+            date: p.date || new Date().toISOString().split('T')[0],
+            status: p.status || 'unreconciled'
+          };
+          await tx.insert(payments).values(payVal).onConflictDoUpdate({
+            target: payments.id,
+            set: payVal
+          });
+        }
+
+        await tx.delete(studentAttendance).where(eq(studentAttendance.studentId, s.id));
+        if (s.attendance) {
+          for (const [subjCode, rate] of Object.entries(s.attendance)) {
+            await tx.insert(studentAttendance).values({
+              studentId: s.id,
+              subjectCode: subjCode,
+              attendanceRate: Number(rate) || 100
+            });
+          }
+        }
+      }
+    }
+
+    // 5. Expenses
+    if (dbState.expenses) {
+      const ids = dbState.expenses.map((e: any) => e.id).filter(Boolean);
+      if (ids.length > 0) {
+        await tx.delete(expenses).where(notInArray(expenses.id, ids));
+      } else {
+        await tx.delete(expenses);
+      }
+      for (const e of dbState.expenses) {
+        const val = {
+          id: e.id,
+          description: e.description,
+          category: e.category,
+          amount: String(e.amount || 0),
+          date: e.date || new Date().toISOString().split('T')[0]
+        };
+        await tx.insert(expenses).values(val).onConflictDoUpdate({
+          target: expenses.id,
+          set: val
+        });
+      }
+    }
+
+    // 6. Inventory (Stock Items)
+    if (dbState.inventory) {
+      const ids = dbState.inventory.map((i: any) => i.id).filter(Boolean);
+      if (ids.length > 0) {
+        await tx.delete(stockItems).where(notInArray(stockItems.id, ids));
+      } else {
+        await tx.delete(stockItems);
+      }
+      for (const i of dbState.inventory) {
+        const val = {
+          id: i.id,
+          name: i.name,
+          quantity: Number(i.quantity) || 0,
+          category: i.category,
+          location: i.location,
+          lowestThreshold: Number(i.lowestThreshold) || 5
+        };
+        await tx.insert(stockItems).values(val).onConflictDoUpdate({
+          target: stockItems.id,
+          set: val
+        });
+      }
+    }
+
+    // 7. Requisitions
+    if (dbState.requisitions) {
+      const ids = dbState.requisitions.map((r: any) => r.id).filter(Boolean);
+      if (ids.length > 0) {
+        await tx.delete(requisitions).where(notInArray(requisitions.id, ids));
+      } else {
+        await tx.delete(requisitions);
+      }
+      for (const r of dbState.requisitions) {
+        const val = {
+          id: r.id,
+          itemName: r.itemName,
+          quantity: Number(r.quantity) || 1,
+          staffName: r.staffName,
+          date: r.date || new Date().toISOString().split('T')[0],
+          status: r.status || 'pending'
+        };
+        await tx.insert(requisitions).values(val).onConflictDoUpdate({
+          target: requisitions.id,
+          set: val
+        });
+      }
+    }
+
+    // 8. Testimonies
+    if (dbState.testimonies) {
+      const ids = dbState.testimonies.map((t: any) => t.id).filter(Boolean);
+      if (ids.length > 0) {
+        await tx.delete(testimonies).where(notInArray(testimonies.id, ids));
+      } else {
+        await tx.delete(testimonies);
+      }
+      for (const t of dbState.testimonies) {
+        const val = {
+          id: t.id,
+          name: t.name,
+          role: t.role,
+          content: t.content,
+          avatar: t.avatar || null
+        };
+        await tx.insert(testimonies).values(val).onConflictDoUpdate({
+          target: testimonies.id,
+          set: val
+        });
+      }
+    }
+
+    // 9. Books
+    if (dbState.books) {
+      const ids = dbState.books.map((b: any) => b.id).filter(Boolean);
+      if (ids.length > 0) {
+        await tx.delete(books).where(notInArray(books.id, ids));
+      } else {
+        await tx.delete(books);
+      }
+      for (const b of dbState.books) {
+        const val = {
+          id: b.id,
+          title: b.title,
+          author: b.author,
+          isbn: b.isbn || `ISBN-${Date.now()}`,
+          publisher: b.publisher || null,
+          edition: b.edition || null,
+          purchasePrice: String(b.purchasePrice || 0),
+          rackNumber: b.rackNumber || 'N/A',
+          shelfRow: b.shelfRow || 'N/A',
+          libraryCode: b.libraryCode || `LIB-${Date.now()}`,
+          type: b.type || 'Physical Book',
+          eUrl: b.eUrl_aid || null,
+          copiesTotal: Number(b.copiesTotal) || 1,
+          copiesAvailable: Number(b.copiesAvailable) || 1,
+          category: b.category
+        };
+        await tx.insert(books).values(val).onConflictDoUpdate({
+          target: books.id,
+          set: val
+        });
+      }
+    }
+
+    // 10. Loans
+    if (dbState.loans) {
+      const ids = dbState.loans.map((l: any) => l.id).filter(Boolean);
+      if (ids.length > 0) {
+        await tx.delete(loans).where(notInArray(loans.id, ids));
+      } else {
+        await tx.delete(loans);
+      }
+      for (const l of dbState.loans) {
+        const val = {
+          id: l.id,
+          bookId: l.bookId,
+          bookTitle: l.bookTitle || 'N/A',
+          patronId: l.patronId,
+          patronName: l.patronName || 'N/A',
+          patronRole: l.patronRole || 'student',
+          checkoutDate: l.checkoutDate || new Date().toISOString().split('T')[0],
+          dueDate: l.dueDate || new Date().toISOString().split('T')[0],
+          returnDate: l.returnDate || null,
+          status: l.status || 'borrowed',
+          lateFeeAssessed: String(l.lateFeeAssessed || 0)
+        };
+        await tx.insert(loans).values(val).onConflictDoUpdate({
+          target: loans.id,
+          set: val
+        });
+      }
+    }
+
+    // 11. Reservations
+    if (dbState.reservations) {
+      const ids = dbState.reservations.map((r: any) => r.id).filter(Boolean);
+      if (ids.length > 0) {
+        await tx.delete(reservations).where(notInArray(reservations.id, ids));
+      } else {
+        await tx.delete(reservations);
+      }
+      for (const r of dbState.reservations) {
+        const val = {
+          id: r.id,
+          bookId: r.bookId,
+          bookTitle: r.bookTitle || 'N/A',
+          patronId: r.patronId,
+          patronName: r.patronName || 'N/A',
+          reservationDate: r.reservationDate || new Date().toISOString().split('T')[0],
+          status: r.status || 'pending'
+        };
+        await tx.insert(reservations).values(val).onConflictDoUpdate({
+          target: reservations.id,
+          set: val
+        });
+      }
+    }
+
+    // 12. Reading Lists
+    if (dbState.readingLists) {
+      const ids = dbState.readingLists.map((rl: any) => rl.id).filter(Boolean);
+      if (ids.length > 0) {
+        await tx.delete(readingLists).where(notInArray(readingLists.id, ids));
+      } else {
+        await tx.delete(readingLists);
+      }
+      for (const rl of dbState.readingLists) {
+        const val = {
+          id: rl.id,
+          subjectCode: rl.subjectCode,
+          lecturerId: rl.lecturerId,
+          notes: rl.notes || null
+        };
+        await tx.insert(readingLists).values(val).onConflictDoUpdate({
+          target: readingLists.id,
+          set: val
+        });
+
+        await tx.delete(readingListBooks).where(eq(readingListBooks.readingListId, rl.id));
+        if (rl.bookIds) {
+          for (const bId of rl.bookIds) {
+            await tx.insert(readingListBooks).values({
+              readingListId: rl.id,
+              bookId: bId
+            });
+          }
+        }
+      }
+    }
+
+    // 13. Book Reviews
+    if (dbState.bookReviews) {
+      const ids = dbState.bookReviews.map((br: any) => br.id).filter(Boolean);
+      if (ids.length > 0) {
+        await tx.delete(bookReviews).where(notInArray(bookReviews.id, ids));
+      } else {
+        await tx.delete(bookReviews);
+      }
+      for (const br of dbState.bookReviews) {
+        const val = {
+          id: br.id,
+          bookId: br.bookId,
+          studentId: br.studentId,
+          studentName: br.studentName,
+          rating: Number(br.rating) || 5,
+          comment: br.comment || null,
+          date: br.date || new Date().toISOString().split('T')[0]
+        };
+        await tx.insert(bookReviews).values(val).onConflictDoUpdate({
+          target: bookReviews.id,
+          set: val
+        });
+      }
+    }
+
+    // 14. Book Requests
+    if (dbState.bookRequests) {
+      const ids = dbState.bookRequests.map((br: any) => br.id).filter(Boolean);
+      if (ids.length > 0) {
+        await tx.delete(bookRequests).where(notInArray(bookRequests.id, ids));
+      } else {
+        await tx.delete(bookRequests);
+      }
+      for (const br of dbState.bookRequests) {
+        const val = {
+          id: br.id,
+          title: br.title,
+          author: br.author,
+          isbn: br.isbn || null,
+          suggestedBy: br.suggestedBy,
+          suggestorRole: br.suggestorRole,
+          date: br.date || new Date().toISOString().split('T')[0],
+          reason: br.reason || null,
+          status: br.status || 'pending',
+          adminFeedback: br.adminFeedback || null
+        };
+        await tx.insert(bookRequests).values(val).onConflictDoUpdate({
+          target: bookRequests.id,
+          set: val
+        });
+      }
+    }
+
+    // 15. Exam Papers
+    if (dbState.examPapers) {
+      const ids = dbState.examPapers.map((ep: any) => ep.id).filter(Boolean);
+      if (ids.length > 0) {
+        await tx.delete(examPapers).where(notInArray(examPapers.id, ids));
+      } else {
+        await tx.delete(examPapers);
+      }
+      for (const ep of dbState.examPapers) {
+        const val = {
+          id: ep.id,
+          title: ep.title,
+          subjectCode: ep.subjectCode,
+          year: Number(ep.year) || 2026,
+          semester: ep.semester,
+          examType: ep.examType,
+          downloadUrl: ep.downloadUrl_aid,
+          downloadsCount: Number(ep.downloadsCount) || 0
+        };
+        await tx.insert(examPapers).values(val).onConflictDoUpdate({
+          target: examPapers.id,
+          set: val
+        });
+      }
+    }
+
+    // 16. Teacher Resources
+    if (dbState.teacherResources) {
+      const ids = dbState.teacherResources.map((tr: any) => tr.id).filter(Boolean);
+      if (ids.length > 0) {
+        await tx.delete(teacherResources).where(notInArray(teacherResources.id, ids));
+      } else {
+        await tx.delete(teacherResources);
+      }
+      for (const tr of dbState.teacherResources) {
+        const val = {
+          id: tr.id,
+          name: tr.name,
+          category: tr.category,
+          serialNo: tr.serialNo,
+          status: tr.status || 'available',
+          reservedByLecturerId: tr.reservedByLecturerId || null,
+          reservedByLecturerName: tr.reservedByLecturerName || null,
+          reservationDate: tr.reservationDate || null
+        };
+        await tx.insert(teacherResources).values(val).onConflictDoUpdate({
+          target: teacherResources.id,
+          set: val
+        });
+      }
+    }
+
+    // 17. Library Gate Logs
+    if (dbState.libraryGateLogs) {
+      const ids = dbState.libraryGateLogs.map((gl: any) => gl.id).filter(Boolean);
+      if (ids.length > 0) {
+        await tx.delete(libraryGateLogs).where(notInArray(libraryGateLogs.id, ids));
+      } else {
+        await tx.delete(libraryGateLogs);
+      }
+      for (const gl of dbState.libraryGateLogs) {
+        const ts = gl.timestamp ? new Date(gl.timestamp).toISOString() : new Date().toISOString();
+        const val = {
+          id: gl.id,
+          timestamp: ts,
+          patronName: gl.patronName,
+          patronId: gl.patronId || '00000000-0000-0000-0000-000000000000',
+          role: gl.role || 'student',
+          authMethod: gl.authMethod || 'rfid_tap',
+          gateAction: gl.gateAction || 'Entry'
+        };
+        await tx.insert(libraryGateLogs).values(val).onConflictDoUpdate({
+          target: libraryGateLogs.id,
+          set: val
+        });
+      }
+    }
+
+    // 18. Notifications
+    if (dbState.notifications) {
+      const ids = dbState.notifications.map((n: any) => n.id).filter(Boolean);
+      if (ids.length > 0) {
+        await tx.delete(notifications).where(notInArray(notifications.id, ids));
+      } else {
+        await tx.delete(notifications);
+      }
+      for (const n of dbState.notifications) {
+        const val = {
+          id: n.id,
+          targetUserId: n.targetUserId || null,
+          targetUserRole: n.targetUserRole || 'all',
+          type: n.type || 'announcement',
+          title: n.title,
+          message: n.message,
+          status: n.status || 'unread',
+          dateTime: n.dateTime ? new Date(n.dateTime).toISOString() : new Date().toISOString()
+        };
+        await tx.insert(notifications).values(val).onConflictDoUpdate({
+          target: notifications.id,
+          set: val
+        });
+      }
+    }
+
+    // 19. Password Reset Requests
+    if (dbState.passwordResetRequests) {
+      const ids = dbState.passwordResetRequests.map((pr: any) => pr.id).filter(Boolean);
+      if (ids.length > 0) {
+        await tx.delete(passwordResetRequests).where(notInArray(passwordResetRequests.id, ids));
+      } else {
+        await tx.delete(passwordResetRequests);
+      }
+      for (const pr of dbState.passwordResetRequests) {
+        const val = {
+          id: pr.id,
+          userId: pr.userId,
+          name: pr.name,
+          email: pr.email,
+          role: pr.role,
+          date: pr.date || new Date().toISOString().split('T')[0],
+          reason: pr.reason,
+          status: pr.status || 'pending',
+          adminFeedback: pr.adminFeedback || null,
+          temporaryPasscode: pr.temporaryPasscode || null
+        };
+        await tx.insert(passwordResetRequests).values(val).onConflictDoUpdate({
+          target: passwordResetRequests.id,
+          set: val
+        });
+      }
+    }
+  });
+  } finally {
+    isSavingFullState = false;
+    if (pendingSaveState) {
+      const nextState = pendingSaveState;
+      pendingSaveState = null;
+      saveFullDatabaseState(nextState).catch(err => {
+        console.error("Failed to run queued saveFullDatabaseState:", err);
+      });
+    }
+  }
+}
+
 // Helper to initialize database state from PostgreSQL
 async function initPostgresDB() {
   try {
@@ -61,7 +1124,7 @@ async function initPostgresDB() {
     }
     const existing = await db.select().from(systemState).where(eq(systemState.id, 1));
     if (existing.length > 0) {
-      cachedDb = existing[0].data;
+      cachedDb = await loadFullDatabaseState();
       console.log("Successfully loaded database state from PostgreSQL!");
     } else {
       // Bootstrap from db_store.json or initialState
@@ -99,11 +1162,13 @@ async function initPostgresDB() {
         };
       }
       
+      dbState = sanitizeStateIds(dbState);
       cachedDb = dbState;
       await db.insert(systemState).values({
         id: 1,
         data: dbState,
       });
+      await saveFullDatabaseState(dbState);
       console.log("Successfully bootstrapped database state to PostgreSQL!");
     }
   } catch (err) {
@@ -141,9 +1206,10 @@ function getDatabase() {
 
 // Helper to save database state
 function saveDatabase(dbState: any) {
+  dbState = sanitizeStateIds(dbState);
   cachedDb = dbState;
   
-  // Persist asynchronously to Postgres
+  // Persist asynchronously to Postgres systemState table
   db.insert(systemState)
     .values({
       id: 1,
@@ -157,10 +1223,19 @@ function saveDatabase(dbState: any) {
       },
     })
     .then(() => {
-      console.log("Successfully persisted updated state to PostgreSQL.");
+      console.log("Successfully persisted updated state to PostgreSQL system_state.");
     })
     .catch((err) => {
-      console.error("Failed to persist updated state to PostgreSQL:", err);
+      console.error("Failed to persist updated state to PostgreSQL system_state:", err);
+    });
+
+  // Persist asynchronously to all relational database tables
+  saveFullDatabaseState(dbState)
+    .then(() => {
+      console.log("Successfully persisted updated state to PostgreSQL relational tables.");
+    })
+    .catch((err) => {
+      console.error("Failed to persist updated state to PostgreSQL relational tables:", err);
     });
 
   // Keep db_store.json as a secondary local fallback
@@ -436,7 +1511,7 @@ app.post("/api/auth/login", (req, res) => {
   const db = getDatabase();
 
   if (role === "admin") {
-    if (userId !== "admin") {
+    if (userId !== "admin" && userId.toLowerCase() !== "admin@zenti.edu") {
       res.status(401).json({ success: false, error: "Invalid administrative username identification." });
       return;
     }
@@ -456,7 +1531,12 @@ app.post("/api/auth/login", (req, res) => {
   }
 
   if (role === "accountant") {
-    const accountantLecturer = (db.lecturers || []).find((l: any) => l.id === userId && l.isAccountant);
+    const accountantLecturer = (db.lecturers || []).find((l: any) => 
+      (l.id === userId || 
+       l.designatorCode?.toLowerCase() === userId.toLowerCase() || 
+       l.email?.toLowerCase() === userId.toLowerCase()) && 
+      l.isAccountant
+    );
     if (!accountantLecturer) {
       res.status(401).json({ success: false, error: "Selected identity is not a registered Accountant." });
       return;
@@ -466,8 +1546,8 @@ app.post("/api/auth/login", (req, res) => {
       res.json({
         success: true,
         role: "accountant",
-        userId,
-        token: `session-token-accountant-${userId}`,
+        userId: accountantLecturer.id,
+        token: `session-token-accountant-${accountantLecturer.id}`,
         profile: accountantLecturer
       });
     } else {
@@ -477,7 +1557,12 @@ app.post("/api/auth/login", (req, res) => {
   }
 
   if (role === "librarian") {
-    const librarianLecturer = (db.lecturers || []).find((l: any) => l.id === userId && (l.isLibrarian || l.id === "l3"));
+    const librarianLecturer = (db.lecturers || []).find((l: any) => 
+      (l.id === userId || 
+       l.designatorCode?.toLowerCase() === userId.toLowerCase() || 
+       l.email?.toLowerCase() === userId.toLowerCase()) && 
+      (l.isLibrarian || l.id === "l3")
+    );
     if (!librarianLecturer) {
       res.status(401).json({ success: false, error: "Selected identity is not a registered Archivist Librarian." });
       return;
@@ -487,8 +1572,8 @@ app.post("/api/auth/login", (req, res) => {
       res.json({
         success: true,
         role: "librarian",
-        userId,
-        token: `session-token-librarian-${userId}`,
+        userId: librarianLecturer.id,
+        token: `session-token-librarian-${librarianLecturer.id}`,
         profile: librarianLecturer
       });
     } else {
@@ -498,7 +1583,11 @@ app.post("/api/auth/login", (req, res) => {
   }
 
   if (role === "student") {
-    const studentRecord = (db.students || []).find((s: any) => s.id === userId);
+    const studentRecord = (db.students || []).find((s: any) => 
+      s.id === userId || 
+      s.admissionNo?.toLowerCase() === userId.toLowerCase() || 
+      s.email?.toLowerCase() === userId.toLowerCase()
+    );
     if (!studentRecord) {
       res.status(401).json({ success: false, error: "Selected student profile does not exist in student registry." });
       return;
@@ -508,8 +1597,8 @@ app.post("/api/auth/login", (req, res) => {
       res.json({
         success: true,
         role: "student",
-        userId,
-        token: `session-token-student-${userId}`,
+        userId: studentRecord.id,
+        token: `session-token-student-${studentRecord.id}`,
         profile: studentRecord
       });
     } else {
@@ -519,7 +1608,12 @@ app.post("/api/auth/login", (req, res) => {
   }
 
   if (role === "lecturer") {
-    const lecturerRecord = (db.lecturers || []).find((l: any) => l.id === userId && !l.isAccountant && !l.isLibrarian);
+    const lecturerRecord = (db.lecturers || []).find((l: any) => 
+      (l.id === userId || 
+       l.designatorCode?.toLowerCase() === userId.toLowerCase() || 
+       l.email?.toLowerCase() === userId.toLowerCase()) && 
+      !l.isAccountant && !l.isLibrarian
+    );
     if (!lecturerRecord) {
       res.status(401).json({ success: false, error: "Selected faculty profile does not exist in instructor registry." });
       return;
@@ -529,8 +1623,8 @@ app.post("/api/auth/login", (req, res) => {
       res.json({
         success: true,
         role: "lecturer",
-        userId,
-        token: `session-token-lecturer-${userId}`,
+        userId: lecturerRecord.id,
+        token: `session-token-lecturer-${lecturerRecord.id}`,
         profile: lecturerRecord
       });
     } else {
@@ -765,22 +1859,27 @@ app.post("/api/admin/reset-requests/:id/action", checkRBAC(["admin"]), (req, res
 });
 
 // 2. Fetch Full Database State
-app.get("/api/data", (req, res) => {
-  const db = getDatabase();
-  res.json(db);
+app.get("/api/data", async (req, res) => {
+  try {
+    const dbState = await loadFullDatabaseState();
+    res.json(dbState);
+  } catch (error) {
+    console.error("Failed to load full database state:", error);
+    res.json(getDatabase());
+  }
 });
 
 // 3. Sync/Save Entire Database State (Used by Frontend State-Sync Engine)
-app.post("/api/data", (req, res) => {
+app.post("/api/data", async (req, res) => {
   const incomingData = req.body;
   if (!incomingData || typeof incomingData !== "object") {
     res.status(400).json({ error: "Invalid data payload" });
     return;
   }
 
-  const db = getDatabase();
+  const dbVal = getDatabase();
   // Merge keys dynamically to ensure schema resilience
-  const updatedDb = { ...db, ...incomingData };
+  const updatedDb = { ...dbVal, ...incomingData };
   const success = saveDatabase(updatedDb);
 
   if (success) {
@@ -791,9 +1890,25 @@ app.post("/api/data", (req, res) => {
 });
 
 // 4. REST Resource: Courses
-app.get("/api/courses", (req, res) => {
-  const db = getDatabase();
-  res.json(db.courses || []);
+app.get("/api/courses", async (req, res) => {
+  try {
+    const courseRows = await db.select().from(courses);
+    const result = courseRows.map(c => ({
+      id: c.id,
+      code: c.code,
+      title: c.title,
+      description: c.description ?? "",
+      duration: c.duration,
+      fees: Number(c.fees),
+      thumbnail: c.thumbnail ?? "",
+      active: c.active,
+      faculty: c.faculty
+    }));
+    res.json(result);
+  } catch (err: any) {
+    console.error("Failed to fetch courses:", err);
+    res.json(getDatabase().courses || []);
+  }
 });
 
 app.post("/api/courses", async (req, res) => {
@@ -815,10 +1930,14 @@ app.post("/api/courses", async (req, res) => {
         duration: courseData.duration,
         fees: courseData.fees,
         thumbnail: courseData.thumbnail ?? null,
-        faculty: courseData.faculty,
         active: courseData.active ?? true,
+        faculty: courseData.faculty,
       })
       .returning();
+
+    // Sync database cache
+    const fullDb = await loadFullDatabaseState();
+    saveDatabase(fullDb);
 
     res.status(201).json(course);
   } catch (error: any) {
@@ -976,6 +2095,10 @@ app.post("/api/lecturers", async (req, res) => {
       })
       .returning();
 
+    // Sync database cache
+    const fullDb = await loadFullDatabaseState();
+    saveDatabase(fullDb);
+
     res.status(201).json(lecturer);
   } catch (error: any) {
     console.error("Failed to create lecturer:", error);
@@ -987,9 +2110,14 @@ app.post("/api/lecturers", async (req, res) => {
 });
    
 // 6. REST Resource: Students
-app.get("/api/students", (req, res) => {
-  const db = getDatabase();
-  res.json(db.students || []);
+app.get("/api/students", async (req, res) => {
+  try {
+    const fullDb = await loadFullDatabaseState();
+    res.json(fullDb.students || []);
+  } catch (err: any) {
+    console.error("Failed to fetch students:", err);
+    res.json(getDatabase().students || []);
+  }
 });
 
 app.post("/api/students", async (req, res) => {
@@ -1005,7 +2133,7 @@ app.post("/api/students", async (req, res) => {
       });
     }
     
-const result = await db.transaction(async (tx) => {
+    const result = await db.transaction(async (tx) => {
       // Create student
       const [student] = await tx
         .insert(students)
@@ -1023,6 +2151,10 @@ const result = await db.transaction(async (tx) => {
       return student;
       
     });
+
+    // Sync database cache
+    const fullDb = await loadFullDatabaseState();
+    saveDatabase(fullDb);
 
     res.status(201).json(result);
   } catch (error: any) {
@@ -1051,6 +2183,10 @@ app.post("/api/student-enrollments", async (req, res) => {
         courseCode,
       })
       .returning();
+
+    // Sync database cache
+    const fullDb = await loadFullDatabaseState();
+    saveDatabase(fullDb);
 
     res.status(201).json(enrollment);
   } catch (error: any) {
@@ -1082,7 +2218,7 @@ app.post("/api/payments", async (req, res) => {
       .values({
         studentId: paymentData.studentId,
         invoiceId: paymentData.invoiceId ?? null,
-        amount: paymentData.amount,
+        amount: String(paymentData.amount),
         paymentMethod: paymentData.paymentMethod,
         transactionId: paymentData.transactionId,
         date: new Date().toISOString().split("T")[0],
@@ -1090,7 +2226,14 @@ app.post("/api/payments", async (req, res) => {
       })
       .returning();
 
-    res.status(201).json(payment);
+    // Sync database cache
+    const fullDb = await loadFullDatabaseState();
+    saveDatabase(fullDb);
+
+    res.status(201).json({
+      ...payment,
+      amount: Number(payment.amount)
+    });
   } catch (error: any) {
     console.error("Failed to create payment:", error);
 
@@ -1100,42 +2243,107 @@ app.post("/api/payments", async (req, res) => {
   }
 });
 // 7. REST Resource: Books
-app.get("/api/books", (req, res) => {
-  const db = getDatabase();
-  res.json(db.books || []);
+app.get("/api/books", async (req, res) => {
+  try {
+    const bookRows = await db.select().from(books);
+    const result = bookRows.map(b => ({
+      id: b.id,
+      title: b.title,
+      author: b.author,
+      isbn: b.isbn,
+      publisher: b.publisher ?? "",
+      edition: b.edition ?? "",
+      purchasePrice: Number(b.purchasePrice),
+      rackNumber: b.rackNumber,
+      shelfRow: b.shelfRow,
+      libraryCode: b.libraryCode,
+      type: b.type,
+      eUrl_aid: b.eUrl ?? undefined,
+      copiesTotal: b.copiesTotal,
+      copiesAvailable: b.copiesAvailable,
+      category: b.category
+    }));
+    res.json(result);
+  } catch (err: any) {
+    console.error("Failed to fetch books:", err);
+    res.json(getDatabase().books || []);
+  }
 });
 
-app.post("/api/books", (req, res) => {
+app.post("/api/books", async (req, res) => {
   const bookData = req.body;
   if (!bookData || !bookData.title || !bookData.author) {
     res.status(400).json({ error: "Book title and author are required" });
     return;
   }
 
-  const db = getDatabase();
-  const id = bookData.id || `book-${Date.now()}`;
-  const existingIdx = (db.books || []).findIndex((b: any) => b.id === id);
+  try {
+    const [book] = await db.insert(books).values({
+      id: bookData.id || undefined,
+      title: bookData.title,
+      author: bookData.author,
+      isbn: bookData.isbn || `ISBN-${Date.now()}`,
+      publisher: bookData.publisher || null,
+      edition: bookData.edition || null,
+      purchasePrice: String(bookData.purchasePrice || 0),
+      rackNumber: bookData.rackNumber || 'N/A',
+      shelfRow: bookData.shelfRow || 'N/A',
+      libraryCode: bookData.libraryCode || `LIB-${Date.now()}`,
+      type: bookData.type || 'Physical Book',
+      eUrl: bookData.eUrl_aid || null,
+      copiesTotal: Number(bookData.copiesTotal) || 1,
+      copiesAvailable: Number(bookData.copiesAvailable) || 1,
+      category: bookData.category || 'General'
+    }).onConflictDoUpdate({
+      target: books.id,
+      set: {
+        title: bookData.title,
+        author: bookData.author,
+        isbn: bookData.isbn || undefined,
+        publisher: bookData.publisher || null,
+        edition: bookData.edition || null,
+        purchasePrice: String(bookData.purchasePrice || 0),
+        rackNumber: bookData.rackNumber || 'N/A',
+        shelfRow: bookData.shelfRow || 'N/A',
+        libraryCode: bookData.libraryCode || undefined,
+        type: bookData.type || 'Physical Book',
+        eUrl: bookData.eUrl_aid || null,
+        copiesTotal: Number(bookData.copiesTotal) || 1,
+        copiesAvailable: Number(bookData.copiesAvailable) || 1,
+        category: bookData.category || 'General'
+      }
+    }).returning();
 
-  const bookRecord = {
-    ...bookData,
-    id
-  };
+    // Sync database cache
+    const fullDb = await loadFullDatabaseState();
+    saveDatabase(fullDb);
 
-  if (existingIdx >= 0) {
-    db.books[existingIdx] = bookRecord;
-  } else {
-    db.books = [...(db.books || []), bookRecord];
+    res.status(201).json({
+      ...book,
+      purchasePrice: Number(book.purchasePrice),
+      eUrl_aid: book.eUrl || undefined
+    });
+  } catch (err: any) {
+    console.error("Failed to create/update book:", err);
+    res.status(500).json({ error: err.message });
   }
-
-  saveDatabase(db);
-  res.status(201).json(bookRecord);
 });
 
 // REST Resource: Exam Papers
 app.get("/api/exam-papers", async (req, res) => {
   try {
     const papers = await db.select().from(examPapers);
-    res.json(papers);
+    const result = papers.map(ep => ({
+      id: ep.id,
+      title: ep.title,
+      subjectCode: ep.subjectCode,
+      year: ep.year,
+      semester: ep.semester,
+      examType: ep.examType,
+      downloadUrl_aid: ep.downloadUrl,
+      downloadsCount: ep.downloadsCount
+    }));
+    res.json(result);
   } catch (error) {
     console.error("Failed to fetch exam papers:", error);
     res.status(500).json({
@@ -1145,60 +2353,118 @@ app.get("/api/exam-papers", async (req, res) => {
 });
 
 // 8. REST Resource: Loans
-app.get("/api/loans", (req, res) => {
-  const db = getDatabase();
-  res.json(db.loans || []);
+app.get("/api/loans", async (req, res) => {
+  try {
+    const loanRows = await db.select().from(loans);
+    const result = loanRows.map(l => ({
+      id: l.id,
+      bookId: l.bookId,
+      bookTitle: l.bookTitle,
+      patronId: l.patronId,
+      patronName: l.patronName,
+      patronRole: l.patronRole,
+      checkoutDate: l.checkoutDate,
+      dueDate: l.dueDate,
+      returnDate: l.returnDate ?? undefined,
+      status: l.status,
+      lateFeeAssessed: Number(l.lateFeeAssessed)
+    }));
+    res.json(result);
+  } catch (err: any) {
+    console.error("Failed to fetch loans:", err);
+    res.json(getDatabase().loans || []);
+  }
 });
 
-app.post("/api/loans", (req, res) => {
+app.post("/api/loans", async (req, res) => {
   const loanData = req.body;
   if (!loanData || !loanData.bookId || !loanData.patronId) {
     res.status(400).json({ error: "Book ID and Patron ID are required" });
     return;
   }
 
-  const db = getDatabase();
-  const id = loanData.id || `loan-${Date.now()}`;
-  const existingIdx = (db.loans || []).findIndex((l: any) => l.id === id);
+  try {
+    const [loan] = await db.insert(loans).values({
+      id: loanData.id || undefined,
+      bookId: loanData.bookId,
+      bookTitle: loanData.bookTitle || 'N/A',
+      patronId: loanData.patronId,
+      patronName: loanData.patronName || 'N/A',
+      patronRole: loanData.patronRole || 'student',
+      checkoutDate: loanData.checkoutDate || new Date().toISOString().split('T')[0],
+      dueDate: loanData.dueDate || new Date().toISOString().split('T')[0],
+      returnDate: loanData.returnDate || null,
+      status: loanData.status || 'borrowed',
+      lateFeeAssessed: String(loanData.lateFeeAssessed || 0)
+    }).onConflictDoUpdate({
+      target: loans.id,
+      set: {
+        bookId: loanData.bookId,
+        bookTitle: loanData.bookTitle || 'N/A',
+        patronId: loanData.patronId,
+        patronName: loanData.patronName || 'N/A',
+        patronRole: loanData.patronRole || 'student',
+        checkoutDate: loanData.checkoutDate || undefined,
+        dueDate: loanData.dueDate || undefined,
+        returnDate: loanData.returnDate || null,
+        status: loanData.status || 'borrowed',
+        lateFeeAssessed: String(loanData.lateFeeAssessed || 0)
+      }
+    }).returning();
 
-  const loanRecord = {
-    ...loanData,
-    id
-  };
+    // Sync database cache
+    const fullDb = await loadFullDatabaseState();
+    saveDatabase(fullDb);
 
-  if (existingIdx >= 0) {
-    db.loans[existingIdx] = loanRecord;
-  } else {
-    db.loans = [...(db.loans || []), loanRecord];
+    res.status(201).json({
+      ...loan,
+      lateFeeAssessed: Number(loan.lateFeeAssessed)
+    });
+  } catch (err: any) {
+    console.error("Failed to create/update loan:", err);
+    res.status(500).json({ error: err.message });
   }
-
-  saveDatabase(db);
-  res.status(201).json(loanRecord);
 });
 
 // 9. REST Resource: Library Gate Logs
-app.get("/api/gate-logs", (req, res) => {
-  const db = getDatabase();
-  res.json(db.libraryGateLogs || []);
+app.get("/api/gate-logs", async (req, res) => {
+  try {
+    const logs = await db.select().from(libraryGateLogs);
+    res.json(logs);
+  } catch (err: any) {
+    console.error("Failed to fetch gate logs:", err);
+    res.json(getDatabase().libraryGateLogs || []);
+  }
 });
 
-app.post("/api/gate-logs", (req, res) => {
+app.post("/api/gate-logs", async (req, res) => {
   const gateLog = req.body;
   if (!gateLog || !gateLog.patronName || !gateLog.gateAction) {
     res.status(400).json({ error: "Patron name and gate action are required" });
     return;
   }
 
-  const db = getDatabase();
-  const newLog = {
-    ...gateLog,
-    id: gateLog.id || `log-${Date.now()}`,
-    timestamp: gateLog.timestamp || new Date().toLocaleString()
-  };
+  try {
+    const ts = gateLog.timestamp ? new Date(gateLog.timestamp).toISOString() : new Date().toISOString();
+    const [log] = await db.insert(libraryGateLogs).values({
+      id: gateLog.id || undefined,
+      timestamp: ts,
+      patronName: gateLog.patronName,
+      patronId: gateLog.patronId || '00000000-0000-0000-0000-000000000000',
+      role: gateLog.role || 'student',
+      authMethod: gateLog.authMethod || 'rfid_tap',
+      gateAction: gateLog.gateAction || 'Entry'
+    }).returning();
 
-  db.libraryGateLogs = [newLog, ...(db.libraryGateLogs || [])];
-  saveDatabase(db);
-  res.status(201).json(newLog);
+    // Sync database cache
+    const fullDb = await loadFullDatabaseState();
+    saveDatabase(fullDb);
+
+    res.status(201).json(log);
+  } catch (err: any) {
+    console.error("Failed to create gate log:", err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ==========================================

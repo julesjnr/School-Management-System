@@ -403,8 +403,7 @@ export const lecturerSubjects = pgTable("lecturer_subjects", {
     .references(() => lecturers.id, { onDelete: "cascade" }),
 
   subjectCode: varchar("subject_code", { length: 30 })
-    .notNull()
-    .references(() => courses.code),
+    .notNull(),
 });
 
 //--grade table to link students and their grades for subjects

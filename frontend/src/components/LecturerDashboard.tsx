@@ -125,6 +125,31 @@ export default function LecturerDashboard({
   const [newPublication, setNewPublication] = useState('');
   const [profileSuccess, setProfileSuccess] = useState(false);
 
+  // Profile sub-tab selection state
+  const [profileSubTab, setProfileSubTab] = useState<'timesheets' | 'portfolio'>('timesheets');
+
+  // Local logged sessions list state
+  const [loggedSessions, setLoggedSessions] = useState<{
+    id: string;
+    date: string;
+    courseCode: string;
+    topic: string;
+    hours: number;
+    status: 'Pending' | 'Approved';
+  }[]>(() => {
+    const saved = localStorage.getItem(`logged_sessions_${lecturer.id}`);
+    if (saved) return JSON.parse(saved);
+    return [
+      { id: '1', date: '2026-07-06', courseCode: lecturer.subjects?.[0] || 'CS-101-Web', topic: 'Course introduction & syllabus walkthrough', hours: 2, status: 'Approved' },
+      { id: '2', date: '2026-07-08', courseCode: lecturer.subjects?.[0] || 'CS-101-Web', topic: 'DOM structure manipulation & event listeners', hours: 3, status: 'Approved' },
+      { id: '3', date: '2026-07-10', courseCode: lecturer.subjects?.[1] || 'DS-202-ML', topic: 'Supervised vs Unsupervised learning methods introduction', hours: 2.5, status: 'Pending' },
+    ];
+  });
+
+  useEffect(() => {
+    localStorage.setItem(`logged_sessions_${lecturer.id}`, JSON.stringify(loggedSessions));
+  }, [loggedSessions, lecturer.id]);
+
   useEffect(() => {
     setEditedBio(lecturer.bio || '');
     setEditedAvatar(lecturer.avatar || '');
@@ -243,6 +268,18 @@ export default function LecturerDashboard({
     }
 
     onLogHours(lecturer.id, hrsVal);
+
+    // Add to historical list
+    const newSession = {
+      id: Date.now().toString(),
+      date: new Date().toLocaleDateString('en-CA'),
+      courseCode: selectedSubject,
+      topic: logTopic,
+      hours: hrsVal,
+      status: 'Pending' as const
+    };
+    setLoggedSessions(prev => [newSession, ...prev]);
+
     setLogSessionHours('');
     setLogTopic('');
     setTimeLoggedSuccess(true);
@@ -417,7 +454,7 @@ export default function LecturerDashboard({
           <div className="grid lg:grid-cols-12 gap-6 items-start">
             
             {/* LEFT COLUMN: ACTIVE VIEW OPTIONS (TABBED) */}
-            <div className="lg:col-span-8 space-y-6">
+            <div className={`${activeTab === 'profile' ? 'lg:col-span-12' : 'lg:col-span-8'} space-y-6`}>
               
               <div className="bg-white rounded-2xl border border-slate-150 p-6 shadow-sm">
                 
@@ -1915,209 +1952,401 @@ subjects.forEach(subj => {
             {activeTab === 'profile' && (
               <div className="space-y-6">
                 <div>
-                  <h2 className="text-base font-bold text-slate-800 flex items-center gap-1.5">
+                  <h2 className="text-base font-black text-slate-800 dark:text-white flex items-center gap-1.5 uppercase tracking-wide">
                     <User className="w-5 h-5 text-blue-600" />
-                    Faculty Profile & Research Portfolio Editor
+                    Faculty workspace profile & logs
                   </h2>
-                  <p className="text-xs text-slate-500">Customize your biography, profile avatar, research areas, and recent academic publications visible on the public directory.</p>
+                  <p className="text-xs text-slate-500">Manage payroll logs, timesheets, and customize research portfolio data shown on directory.</p>
                 </div>
 
-                {profileSuccess && (
-                  <div className="bg-emerald-50 text-emerald-800 border border-emerald-100 p-4 rounded-xl text-xs font-semibold flex items-center gap-1.5 animate-bounce">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span>Your academic profile portfolio has been synchronized and saved to storage!</span>
-                  </div>
-                )}
+                {/* Sub-tab navigation */}
+                <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setProfileSubTab('timesheets')}
+                    className={`flex-1 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
+                      profileSubTab === 'timesheets'
+                        ? 'bg-white dark:bg-slate-950 text-blue-650 dark:text-blue-450 shadow-3xs'
+                        : 'text-slate-400 hover:text-slate-650 dark:hover:text-slate-350'
+                    }`}
+                  >
+                    Timesheets & Academic Logs
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProfileSubTab('portfolio')}
+                    className={`flex-1 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
+                      profileSubTab === 'portfolio'
+                        ? 'bg-white dark:bg-slate-950 text-blue-650 dark:text-blue-450 shadow-3xs'
+                        : 'text-slate-400 hover:text-slate-655 dark:hover:text-slate-350'
+                    }`}
+                  >
+                    Public Profile & Research Portfolio
+                  </button>
+                </div>
 
-                <form 
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    onUpdateProfile(lecturer.id, {
-                      bio: editedBio,
-                      avatar: editedAvatar,
-                      researchInterests: interests,
-                      publications: publications
-                    });
-                    setProfileSuccess(true);
-                    setTimeout(() => {
-                      setProfileSuccess(false);
-                    }, 3000);
-                  }}
-                  className="space-y-6"
-                >
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* AVATAR SELECTOR & PREVIEW */}
-                    <div className="space-y-3">
-                      <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider">Profile Photo / Avatar URL</label>
-                      <div className="flex gap-4 items-center">
-                        <img 
-                          src={editedAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=150'} 
-                          alt="Avatar Preview" 
-                          className="w-16 h-16 rounded-full object-cover border-2 border-blue-500/30 shrink-0"
-                          referrerPolicy="no-referrer"
-                        />
-                        <div className="flex-1 space-y-1">
-                          <input 
-                            type="url"
-                            value={editedAvatar}
-                            onChange={(e) => setEditedAvatar(e.target.value)}
-                            placeholder="https://images.unsplash.com/your-photo-path"
-                            className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs text-slate-850 focus:outline-hidden"
+                {profileSubTab === 'timesheets' ? (
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start animate-fadeIn">
+                    {/* Hours Submitter (Left: 5 Cols) */}
+                    <div className="lg:col-span-5 bg-white dark:bg-slate-900 border border-slate-150 dark:border-slate-800 rounded-3xl p-6 space-y-6 shadow-xs">
+                      <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
+                        <h3 className="font-extrabold text-slate-905 dark:text-white text-sm flex items-center gap-1.5 uppercase tracking-wide">
+                          <Activity className="w-4 h-4 text-blue-600" />
+                          Hours Log Submitter
+                        </h3>
+                        <p className="text-[11px] text-slate-500">Record a completed lecturing slot for payment computation.</p>
+                      </div>
+
+                      {timeLoggedSuccess && (
+                        <div className="bg-emerald-50 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/50 p-3 rounded-xl text-xs font-medium">
+                          Session logged to payroll database!
+                        </div>
+                      )}
+
+                      <form onSubmit={handleLogHoursSubmit} className="space-y-4">
+                        <div className="space-y-1.5">
+                          <label htmlFor="log-class" className="block text-[11px] font-bold text-slate-650 dark:text-slate-400">Select Session Course</label>
+                          <select
+                            id="log-class"
+                            value={selectedSubject}
+                            onChange={(e) => setSelectedSubject(e.target.value)}
+                            className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-750 rounded-xl p-2.5 text-xs text-slate-800 dark:text-slate-205 focus:outline-hidden"
+                            required
+                          >
+                            {(lecturer.subjects ?? []).map(s => (
+                              <option key={s} value={s}>{subjectMap[s] || s}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label htmlFor="log-topic" className="block text-[11px] font-bold text-slate-650 dark:text-slate-400">Session Topic Delivered</label>
+                          <input
+                            id="log-topic"
+                            type="text"
+                            value={logTopic}
+                            onChange={(e) => setLogTopic(e.target.value)}
+                            placeholder="Introduced Big-O notation & graphs theory"
+                            className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-750 rounded-xl p-2.5 text-xs text-slate-850 dark:text-slate-200 focus:outline-hidden"
+                            required
                           />
-                          <p className="text-[10px] text-slate-400">Provide an absolute HTTP image link.</p>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label htmlFor="log-hours" className="block text-[11px] font-bold text-slate-650 dark:text-slate-400">Duration (Hourly)</label>
+                          <input
+                            id="log-hours"
+                            type="number"
+                            step="0.5"
+                            min="0.5"
+                            max="10"
+                            value={logSessionHours}
+                            onChange={(e) => setLogSessionHours(e.target.value)}
+                            placeholder="3"
+                            className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-750 rounded-xl p-2.5 text-xs text-slate-850 dark:text-slate-200 focus:outline-hidden font-mono"
+                            required
+                          />
+                        </div>
+
+                        <button
+                          type="submit"
+                          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-2.5 rounded-xl text-xs cursor-pointer transition-colors shadow-sm"
+                        >
+                          Log Lecturing Session
+                        </button>
+                      </form>
+
+                      {/* Pay-Stub Snippet */}
+                      <div className="bg-slate-50 dark:bg-slate-950 p-5 rounded-2xl border border-slate-150 dark:border-slate-850 text-xs space-y-3 font-mono">
+                        <div className="border-b border-dashed border-slate-200 dark:border-slate-800 pb-2 mb-2">
+                          <span className="font-sans font-black text-slate-800 dark:text-slate-200 block text-xs uppercase tracking-wider">Official Pay-Stub Calculation</span>
+                          <span className="text-[10px] text-slate-405">Zenti Faculty Payroll System</span>
+                        </div>
+                        <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                          <span>Your Hourly Rate:</span>
+                          <span className="font-extrabold text-slate-900 dark:text-white bg-slate-150 dark:bg-slate-800 px-2 py-0.5 rounded">KES {lecturer.hourlyRate.toLocaleString()} / hr</span>
+                        </div>
+                        <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                          <span>Accumulated Hours:</span>
+                          <span className="font-extrabold text-slate-900 dark:text-white">{lecturer.loggedHours} Hrs</span>
+                        </div>
+                        <div className="border-t border-dashed border-slate-200 dark:border-slate-800 pt-3 mt-2 flex justify-between font-black text-sm text-slate-900 dark:text-white">
+                          <span>Calculated Total:</span>
+                          <span className="text-emerald-600 dark:text-emerald-400">KES {((lecturer.loggedHours || 0) * (lecturer.hourlyRate || 0)).toLocaleString()}</span>
                         </div>
                       </div>
                     </div>
 
-                    {/* BIO WRAPPER */}
-                    <div className="space-y-2">
-                      <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider">Professional Biography Brief</label>
-                      <textarea 
-                        rows={3}
-                        value={editedBio}
-                        onChange={(e) => setEditedBio(e.target.value)}
-                        placeholder="Introduce your academic focus, departments, and industry experience at Zenti Metro University..."
-                        className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs text-slate-850 focus:outline-hidden resize-none leading-relaxed"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-slate-100 pt-6">
-                    {/* RESEARCH INTERESTS */}
-                    <div className="space-y-3">
-                      <div className="flex justify-between items-center">
-                        <label className="text-[11px] font-bold text-slate-605 uppercase tracking-wider flex items-center gap-1">
-                          <Sparkles className="w-3.5 h-3.5 text-blue-500" />
-                          <span>Specialization & Core Interests</span>
-                        </label>
-                        <span className="text-[10px] font-bold text-slate-400">{interests.length} Area(s)</span>
+                    {/* Historical Table (Right: 7 Cols) */}
+                    <div className="lg:col-span-7 bg-white dark:bg-slate-900 border border-slate-150 dark:border-slate-800 rounded-3xl p-6 space-y-4 shadow-xs">
+                      <div>
+                        <h3 className="font-extrabold text-slate-900 dark:text-white text-sm uppercase tracking-wide">
+                          Historical Logged Sessions
+                        </h3>
+                        <p className="text-[11px] text-slate-505 mt-1">Review the list of your active teaching log reports.</p>
                       </div>
 
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={newInterest}
-                          onChange={(e) => setNewInterest(e.target.value)}
-                          placeholder="e.g. Adaptive Distributed Consensus Topologies"
-                          className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-855 focus:outline-hidden"
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              if (newInterest.trim()) {
-                                setInterests(prev => [...prev, newInterest.trim()]);
-                                setNewInterest('');
-                              }
-                            }
-                          }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (newInterest.trim()) {
-                              setInterests(prev => [...prev, newInterest.trim()]);
-                              setNewInterest('');
-                            }
-                          }}
-                          className="bg-blue-50 text-blue-600 hover:bg-blue-105 px-3 py-2 rounded-lg font-bold text-xs font-sans select-none"
-                        >
-                          Add
-                        </button>
-                      </div>
-
-                      <div className="space-y-1.5 max-h-[150px] overflow-y-auto">
-                        {interests.length === 0 ? (
-                          <p className="text-[11px] text-slate-400 italic">No research domains catalogued. Add some above!</p>
-                        ) : (
-                          interests.map((interest, idx) => (
-                            <div key={idx} className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100 text-xs text-slate-800">
-                              <span className="truncate mr-3">{interest}</span>
-                              <button
-                                type="button"
-                                onClick={() => setInterests(prev => prev.filter((_, i) => i !== idx))}
-                                className="text-red-550 hover:text-red-700 p-0.5 cursor-pointer"
-                                title="Remove item"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-
-                    {/* RECENT PUBLICATIONS */}
-                    <div className="space-y-3">
-                      <div className="flex justify-between items-center">
-                        <label className="text-[11px] font-bold text-slate-605 uppercase tracking-wider flex items-center gap-1">
-                          <BookOpen className="w-3.5 h-3.5 text-indigo-500" />
-                          <span>Academic Publications</span>
-                        </label>
-                        <span className="text-[10px] font-bold text-slate-400">{publications.length} Publication(s)</span>
-                      </div>
-
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={newPublication}
-                          onChange={(e) => setNewPublication(e.target.value)}
-                          placeholder="e.g. Vance, M. (2500). 'Adaptive Algorithms in Microcomputing.'"
-                          className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-855 focus:outline-hidden"
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              if (newPublication.trim()) {
-                                setPublications(prev => [...prev, newPublication.trim()]);
-                                setNewPublication('');
-                              }
-                            }
-                          }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (newPublication.trim()) {
-                              setPublications(prev => [...prev, newPublication.trim()]);
-                              setNewPublication('');
-                            }
-                          }}
-                          className="bg-indigo-50 text-indigo-600 hover:bg-indigo-105 px-3 py-2 rounded-lg font-bold text-xs select-none"
-                        >
-                          Add
-                        </button>
-                      </div>
-
-                      <div className="space-y-1.5 max-h-[150px] overflow-y-auto font-sans">
-                        {publications.length === 0 ? (
-                          <p className="text-[11px] text-slate-400 italic">No academic bibliography listed yet.</p>
-                        ) : (
-                          publications.map((pub, idx) => (
-                            <div key={idx} className="flex justify-between items-start p-2 rounded-lg bg-slate-50 border border-slate-100 text-xs text-slate-800">
-                              <span className="text-[11px] leading-snug mr-3 break-words flex-1 font-sans">{pub}</span>
-                              <button
-                                type="button"
-                                onClick={() => setPublications(prev => prev.filter((_, i) => i !== idx))}
-                                className="text-red-500 hover:text-red-700 p-0.5 shrink-0 cursor-pointer"
-                                title="Remove item"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          ))
-                        )}
+                      <div className="overflow-x-auto border border-slate-150 dark:border-slate-800 rounded-2xl">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-slate-50 dark:bg-slate-950 border-b border-slate-150 dark:border-slate-800 text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                              <th className="py-3 px-4">Date</th>
+                              <th className="py-3 px-4">Course</th>
+                              <th className="py-3 px-4">Topic</th>
+                              <th className="py-3 px-4 text-center">Hours</th>
+                              <th className="py-3 px-4 text-center">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
+                            {loggedSessions.length === 0 ? (
+                              <tr>
+                                <td colSpan={5} className="py-8 px-4 text-center text-slate-400 italic">No teaching sessions logged yet.</td>
+                              </tr>
+                            ) : (
+                              loggedSessions.map((session) => (
+                                <tr key={session.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/20 font-mono">
+                                  <td className="py-3 px-4 text-slate-600 dark:text-slate-400">{session.date}</td>
+                                  <td className="py-3 px-4 font-bold text-slate-850 dark:text-slate-205">{session.courseCode}</td>
+                                  <td className="py-3 px-4 font-sans text-slate-700 dark:text-slate-350 truncate max-w-[150px]" title={session.topic}>{session.topic}</td>
+                                  <td className="py-3 px-4 text-center font-bold">{session.hours} hrs</td>
+                                  <td className="py-3 px-4 text-center">
+                                    <span className={`inline-block px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                                      session.status === 'Approved'
+                                        ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400'
+                                        : 'bg-amber-50 text-amber-700 dark:bg-amber-950/20 dark:text-amber-400'
+                                    }`}>
+                                      {session.status}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
                       </div>
                     </div>
                   </div>
+                ) : (
+                  // Tab B: Public Profile & Research Portfolio Editor
+                  <div className="bg-white dark:bg-slate-900 border border-slate-150 dark:border-slate-800 rounded-3xl p-6 shadow-xs animate-fadeIn">
+                    {profileSuccess && (
+                      <div className="bg-emerald-50 dark:bg-emerald-950/20 text-emerald-805 border border-emerald-100 dark:border-emerald-900/50 p-4 rounded-xl text-xs font-semibold flex items-center gap-1.5 mb-6">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                        <span>Your academic profile portfolio has been synchronized and saved to storage!</span>
+                      </div>
+                    )}
 
-                  <div className="border-t border-slate-105 pt-5 flex justify-end">
-                    <button
-                      type="submit"
-                      className="bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs py-2.5 px-6 rounded-xl flex items-center gap-2 cursor-pointer transition-all active:scale-95 shadow-md shadow-blue-500/10"
+                    <form 
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        onUpdateProfile(lecturer.id, {
+                          bio: editedBio,
+                          avatar: editedAvatar,
+                          researchInterests: interests,
+                          publications: publications
+                        });
+                        setProfileSuccess(true);
+                        setTimeout(() => {
+                          setProfileSuccess(false);
+                        }, 3000);
+                      }}
+                      className="space-y-6"
                     >
-                      <Save className="w-4 h-4" />
-                      <span>Synchronize Profile Credentials</span>
-                    </button>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        
+                        {/* FILE UPLOADER FOR PROFILE PIC */}
+                        <div className="space-y-3">
+                          <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">Faculty Profile Avatar</label>
+                          <div className="flex flex-col sm:flex-row gap-4 items-center bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl border border-slate-200 dark:border-slate-850">
+                            <img 
+                              src={editedAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=150'} 
+                              alt="Avatar Preview" 
+                              className="w-16 h-16 rounded-full object-cover border-2 border-blue-500/30 shrink-0"
+                              referrerPolicy="no-referrer"
+                            />
+                            <div className="flex-1 w-full text-center sm:text-left space-y-2">
+                              <div className="relative border-2 border-dashed border-slate-200 dark:border-slate-800 hover:border-blue-500 dark:hover:border-blue-500 rounded-xl p-3 text-center transition-all cursor-pointer">
+                                <input 
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) {
+                                      const dummyUrls = [
+                                        "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80",
+                                        "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80",
+                                        "https://images.unsplash.com/photo-1519345182560-3f2917c472ef?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80",
+                                        "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80"
+                                      ];
+                                      const selectedUrl = dummyUrls[Math.floor(Math.random() * dummyUrls.length)];
+                                      setEditedAvatar(selectedUrl);
+                                      alert("File uploaded successfully into Faculty CDN storage!");
+                                    }
+                                  }}
+                                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                />
+                                <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                                  Click to upload picture
+                                </div>
+                                <div className="text-[9px] text-slate-400">
+                                  JPG, PNG or GIF up to 5MB
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* BIO WRAPPER */}
+                        <div className="space-y-2">
+                          <label className="block text-[11px] font-bold text-slate-605 dark:text-slate-400 uppercase tracking-wider">Professional Biography Brief</label>
+                          <textarea 
+                            rows={3}
+                            value={editedBio}
+                            onChange={(e) => setEditedBio(e.target.value)}
+                            placeholder="Introduce your academic focus, departments, and industry experience at Zenti Metro University..."
+                            className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-750 rounded-xl p-2.5 text-xs text-slate-850 dark:text-slate-200 focus:outline-hidden resize-none leading-relaxed"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-slate-100 dark:border-slate-805 pt-6">
+                        {/* SPECIALIZATION BADGES */}
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-center">
+                            <label className="text-[11px] font-bold text-slate-605 dark:text-slate-450 uppercase tracking-wider flex items-center gap-1">
+                              <Sparkles className="w-3.5 h-3.5 text-blue-500" />
+                              <span>Specialization & Core Interests</span>
+                            </label>
+                            <span className="text-[10px] font-bold text-slate-400">{interests.length} Area(s)</span>
+                          </div>
+
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={newInterest}
+                              onChange={(e) => setNewInterest(e.target.value)}
+                              placeholder="e.g. Adaptive Distributed Consensus Topologies"
+                              className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-750 rounded-xl px-2.5 py-2 text-xs text-slate-855 dark:text-slate-200 focus:outline-hidden"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  if (newInterest.trim()) {
+                                    setInterests(prev => [...prev, newInterest.trim()]);
+                                    setNewInterest('');
+                                  }
+                                }
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (newInterest.trim()) {
+                                  setInterests(prev => [...prev, newInterest.trim()]);
+                                  setNewInterest('');
+                                }
+                              }}
+                              className="bg-blue-50 dark:bg-blue-950/30 text-blue-605 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 px-3 py-2 rounded-xl font-bold text-xs font-sans select-none border border-blue-100 dark:border-blue-900/50 cursor-pointer"
+                            >
+                              Add
+                            </button>
+                          </div>
+
+                          <div className="flex flex-wrap gap-2 max-h-[150px] overflow-y-auto p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-150 dark:border-slate-850">
+                            {interests.length === 0 ? (
+                              <p className="text-[11px] text-slate-400 italic">No research domains catalogued. Add some above!</p>
+                            ) : (
+                              interests.map((interest, idx) => (
+                                <span key={idx} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 text-xs font-semibold border border-blue-100 dark:border-blue-900/50">
+                                  <span>{interest}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setInterests(prev => prev.filter((_, i) => i !== idx))}
+                                    className="hover:bg-blue-200 dark:hover:bg-blue-900/80 p-0.5 rounded-full text-blue-500 hover:text-blue-750 dark:text-blue-405 shrink-0 cursor-pointer"
+                                    title="Remove item"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </span>
+                              ))
+                            )}
+                          </div>
+                        </div>
+
+                        {/* ACADEMIC PUBLICATIONS */}
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-center">
+                            <label className="text-[11px] font-bold text-slate-605 dark:text-slate-450 uppercase tracking-wider flex items-center gap-1">
+                              <BookOpen className="w-3.5 h-3.5 text-indigo-500" />
+                              <span>Academic Publications</span>
+                            </label>
+                            <span className="text-[10px] font-bold text-slate-400">{publications.length} Publication(s)</span>
+                          </div>
+
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={newPublication}
+                              onChange={(e) => setNewPublication(e.target.value)}
+                              placeholder="e.g. Vance, M. (2500). 'Adaptive Algorithms in Microcomputing.'"
+                              className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-750 rounded-xl px-2.5 py-2 text-xs text-slate-855 dark:text-slate-205 focus:outline-hidden"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  if (newPublication.trim()) {
+                                    setPublications(prev => [...prev, newPublication.trim()]);
+                                    setNewPublication('');
+                                  }
+                                }
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (newPublication.trim()) {
+                                  setPublications(prev => [...prev, newPublication.trim()]);
+                                  setNewPublication('');
+                                }
+                              }}
+                              className="bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-105 dark:hover:bg-indigo-900/40 px-3 py-2 rounded-xl font-bold text-xs select-none border border-indigo-100 dark:border-indigo-900/50 cursor-pointer"
+                            >
+                              Add
+                            </button>
+                          </div>
+
+                          <div className="space-y-2 max-h-[150px] overflow-y-auto">
+                            {publications.length === 0 ? (
+                              <p className="text-[11px] text-slate-400 italic">No academic bibliography listed yet.</p>
+                            ) : (
+                              publications.map((pub, idx) => (
+                                <div key={idx} className="flex justify-between items-start p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 text-xs text-slate-800 dark:text-slate-205">
+                                  <span className="text-[11px] leading-snug mr-3 break-words flex-1 font-mono">{pub}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setPublications(prev => prev.filter((_, i) => i !== idx))}
+                                    className="text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 p-1 rounded-lg shrink-0 cursor-pointer"
+                                    title="Remove item"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="border-t border-slate-105 dark:border-slate-800 pt-5 flex justify-end">
+                        <button
+                          type="submit"
+                          className="bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs py-2.5 px-6 rounded-xl flex items-center gap-2 cursor-pointer transition-all active:scale-95 shadow-md shadow-blue-500/10"
+                        >
+                          <Save className="w-4 h-4" />
+                          <span>Synchronize Profile Credentials</span>
+                        </button>
+                      </div>
+                    </form>
                   </div>
-                </form>
+                )}
               </div>
             )}
 
@@ -2140,7 +2369,8 @@ subjects.forEach(subj => {
         </div>
 
         {/* RIGHT COLUMN: TIMECARDS AND HOUR LOGGING */}
-        <div className="lg:col-span-4 bg-white border border-slate-150 rounded-2xl p-6 shadow-sm space-y-6">
+        {activeTab !== 'profile' && (
+          <div className="lg:col-span-4 bg-white border border-slate-150 rounded-2xl p-6 shadow-sm space-y-6">
           
           <div className="border-b border-slate-100 pb-3">
             <h3 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
@@ -2226,6 +2456,7 @@ subjects.forEach(subj => {
             </div>
           </div>
         </div>
+        )}
 
       </div>
 

@@ -371,8 +371,7 @@ export default function App() {
 
     setMockEmails(prev => [newEmail, ...prev]);
 
-    // Also add to in-app notifications so students and staff see it instantly
-    const notificationId = `notif-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+    const notificationId = self.crypto?.randomUUID ? self.crypto.randomUUID() : `notif-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
     const newNotification: InAppNotification = {
       id: notificationId,
       targetUserId: '', 

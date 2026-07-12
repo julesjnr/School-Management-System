@@ -365,8 +365,7 @@ export default function App() {
 
     setMockEmails(prev => [newEmail, ...prev]);
 
-    // Also add to in-app notifications so students and staff see it instantly
-    const notificationId = `notif-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+    const notificationId = self.crypto?.randomUUID ? self.crypto.randomUUID() : `notif-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
     const newNotification: InAppNotification = {
       id: notificationId,
       targetUserId: '', 
@@ -534,11 +533,12 @@ Zenti Library Services`;
   const handleAllocateSubject = (lecturerId: string, subjectCode: string) => {
     setLecturers(prev => prev.map(l => {
       if (l.id === lecturerId) {
+        const currentSubjects = l.subjects || [];
         // Prevent duplicate assignments
-        if (l.subjects.includes(subjectCode)) return l;
+        if (currentSubjects.includes(subjectCode)) return l;
         return {
           ...l,
-          subjects: [...l.subjects, subjectCode]
+          subjects: [...currentSubjects, subjectCode]
         };
       }
       return l;
@@ -1387,268 +1387,19 @@ Zenti Library Services`;
   return (
     <div className="bg-[#f8fafc] dark:bg-slate-950 text-slate-800 dark:text-slate-100 min-h-screen flex flex-col font-sans transition-colors duration-300">
       
-      {/*  COHESIVE SANDBOX QUICK-NAV SWITCHER BANNER */}
-      {currentUserRole !== null && currentPath !== '/landing' && currentPath !== '/login' && (
-        <div className="bg-blue-600 dark:bg-slate-900 border-b border-blue-500 dark:border-slate-800 py-3.5 px-4 text-white z-50 shadow-md transition-colors duration-300">
-          <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-3">
-            
-            <div className="flex items-center gap-2">
-              <div className="bg-white/10 dark:bg-slate-800/80 p-1.5 rounded-lg">
-                <Sparkles className="w-4 h-4 text-white animate-spin" style={{ animationDuration: '3s' }} />
-              </div>
-              <div>
-                <p className="text-xs font-black uppercase tracking-wider leading-tight">DEMO EVALUATION CONSOLE</p>
-                <p className="text-[10px] text-blue-100 dark:text-slate-400 font-medium">Switch roles instantly to verify complete student, ledger and inventory loops.</p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap justify-center items-center gap-2">
-              <button
-                type="button"
-                onClick={() => { setCurrentUserRole(null); setCurrentUserId(''); }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all flex items-center gap-1 cursor-pointer ${
-                  currentUserRole === null
-                    ? 'bg-white text-blue-700 dark:bg-blue-600 dark:text-white border-white dark:border-blue-500 shadow-sm'
-                    : 'bg-blue-750 hover:bg-blue-700 border-blue-500 text-blue-105 dark:bg-slate-800 dark:hover:bg-slate-750 dark:border-slate-700 dark:text-slate-300'
-                }`}
-              >
-                <Home className="w-3.5 h-3.5" />
-                <span>Public Landing Page</span>
-              </button>
-
-              {students.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => { setCurrentUserRole('student'); setCurrentUserId(students[0].id); }}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all flex items-center gap-1 cursor-pointer ${
-                    currentUserRole === 'student' && currentUserId === students[0].id
-                      ? 'bg-white text-blue-700 dark:bg-blue-600 dark:text-white border-white dark:border-blue-500 shadow-sm'
-                      : 'bg-blue-750 hover:bg-blue-700 border-blue-550 text-blue-105 dark:bg-slate-800 dark:hover:bg-slate-750 dark:border-slate-700 dark:text-slate-300'
-                  }`}
-                >
-                  <GraduationCap className="w-3.5 h-3.5" />
-                  <span className="truncate max-w-[150px]">Student ({students[0].name.split(' ')[0]})</span>
-                </button>
-              )}
-
-              {lecturers.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => { setCurrentUserRole('lecturer'); setCurrentUserId(lecturers[0].id); }}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all flex items-center gap-1 cursor-pointer ${
-                    currentUserRole === 'lecturer' && currentUserId === lecturers[0].id
-                      ? 'bg-white text-blue-700 dark:bg-blue-600 dark:text-white border-white dark:border-blue-500 shadow-sm'
-                      : 'bg-blue-750 hover:bg-blue-700 border-blue-550 text-blue-105 dark:bg-slate-800 dark:hover:bg-slate-750 dark:border-slate-700 dark:text-slate-300'
-                  }`}
-                >
-                  <Users className="w-3.5 h-3.5" />
-                  <span className="truncate max-w-[150px]">Lecturer ({lecturers[0].name.split(' ')[1] || lecturers[0].name})</span>
-                </button>
-              )}
-
-              {lecturers.some(l => l.isAccountant) && (
-                <button
-                  type="button"
-                  onClick={() => { setCurrentUserRole('accountant'); setCurrentUserId(lecturers.find(l => l.isAccountant)?.id || ''); }}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all flex items-center gap-1 cursor-pointer ${
-                    currentUserRole === 'accountant'
-                      ? 'bg-white text-emerald-750 dark:bg-emerald-600 dark:text-white border-white dark:border-emerald-500 shadow-sm'
-                      : 'bg-blue-750 hover:bg-blue-700 border-blue-550 text-blue-105 dark:bg-slate-800 dark:hover:bg-slate-750 dark:border-slate-700 dark:text-slate-300'
-                  }`}
-                >
-                  <Landmark className="w-3.5 h-3.5" />
-                  <span>Accountant ({lecturers.find(l => l.isAccountant)?.name.split(' ')[0]})</span>
-                </button>
-              )}
-
-              {lecturers.some(l => l.isLibrarian || l.id === 'l3') && (
-                <button
-                  type="button"
-                  onClick={() => { setCurrentUserRole('librarian'); setCurrentUserId(lecturers.find(l => l.isLibrarian || l.id === 'l3')?.id || ''); }}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all flex items-center gap-1 cursor-pointer ${
-                    currentUserRole === 'librarian'
-                      ? 'bg-white text-amber-750 dark:bg-amber-600 dark:text-white border-white dark:border-amber-500 shadow-sm'
-                      : 'bg-blue-750 hover:bg-blue-700 border-blue-550 text-blue-105 dark:bg-slate-800 dark:hover:bg-slate-750 dark:border-slate-700 dark:text-slate-300'
-                  }`}
-                >
-                  <BookOpen className="w-3.5 h-3.5" />
-                  <span>Librarian ({lecturers.find(l => l.isLibrarian || l.id === 'l3')?.name.split(' ')[0]})</span>
-                </button>
-              )}
-
-              <button
-                type="button"
-                onClick={() => { setCurrentUserRole('admin'); setCurrentUserId('admin'); }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all flex items-center gap-1 cursor-pointer ${
-                  currentUserRole === 'admin'
-                    ? 'bg-white text-blue-700 dark:bg-blue-600 dark:text-white border-white dark:border-blue-500 shadow-sm'
-                    : 'bg-blue-750 hover:bg-blue-700 border-blue-550 text-blue-105 dark:bg-slate-800 dark:hover:bg-slate-750 dark:border-slate-700 dark:text-slate-300'
-                }`}
-              >
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>Staff Administrator</span>
-              </button>
-
-              <span className="w-[1px] h-5 bg-blue-500/60 hidden sm:inline-block mx-1"></span>
-
-              {/*  Live In-App Notification Center */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowNotificationsDropdown(!showNotificationsDropdown)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-bold border border-blue-500/50 hover:border-blue-400 bg-blue-750 hover:bg-blue-700 text-blue-100 hover:text-white transition-all flex items-center gap-1.5 cursor-pointer relative"
-                  title={`${unreadCount} unread alerts`}
-                  id="global-notification-bell"
-                >
-                  {unreadCount > 0 ? (
-                    <>
-                      <span className="relative flex h-2 w-2">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-                      </span>
-                      <Bell className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
-                      <span className="bg-rose-600 text-white text-[9px] px-1 py-0.5 rounded-full font-black leading-none">
-                        {unreadCount}
-                      </span>
-                    </>
-                  ) : (
-                    <Bell className="w-3.5 h-3.5 text-blue-200" />
-                  )}
-                  <span className="hidden md:inline">Alerts</span>
-                </button>
-
-                {showNotificationsDropdown && (
-                  <div className="absolute right-0 mt-2 w-[310px] sm:w-[380px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl z-55 overflow-hidden text-slate-800 dark:text-slate-150 animate-fadeIn" id="notification-dropdown-panel" style={{ zIndex: 9999 }}>
-                    {/* Dropdown Header */}
-                    <div className="bg-slate-50 dark:bg-slate-850 px-4 py-3 border-b border-slate-150 dark:border-slate-800 flex justify-between items-center">
-                      <div>
-                        <h4 className="font-extrabold text-[11px] uppercase tracking-wider text-slate-700 dark:text-slate-350 flex items-center gap-1">
-                          <Bell className="w-3.5 h-3.5 text-blue-500" />
-                          Live Campus Notifications
-                        </h4>
-                        <p className="text-[10px] text-slate-400 mt-0.5">Role filter: {currentUserRole ? `${currentUserRole.toUpperCase()}` : 'PUBLIC LOOKUP'}</p>
-                      </div>
-                      {unreadCount > 0 && (
-                        <button
-                          type="button"
-                          onClick={handleMarkAllNotificationsAsRead}
-                          className="text-[10px] text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-extrabold underline cursor-pointer"
-                        >
-                          Mark all read
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Dropdown Scrollable Feed */}
-                    <div className="max-h-[300px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
-                      {activeUserNotifications.length === 0 ? (
-                        <div className="py-8 px-4 text-center text-xs text-slate-400 italic">
-                          No active alerts or notices matching current session.
-                        </div>
-                      ) : (
-                        activeUserNotifications.map((notif) => {
-                          const isUnread = notif.status === 'unread';
-                          return (
-                            <div 
-                              key={notif.id} 
-                              className={`p-3.5 text-xs transition-colors relative flex gap-2.5 ${
-                                isUnread 
-                                  ? 'bg-blue-50/50 dark:bg-blue-950/20 border-l-2 border-blue-500 shadow-3xs' 
-                                  : 'hover:bg-slate-50/50 dark:hover:bg-slate-800/20'
-                              }`}
-                            >
-                              {/* Icon block */}
-                              <div className="mt-0.5 shrink-0">
-                                <span className={`w-2 h-2 rounded-full block ${
-                                  notif.type === 'library' 
-                                    ? 'bg-amber-500' 
-                                    : notif.type === 'payment' 
-                                      ? 'bg-emerald-500' 
-                                      : 'bg-blue-500'
-                                }`} />
-                              </div>
-
-                              {/* Content */}
-                              <div className="space-y-1 flex-1">
-                                <div className="flex justify-between items-start gap-1">
-                                  <h5 className={`font-bold leading-tight ${isUnread ? 'text-slate-900 dark:text-slate-100' : 'text-slate-500 dark:text-slate-400'}`}>
-                                    {notif.title}
-                                  </h5>
-                                  <span className="font-mono text-[9px] text-slate-400 whitespace-nowrap shrink-0">{notif.dateTime}</span>
-                                </div>
-                                <p className="text-[11px] text-slate-550 dark:text-slate-350 leading-relaxed font-light">
-                                  {notif.message}
-                                </p>
-                                
-                                <div className="flex gap-3 pt-1.5 border-t border-slate-50 dark:border-slate-850 mt-1">
-                                  {isUnread && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleMarkAsRead(notif.id)}
-                                      className="text-[10px] font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400 hover:underline cursor-pointer"
-                                    >
-                                      Mark read
-                                    </button>
-                                  )}
-                                  <button
-                                    type="button"
-                                    onClick={() => handleClearNotification(notif.id)}
-                                    className="text-[10px] font-bold text-slate-400 hover:text-slate-650 dark:hover:text-slate-200 cursor-pointer"
-                                  >
-                                    Dismiss
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-
-                    <div className="bg-slate-50 dark:bg-slate-850 px-3 py-2 text-center text-[9px] text-slate-400 border-t border-slate-100 dark:border-slate-800 font-mono">
-                      Logged active session alarms & dispatch
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  window.history.pushState({}, '', '/showcase');
-                  setCurrentPath('/showcase');
-                }}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold border border-emerald-500/50 hover:border-emerald-400 bg-emerald-750 hover:bg-emerald-700 text-emerald-100 hover:text-white transition-all flex items-center gap-1.5 cursor-pointer"
-                title="View Dashboard Showcase Layouts"
-              >
-                <LayoutGrid className="w-3.5 h-3.5 text-emerald-300" />
-                <span>Showcase Demos</span>
-              </button>
-
-              <button
-                type="button"
-                id="global-dark-mode-toggle"
-                onClick={() => setDarkMode(!darkMode)}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold border border-blue-500/50 hover:border-blue-400 bg-blue-750 hover:bg-blue-700 text-blue-100 hover:text-white transition-all flex items-center gap-1.5 cursor-pointer"
-                title={darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
-              >
-                {darkMode ? (
-                  <>
-                    <Sun className="w-3.5 h-3.5 text-amber-300 animate-spin" style={{ animationDuration: '6s' }} />
-                    <span>Light Mode</span>
-                  </>
-                ) : (
-                  <>
-                    <Moon className="w-3.5 h-3.5 text-blue-200" />
-                    <span>Dark Mode</span>
-                  </>
-                )}
-              </button>
-            </div>
-
-          </div>
-        </div>
-      )}
+      {/* Floating Dark Mode Toggle */}
+      <button
+        type="button"
+        onClick={() => setDarkMode(!darkMode)}
+        className="fixed bottom-4 right-4 p-3 rounded-full bg-slate-850 dark:bg-slate-800 hover:bg-slate-750 text-white shadow-lg z-50 border border-slate-200 dark:border-slate-750 cursor-pointer"
+        title="Toggle Dark/Light Mode"
+      >
+        {darkMode ? (
+          <Sun className="w-4 h-4 text-amber-350 animate-pulse" />
+        ) : (
+          <Moon className="w-4 h-4 text-blue-300" />
+        )}
+      </button>
 
       {/* CORE WORKSPACE ENTRY ROUTING */}
       <main className="flex-1 flex flex-col">

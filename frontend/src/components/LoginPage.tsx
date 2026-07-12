@@ -56,27 +56,18 @@ export default function LoginPage({
     setErrorText('');
     setPasscode('');
     
-    if (portal === 'student' && students.length > 0) {
-      setSelectedUser(students[0].id);
-      setEmailText(students[0].email);
-    } else if (portal === 'lecturer' && lecturers.length > 0) {
-      const standardLec = lecturers.find(l => !l.isAccountant && !l.isLibrarian) || lecturers[0];
-      setSelectedUser(standardLec.id);
-      setEmailText(standardLec.email);
-    } else if (portal === 'accountant') {
-      const accountantLec = lecturers.find(l => l.isAccountant) || lecturers[0];
-      setSelectedUser(accountantLec ? accountantLec.id : '');
-      setEmailText(accountantLec ? accountantLec.email : 'accountant@zenti.edu');
-      setPasscode('acc123');
-    } else if (portal === 'librarian') {
-      const librarianLec = lecturers.find(l => l.isLibrarian) || lecturers.find(l => l.id === 'l3') || lecturers[0];
-      setSelectedUser(librarianLec ? librarianLec.id : '');
-      setEmailText(librarianLec ? librarianLec.email : 'librarian@zenti.edu');
-      setPasscode('lib123');
-    } else if (portal === 'admin') {
+    if (portal === 'admin') {
       setSelectedUser('admin');
       setEmailText('admin@zenti.edu');
       setPasscode('admin123');
+    } else {
+      setSelectedUser('');
+      setEmailText('');
+      if (portal === 'accountant') {
+        setPasscode('acc123');
+      } else if (portal === 'librarian') {
+        setPasscode('lib123');
+      }
     }
   };
 
@@ -208,8 +199,8 @@ export default function LoginPage({
     e.preventDefault();
     setErrorText('');
 
-    if (activePortal !== 'admin' && !selectedUser) {
-      setErrorText(`Please select an active ${activePortal === 'student' ? 'student profile' : 'staff identity'} account.`);
+    if (activePortal !== 'admin' && !selectedUser.trim()) {
+      setErrorText(`Please enter your ${activePortal === 'student' ? 'Admission Number or Email' : 'Staff ID or Email'}.`);
       return;
     }
 
@@ -222,7 +213,7 @@ export default function LoginPage({
       },
       body: JSON.stringify({
         role: activePortal,
-        userId: activePortal === 'admin' ? 'admin' : selectedUser,
+        userId: activePortal === 'admin' ? 'admin' : selectedUser.trim(),
         passcode: passcode,
       }),
     })
@@ -436,41 +427,31 @@ export default function LoginPage({
               </div>
             )}
 
-            {/* Profile Dropdown Selection */}
+            {/* Manual Blind Input Selection */}
             {activePortal !== 'admin' && (
               <div className="space-y-1.5">
-                <label htmlFor="login-identity-select" className="block text-xs font-bold text-slate-550 dark:text-slate-400 uppercase tracking-wider">
-                  Select {activePortal === 'student' ? 'Student Registration' : 'Staff Profile'}:
+                <label htmlFor="login-identifier-input" className="block text-xs font-bold text-slate-550 dark:text-slate-400 uppercase tracking-wider">
+                  {activePortal === 'student' ? 'Admission Number / Email' : 'Staff Code / Email'}:
                 </label>
-                <select
-                  id="login-identity-select"
-                  value={selectedUser}
-                  onChange={(e) => handleUserSelectChange(e.target.value)}
-                  className="w-full bg-white dark:bg-slate-850 dark:text-slate-100 border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-xs text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 shadow-2xs font-medium"
-                >
-                  <option value="">-- Choose Account Profile --</option>
-                  {getActiveOptions().map((opt) => (
-                    <option key={opt.id} value={opt.id}>
-                      {opt.name} ({opt.extra})
-                    </option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500">
+                    <User className="w-4 h-4" />
+                  </span>
+                  <input
+                    id="login-identifier-input"
+                    type="text"
+                    required
+                    value={selectedUser}
+                    onChange={(e) => {
+                      setSelectedUser(e.target.value);
+                      setErrorText('');
+                    }}
+                    placeholder={activePortal === 'student' ? 'e.g. CSC6/0639/24 or email' : 'e.g. LEC-402 or email'}
+                    className="w-full bg-white dark:bg-slate-850 dark:text-slate-100 border border-slate-200 dark:border-slate-800 rounded-xl pl-10 pr-3 py-3 text-xs text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 shadow-2xs font-medium"
+                  />
+                </div>
               </div>
             )}
-
-            {/* Simulated Email Display / Manual Input */}
-            <div className="space-y-1.5">
-              <label htmlFor="login-email-display" className="block text-xs font-bold text-slate-550 dark:text-slate-400 uppercase tracking-wider">
-                Email Address
-              </label>
-              <input
-                id="login-email-display"
-                type="email"
-                readOnly
-                value={emailText}
-                className="w-full bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 rounded-xl p-3 text-xs focus:outline-hidden font-mono shadow-2xs"
-              />
-            </div>
 
             {/* Password input */}
             <div className="space-y-1.5">
@@ -515,29 +496,6 @@ export default function LoginPage({
               </button>
             </div>
 
-            {/* Sandbox details guide note */}
-            <div className={`p-4 rounded-2xl border ${currentConfig.accentBg} text-[11px] leading-relaxed space-y-1 shadow-2xs`}>
-              <div className="flex items-center gap-1.5 font-bold">
-                <Sparkles className="w-3.5 h-3.5 animate-pulse" />
-                <span>Simulation Instructions:</span>
-              </div>
-              
-              {activePortal === 'student' && (
-                <p>Select any student profile. Enter passcode <code className="bg-white/70 dark:bg-slate-900/60 px-1 py-0.5 rounded font-mono font-bold">student123</code> to authenticate.</p>
-              )}
-              {activePortal === 'lecturer' && (
-                <p>Select any faculty profile. Enter passcode <code className="bg-white/70 dark:bg-slate-900/60 px-1 py-0.5 rounded font-mono font-bold">staff123</code> to authenticate.</p>
-              )}
-              {activePortal === 'accountant' && (
-                <p>Use default credential profile. Passcode is <code className="bg-white/70 dark:bg-slate-900/60 px-1 py-0.5 rounded font-mono font-bold">acc123</code> to authenticate.</p>
-              )}
-              {activePortal === 'librarian' && (
-                <p>Use default credential profile. Passcode is <code className="bg-white/70 dark:bg-slate-900/60 px-1 py-0.5 rounded font-mono font-bold">lib123</code> to authenticate.</p>
-              )}
-              {activePortal === 'admin' && (
-                <p>Administrative credential prefilled. Passcode is <code className="bg-white/70 dark:bg-slate-900/60 px-1 py-0.5 rounded font-mono font-bold">admin123</code> to authenticate.</p>
-              )}
-            </div>
 
             {/* Sign In primary button */}
             <button

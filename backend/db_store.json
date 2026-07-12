@@ -1,7 +1,7 @@
 {
   "news": [
     {
-      "id": "n1",
+      "id": "c82561ec-215a-6e31-807c-eedf3b3bd25e",
       "date": "2026-06-10",
       "image": "https://images.unsplash.com/photo-1523050854058-8df90110c9f1?auto=format&fit=crop&q=80&w=400",
       "title": "Semester II Academic Calendar Extension Announcement",
@@ -9,7 +9,7 @@
       "category": "Academic"
     },
     {
-      "id": "n2",
+      "id": "a6bbc91a-e73d-d21c-0533-f735470a9cd0",
       "date": "2026-06-14",
       "image": "https://images.unsplash.com/photo-1515187029135-18ee286d815b?auto=format&fit=crop&q=80&w=400",
       "title": "Zenti Annual Hackathon 2026: Registration Open",
@@ -17,7 +17,7 @@
       "category": "Event"
     },
     {
-      "id": "n3",
+      "id": "4443aee1-83b2-79f7-6a95-c13c7f5bca0d",
       "date": "2026-06-15",
       "image": "https://images.unsplash.com/photo-1434030216411-0b793f4b4173?auto=format&fit=crop&q=80&w=400",
       "title": "Internal Audit: Faculty Course Materials Submissions",
@@ -25,95 +25,193 @@
       "category": "Announcement"
     }
   ],
-  "books": [],
+  "books": [
+    {
+      "id": "b1111111-1111-1111-1111-111111111111",
+      "title": "Introduction to Algorithms",
+      "author": "Thomas H. Cormen",
+      "isbn": "978-0262033848",
+      "publisher": "MIT Press",
+      "edition": "3rd Edition",
+      "purchasePrice": 8500,
+      "rackNumber": "Rack-A",
+      "shelfRow": "Row-2",
+      "libraryCode": "LIB-ALGO-01",
+      "type": "Physical Book",
+      "copiesTotal": 5,
+      "copiesAvailable": 4,
+      "category": "Computer Science"
+    },
+    {
+      "id": "b2222222-2222-2222-2222-222222222222",
+      "title": "Computer Networking: A Top-Down Approach",
+      "author": "James Kurose",
+      "isbn": "978-0133594140",
+      "publisher": "Pearson",
+      "edition": "7th Edition",
+      "purchasePrice": 7800,
+      "rackNumber": "Rack-B",
+      "shelfRow": "Row-1",
+      "libraryCode": "LIB-NET-02",
+      "type": "Physical Book",
+      "copiesTotal": 3,
+      "copiesAvailable": 3,
+      "category": "Networking"
+    },
+    {
+      "id": "b3333333-3333-3333-3333-333333333333",
+      "title": "Learn JavaScript Deeply",
+      "author": "Addy Osmani",
+      "isbn": "978-1491950296",
+      "publisher": "O Reilly",
+      "edition": "1st Edition",
+      "purchasePrice": 0,
+      "rackNumber": "Digital Cloud",
+      "shelfRow": "E-Row",
+      "libraryCode": "LIB-JS-03",
+      "type": "E-Book",
+      "eUrl_aid": "https://eloquentjavascript.net/",
+      "copiesTotal": 100,
+      "copiesAvailable": 100,
+      "category": "Web Development"
+    }
+  ],
   "loans": [],
   "courses": [
     {
-      "id": "c1",
-      "code": "CS-101",
-      "fees": 150000,
-      "title": "B.Sc. Computer Science",
-      "active": true,
-      "faculty": "School of Computing & AI",
-      "duration": "4 Years",
-      "thumbnail": "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?auto=format&fit=crop&q=80&w=600",
-      "description": "A comprehensive program covering software engineering, systems design, artificial intelligence, and database structures."
-    },
-    {
-      "id": "c2",
-      "code": "EE-201",
-      "fees": 180000,
-      "title": "B.Eng. Electrical & Electronics",
-      "active": true,
-      "faculty": "School of Engineering",
+      "id": "21ef91c7-f051-4633-9510-d3bbc7c8316f",
+      "code": "ATM/4353/87",
+      "title": "Automotive Engineering",
+      "description": "hello engineers?",
       "duration": "5 Years",
-      "thumbnail": "https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&q=80&w=600",
-      "description": "Hands-on curriculum in microcontrollers, circuit theory, power systems, and telecom network design."
+      "fees": 50000,
+      "thumbnail": "https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&q=80&w=600",
+      "faculty": "School of Engineering",
+      "active": true
     },
     {
-      "id": "c3",
-      "code": "DS-202",
-      "fees": 160000,
-      "title": "B.Sc. Data Science & Analytics",
-      "active": true,
-      "faculty": "School of Computing & AI",
-      "duration": "4 Years",
-      "thumbnail": "https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&q=80&w=600",
-      "description": "Master statistical analysis, regression analysis, predictive modeling, machine learning, and big data techniques."
+      "id": "c1111111-1111-1111-1111-111111111111",
+      "code": "CS-101",
+      "title": "Introduction to Computer Science",
+      "description": "Fundamental concepts of programming, algorithms, and logical design using Python.",
+      "duration": "1 Semester",
+      "fees": 35000,
+      "thumbnail": "https://images.unsplash.com/photo-1517694712202-14dd9538aa97",
+      "faculty": "School of Computing",
+      "active": true
     },
     {
-      "id": "c4",
-      "code": "CYBER-310",
-      "fees": 170000,
-      "title": "B.Sc. Cybersecurity & Forensics",
-      "active": true,
-      "faculty": "School of Computing & AI",
-      "duration": "4 Years",
-      "thumbnail": "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&q=80&w=600",
-      "description": "Learn cyber defense, vulnerability analysis, cryptography, network pentesting, and digital forensic examination."
+      "id": "c2222222-2222-2222-2222-222222222222",
+      "code": "CS-202",
+      "title": "Data Structures & Algorithms",
+      "description": "In-depth study of stacks, queues, hash tables, trees, graphs, and optimization analysis.",
+      "duration": "1 Semester",
+      "fees": 40000,
+      "thumbnail": "https://images.unsplash.com/photo-1515879218367-8466d910aaa4",
+      "faculty": "School of Computing",
+      "active": true
+    },
+    {
+      "id": "c3333333-3333-3333-3333-333333333333",
+      "code": "ENG-301",
+      "title": "Fluid Mechanics for Engineers",
+      "description": "Introduction to fluid properties, hydrostatics, and computational dynamic workflows.",
+      "duration": "2 Semesters",
+      "fees": 52000,
+      "thumbnail": "https://images.unsplash.com/photo-1581092160607-ee22621dd758",
+      "faculty": "Engineering",
+      "active": true
     }
   ],
   "reviews": [],
   "expenses": [],
-  "students": [],
-  "inventory": [],
-  "lecturers": [
+  "students": [
     {
-      "id": "0596eff8-dbfb-4dc7-a10e-afc17f4037ce",
-      "bio": null,
-      "name": "Allan",
-      "email": "allan@edu.ac.ke",
-      "phone": "0788473662",
-      "avatar": null,
-      "isActive": true,
-      "passcode": "allan123",
-      "hourlyRate": "500.00",
-      "bankDetails": "COOPERATIVE:TWEGQ287tdd",
-      "isLibrarian": true,
-      "loggedHours": "0.00",
-      "isAccountant": true,
-      "contractLength": "2 Year Contract",
-      "designatorCode": "THSG6872567"
-    }
-  ],
-  "examPapers": [],
-  "bookReviews": [],
-  "testimonies": [
-    {
-      "id": "t1",
-      "name": "Erick Cheruiyot",
-      "role": "Alumni - Software Eng at Safaricom",
-      "avatar": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=150",
-      "content": "Zenti completely reshaped my perspective of tech development. The lecturers provided absolute real-world coaching, and the active campus coding team with hackathons set a solid cornerstone for my software career path."
+      "id": "3679b197-4a7d-4c5b-96ca-4085fbca184c",
+      "name": "Cate Wanjiru",
+      "email": "cate@gmail.com",
+      "phone": "",
+      "admissionNo": "CSC6/0639/24",
+      "cohort": "2025 Intake",
+      "passcode": "cate123",
+      "createdAt": "2026-07-12 12:30:45.124228+00",
+      "enrolledUnits": [
+        "DS-202-Stats",
+        "DS-202-ML"
+      ],
+      "grades": {},
+      "ledger": [
+        {
+          "id": "ec81ef2a-b45e-49fe-a52d-eb4cf345f1ae",
+          "invoiceNo": "INV-8754",
+          "description": "[Tuition] Semester Tuition and Accommodation Fees",
+          "amount": 5999,
+          "date": "2026-07-12",
+          "status": "unpaid"
+        },
+        {
+          "id": "82157d2b-b205-45f3-84f7-6b28da1c3e81",
+          "invoiceNo": "INV-5931",
+          "description": "[Tuition] Semester Tuition and Accommodation Fees",
+          "amount": 5999,
+          "date": "2026-07-12",
+          "status": "unpaid"
+        }
+      ],
+      "payments": [],
+      "attendance": {}
     },
     {
-      "id": "t2",
-      "name": "Tabitha Kamau",
-      "role": "Engineering Director, Cytonn Investments",
-      "avatar": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=150",
-      "content": "We routinely recruit junior staff from Zenti. Their graduates are consistently well-adapted, possess extensive modern framework skillsets (React, TypeScript), and possess practical accountability in technical workflows."
+      "id": "5ea42b24-a98b-4bd0-aded-4c80ddf8f37b",
+      "name": "Julius",
+      "email": "julius@gmail.com",
+      "phone": "",
+      "admissionNo": "FG47-UHFIDG",
+      "cohort": "2025 Intake",
+      "passcode": "julius123",
+      "createdAt": "2026-07-12 13:39:20.779234+00",
+      "enrolledUnits": [],
+      "grades": {},
+      "ledger": [],
+      "payments": [],
+      "attendance": {}
+    },
+    {
+      "id": "e4f360bb-ed8d-4ce0-ab00-42cf0afc1be5",
+      "name": "Timothy Njogu",
+      "email": "Njogu@gmail.com",
+      "phone": "",
+      "admissionNo": "ABCD/2541",
+      "cohort": "2025 Intake",
+      "passcode": "njogu123",
+      "createdAt": "2026-07-12 13:40:50.709113+00",
+      "enrolledUnits": [],
+      "grades": {},
+      "ledger": [],
+      "payments": [],
+      "attendance": {}
+    },
+    {
+      "id": "d2c6417a-6514-4829-bf97-e0210900c295",
+      "name": "Tyson",
+      "email": "bond@gmail.com",
+      "phone": "",
+      "admissionNo": "RTETR-73247",
+      "cohort": "Graduating cohort",
+      "passcode": "tyson123",
+      "createdAt": "2026-07-12 13:55:59.987833+00",
+      "enrolledUnits": [],
+      "grades": {},
+      "ledger": [],
+      "payments": [],
+      "attendance": {}
     }
   ],
+  "inventory": [],
+  "lecturers": [],
+  "examPapers": [],
+  "bookReviews": [],
+  "testimonies": [],
   "bookRequests": [],
   "readingLists": [],
   "requisitions": [],
