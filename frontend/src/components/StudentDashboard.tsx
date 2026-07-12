@@ -478,7 +478,7 @@ export default function StudentDashboard({
   };
 
   // Get unregistered units list
-  const allAvailableSubjectCodes = Object.keys(subjectMap);
+  const allAvailableSubjectCodes = allCourses.map(c => c.code);
   const unregisteredCodes = allAvailableSubjectCodes.filter(
     code => !student.enrolledUnits.includes(code)
   );

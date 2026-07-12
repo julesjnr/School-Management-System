@@ -1,8 +1,12 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config({ override: true });
 import express from "express";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import cors from 'cors';
 import { db } from "./src/db/index.ts";
 import {
   systemState,
@@ -55,16 +59,30 @@ const PORT = 3000;
 // Set up larger limit for full state synchronizations
 app.use(express.json({ limit: "20mb" }));
 
-// Enable CORS for frontend API calls
-app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-user-role");
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
-  }
-  next();
-});
+// JWT Secret Key configuration (loads from environment, fallback to secure random on the fly)
+const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
+
+// Set up proper CORS configuration
+const allowedOrigins = [
+  'http://localhost:8000',
+  'http://127.0.0.1:8000',
+  process.env.APP_URL
+].filter(Boolean) as string[];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    const isAllowed = allowedOrigins.some(allowed => allowed === origin || origin.startsWith(allowed));
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-user-role', 'x-user-id'],
+  credentials: true
+}));
 
 const DB_FILE = path.join(process.cwd(), "db_store.json");
 
@@ -448,18 +466,21 @@ export function sanitizeStateIds(obj: any): any {
 
 let isSavingFullState = false;
 let pendingSaveState: any = null;
+let saveTimeout: any = null;
+let lastSaveTime = 0;
+const DEBOUNCE_DELAY = 3000;
+const THROTTLE_LIMIT = 5000;
 
-// Synchronize application state to relational database tables
-export async function saveFullDatabaseState(dbState: any): Promise<void> {
-  dbState = sanitizeStateIds(dbState);
-  if (isSavingFullState) {
-    pendingSaveState = dbState;
-    return;
-  }
+let syncFailureCount = 0;
+let isSyncPausedUntil = 0;
+
+async function performDatabaseSync(dbState: any): Promise<void> {
   isSavingFullState = true;
+  lastSaveTime = Date.now();
 
   try {
-    await db.transaction(async (tx) => {
+    const tx = db;
+    // await db.transaction(async (tx) => {
     // 1. Courses
     if (dbState.courses) {
       const ids = dbState.courses.map((c: any) => c.id).filter(Boolean);
@@ -1103,16 +1124,62 @@ export async function saveFullDatabaseState(dbState: any): Promise<void> {
         });
       }
     }
-  });
+    // });
+    syncFailureCount = 0; // Reset on successful write
+  } catch (err: any) {
+    syncFailureCount++;
+    const backoffDelay = Math.min(30000 * Math.pow(2, syncFailureCount - 1), 300000);
+    isSyncPausedUntil = Date.now() + backoffDelay;
+    console.error(`[DB TUNER] Relational database synchronization failed (${syncFailureCount} consecutive failures). Pausing database writes for ${backoffDelay / 1000} seconds. Error:`, err);
+    throw err;
   } finally {
     isSavingFullState = false;
     if (pendingSaveState) {
       const nextState = pendingSaveState;
       pendingSaveState = null;
-      saveFullDatabaseState(nextState).catch(err => {
-        console.error("Failed to run queued saveFullDatabaseState:", err);
-      });
+      const timeSinceLastSave = Date.now() - lastSaveTime;
+      const delay = Math.max(0, DEBOUNCE_DELAY - timeSinceLastSave);
+      saveTimeout = setTimeout(() => {
+        performDatabaseSync(nextState).catch(err => {
+          console.error("[DB TUNER] Failed to run queued performDatabaseSync:", err);
+        });
+      }, delay);
     }
+  }
+}
+
+export async function saveFullDatabaseState(dbState: any): Promise<void> {
+  if (Date.now() < isSyncPausedUntil) {
+    // Silently bypass sync writes during backoff pause period
+    return;
+  }
+  dbState = sanitizeStateIds(dbState);
+  pendingSaveState = dbState;
+
+  if (saveTimeout) {
+    clearTimeout(saveTimeout);
+    saveTimeout = null;
+  }
+
+  if (isSavingFullState) {
+    return;
+  }
+
+  const timeSinceLastSave = Date.now() - lastSaveTime;
+  if (timeSinceLastSave >= THROTTLE_LIMIT) {
+    const nextState = pendingSaveState;
+    pendingSaveState = null;
+    performDatabaseSync(nextState).catch(err => {
+      console.error("[DB TUNER] Failed to run throttled database synchronization:", err);
+    });
+  } else {
+    const nextState = pendingSaveState;
+    pendingSaveState = null;
+    saveTimeout = setTimeout(() => {
+      performDatabaseSync(nextState).catch(err => {
+        console.error("[DB TUNER] Failed to run debounced database synchronization:", err);
+      });
+    }, DEBOUNCE_DELAY);
   }
 }
 
@@ -1122,10 +1189,25 @@ async function initPostgresDB() {
     if (!process.env.SQL_HOST || !process.env.SQL_PASSWORD || !process.env.SQL_USER || !process.env.SQL_DB_NAME) {
       throw new Error("Missing database environment variables (SQL_HOST, SQL_PASSWORD, SQL_USER, or SQL_DB_NAME). Please configure your local .env file.");
     }
-    const existing = await db.select().from(systemState).where(eq(systemState.id, 1));
+        const existing = await db.select().from(systemState).where(eq(systemState.id, 1));
     if (existing.length > 0) {
       cachedDb = await loadFullDatabaseState();
       console.log("Successfully loaded database state from PostgreSQL!");
+      
+      // Self-healing: If Postgres tables are empty but db_store.json contains mock data, bootstrap relational tables
+      if ((!cachedDb.students || cachedDb.students.length === 0) && fs.existsSync(DB_FILE)) {
+        console.log("[DB TUNER] PostgreSQL relational tables are empty. Bootstrapping/seeding from db_store.json...");
+        try {
+          const content = fs.readFileSync(DB_FILE, "utf-8");
+          const localDb = JSON.parse(content);
+          cachedDb = { ...localDb };
+          performDatabaseSync(cachedDb).catch(err => {
+            console.error("[DB TUNER] Failed to run self-healing bootstrap sync:", err);
+          });
+        } catch (e) {
+          console.error("[DB TUNER] Failed to read db_store.json for seeding:", e);
+        }
+      }
     } else {
       // Bootstrap from db_store.json or initialState
       let dbState: any = null;
@@ -1204,8 +1286,28 @@ function getDatabase() {
   return {};
 }
 
+// Helper to hash plain-text passcodes in memory before writing to DB
+function hashPasscodesInState(dbState: any) {
+  if (!dbState) return;
+  if (Array.isArray(dbState.students)) {
+    for (const s of dbState.students) {
+      if (s.passcode && typeof s.passcode === 'string' && !s.passcode.startsWith('$2b$') && !s.passcode.startsWith('$2a$') && !s.passcode.startsWith('$2y$')) {
+        s.passcode = bcrypt.hashSync(s.passcode, 10);
+      }
+    }
+  }
+  if (Array.isArray(dbState.lecturers)) {
+    for (const l of dbState.lecturers) {
+      if (l.passcode && typeof l.passcode === 'string' && !l.passcode.startsWith('$2b$') && !l.passcode.startsWith('$2a$') && !l.passcode.startsWith('$2y$')) {
+        l.passcode = bcrypt.hashSync(l.passcode, 10);
+      }
+    }
+  }
+}
+
 // Helper to save database state
 function saveDatabase(dbState: any) {
+  hashPasscodesInState(dbState);
   dbState = sanitizeStateIds(dbState);
   cachedDb = dbState;
   
@@ -1251,7 +1353,8 @@ function saveDatabase(dbState: any) {
 // Role-Based Access Control (RBAC) Protection Middleware
 function checkRBAC(allowedRoles: string[]) {
   return (req: any, res: any, next: any) => {
-    const userRole = req.headers["x-user-role"] || req.query.userRole;
+    // Only trust the verified role propagated from the JWT token header
+    const userRole = req.headers["x-user-role"];
     
     // Explicitly block students from administrative routes and restrict write access
     if (userRole === "student" && (req.path.startsWith("/api/admin") || req.path.startsWith("/admin"))) {
@@ -1284,6 +1387,67 @@ function checkRBAC(allowedRoles: string[]) {
     next();
   };
 }
+
+// JWT Verification Middleware
+function authenticateJWT(req: any, res: any, next: any) {
+  const authHeader = req.headers.authorization;
+  let token = null;
+  if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
+    token = authHeader.substring(7);
+  } else {
+    token = req.headers['x-session-token'] || req.query.token;
+  }
+
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      error: "Access Denied: Authentication token required. Please sign in."
+    });
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    req.user = decoded;
+    
+    // Propagate role and ID to headers for downstream compatibility
+    req.headers['x-user-role'] = decoded.role;
+    req.headers['x-user-id'] = decoded.userId;
+    
+    next();
+  } catch (err: any) {
+    return res.status(401).json({
+      success: false,
+      error: "Access Denied: Invalid or expired authentication token."
+    });
+  }
+}
+
+// Public API endpoints bypass list
+const publicAPIPaths = [
+  "/api/health",
+  "/api/auth/login",
+  "/api/auth/reset-request",
+  "/api/auth/reset-requests",
+  "/api/data"
+];
+
+// Mount JWT Protection Middleware globally across all /api routes except public endpoints
+app.use("/api", (req: any, res: any, next: any) => {
+  if (req.method === "OPTIONS") {
+    return next();
+  }
+  
+  const pathWithoutQuery = req.path.split('?')[0];
+  const fullPath = req.baseUrl + pathWithoutQuery;
+  const relativePath = '/api' + pathWithoutQuery;
+  
+  const isPublic = publicAPIPaths.includes(fullPath) || publicAPIPaths.includes(relativePath);
+  if (isPublic) {
+    return next();
+  }
+  
+  authenticateJWT(req, res, next);
+});
 
 // ==========================================
 // CORE API ROUTE HANDLERS
@@ -1508,20 +1672,48 @@ app.post("/api/auth/login", (req, res) => {
     return;
   }
 
+  // Input validation
+  if (typeof role !== 'string' || typeof userId !== 'string' || typeof passcode !== 'string') {
+    res.status(400).json({ success: false, error: "Invalid parameter types." });
+    return;
+  }
+
   const db = getDatabase();
+
+  // Helper to verify passcode and upgrade to bcrypt dynamically on success
+  const verifyAndMigratePasscode = (inputPasscode: string, storedHashOrPlain: string, updateCallback: (hashed: string) => void) => {
+    const isBcrypt = storedHashOrPlain.startsWith('$2b$') || storedHashOrPlain.startsWith('$2a$') || storedHashOrPlain.startsWith('$2y$');
+    if (isBcrypt) {
+      return bcrypt.compareSync(inputPasscode, storedHashOrPlain);
+    } else {
+      const match = inputPasscode === storedHashOrPlain;
+      if (match) {
+        const hashed = bcrypt.hashSync(inputPasscode, 10);
+        updateCallback(hashed);
+      }
+      return match;
+    }
+  };
 
   if (role === "admin") {
     if (userId !== "admin" && userId.toLowerCase() !== "admin@zenti.edu") {
       res.status(401).json({ success: false, error: "Invalid administrative username identification." });
       return;
     }
-    const adminPin = "admin123"; // Admin generated credentials
-    if (passcode === adminPin) {
+    const adminPin = process.env.ADMIN_PASSCODE || "admin123";
+    const isMatch = verifyAndMigratePasscode(passcode, adminPin, () => {});
+    
+    if (isMatch) {
+      const token = jwt.sign(
+        { userId: "admin", role: "admin", email: "admin@zenti.edu" },
+        JWT_SECRET,
+        { expiresIn: "24h" }
+      );
       res.json({
         success: true,
         role: "admin",
         userId: "admin",
-        token: "session-token-admin-master-777",
+        token: token,
         profile: { name: "System Administrator", email: "admin@zenti.edu" }
       });
     } else {
@@ -1542,12 +1734,22 @@ app.post("/api/auth/login", (req, res) => {
       return;
     }
     const expectedPin = accountantLecturer.passcode || "acc123";
-    if (passcode === expectedPin) {
+    const isMatch = verifyAndMigratePasscode(passcode, expectedPin, (hashed) => {
+      accountantLecturer.passcode = hashed;
+      saveDatabase(db);
+    });
+
+    if (isMatch) {
+      const token = jwt.sign(
+        { userId: accountantLecturer.id, role: "accountant", email: accountantLecturer.email },
+        JWT_SECRET,
+        { expiresIn: "24h" }
+      );
       res.json({
         success: true,
         role: "accountant",
         userId: accountantLecturer.id,
-        token: `session-token-accountant-${accountantLecturer.id}`,
+        token: token,
         profile: accountantLecturer
       });
     } else {
@@ -1568,12 +1770,22 @@ app.post("/api/auth/login", (req, res) => {
       return;
     }
     const expectedPin = librarianLecturer.passcode || "lib123";
-    if (passcode === expectedPin) {
+    const isMatch = verifyAndMigratePasscode(passcode, expectedPin, (hashed) => {
+      librarianLecturer.passcode = hashed;
+      saveDatabase(db);
+    });
+
+    if (isMatch) {
+      const token = jwt.sign(
+        { userId: librarianLecturer.id, role: "librarian", email: librarianLecturer.email },
+        JWT_SECRET,
+        { expiresIn: "24h" }
+      );
       res.json({
         success: true,
         role: "librarian",
         userId: librarianLecturer.id,
-        token: `session-token-librarian-${librarianLecturer.id}`,
+        token: token,
         profile: librarianLecturer
       });
     } else {
@@ -1593,12 +1805,22 @@ app.post("/api/auth/login", (req, res) => {
       return;
     }
     const expectedPin = studentRecord.passcode || "student123";
-    if (passcode === expectedPin) {
+    const isMatch = verifyAndMigratePasscode(passcode, expectedPin, (hashed) => {
+      studentRecord.passcode = hashed;
+      saveDatabase(db);
+    });
+
+    if (isMatch) {
+      const token = jwt.sign(
+        { userId: studentRecord.id, role: "student", email: studentRecord.email },
+        JWT_SECRET,
+        { expiresIn: "24h" }
+      );
       res.json({
         success: true,
         role: "student",
         userId: studentRecord.id,
-        token: `session-token-student-${studentRecord.id}`,
+        token: token,
         profile: studentRecord
       });
     } else {
@@ -1619,12 +1841,22 @@ app.post("/api/auth/login", (req, res) => {
       return;
     }
     const expectedPin = lecturerRecord.passcode || "staff123";
-    if (passcode === expectedPin) {
+    const isMatch = verifyAndMigratePasscode(passcode, expectedPin, (hashed) => {
+      lecturerRecord.passcode = hashed;
+      saveDatabase(db);
+    });
+
+    if (isMatch) {
+      const token = jwt.sign(
+        { userId: lecturerRecord.id, role: "lecturer", email: lecturerRecord.email },
+        JWT_SECRET,
+        { expiresIn: "24h" }
+      );
       res.json({
         success: true,
         role: "lecturer",
         userId: lecturerRecord.id,
-        token: `session-token-lecturer-${lecturerRecord.id}`,
+        token: token,
         profile: lecturerRecord
       });
     } else {
@@ -1644,7 +1876,25 @@ app.post("/api/auth/change-passcode", (req, res) => {
     return;
   }
 
+  if (typeof role !== 'string' || typeof userId !== 'string' || typeof currentPasscode !== 'string' || typeof newPasscode !== 'string') {
+    res.status(400).json({ success: false, error: "Invalid parameter types." });
+    return;
+  }
+
+  if (newPasscode.length < 6) {
+    res.status(400).json({ success: false, error: "New passcode must be at least 6 characters." });
+    return;
+  }
+
   const db = getDatabase();
+
+  const verifyPasscode = (inputPasscode: string, storedHashOrPlain: string) => {
+    const isBcrypt = storedHashOrPlain.startsWith('$2b$') || storedHashOrPlain.startsWith('$2a$') || storedHashOrPlain.startsWith('$2y$');
+    if (isBcrypt) {
+      return bcrypt.compareSync(inputPasscode, storedHashOrPlain);
+    }
+    return inputPasscode === storedHashOrPlain;
+  };
 
   if (role === "student") {
     const studentIdx = (db.students || []).findIndex((s: any) => s.id === userId);
@@ -1654,11 +1904,11 @@ app.post("/api/auth/change-passcode", (req, res) => {
     }
     const student = db.students[studentIdx];
     const expected = student.passcode || "student123";
-    if (currentPasscode !== expected) {
+    if (!verifyPasscode(currentPasscode, expected)) {
       res.status(401).json({ success: false, error: "Incorrect current passcode." });
       return;
     }
-    db.students[studentIdx].passcode = newPasscode;
+    db.students[studentIdx].passcode = bcrypt.hashSync(newPasscode, 10);
     saveDatabase(db);
     res.json({ success: true, message: "Passcode updated successfully." });
     return;
@@ -1677,11 +1927,11 @@ app.post("/api/auth/change-passcode", (req, res) => {
       else if (lecturer.isLibrarian || lecturer.id === "l3") expected = "lib123";
       else expected = "staff123";
     }
-    if (currentPasscode !== expected) {
+    if (!verifyPasscode(currentPasscode, expected)) {
       res.status(401).json({ success: false, error: "Incorrect current passcode." });
       return;
     }
-    db.lecturers[lecturerIdx].passcode = newPasscode;
+    db.lecturers[lecturerIdx].passcode = bcrypt.hashSync(newPasscode, 10);
     saveDatabase(db);
     res.json({ success: true, message: "Passcode updated successfully." });
     return;
@@ -2184,9 +2434,23 @@ app.post("/api/student-enrollments", async (req, res) => {
       })
       .returning();
 
-    // Sync database cache
-    const fullDb = await loadFullDatabaseState();
-    saveDatabase(fullDb);
+    // Update cache in memory and local file directly to avoid slow db sync locks
+    if (cachedDb && cachedDb.students) {
+      const student = cachedDb.students.find((s: any) => s.id === studentId);
+      if (student) {
+        if (!student.enrolledUnits) {
+          student.enrolledUnits = [];
+        }
+        if (!student.enrolledUnits.includes(courseCode)) {
+          student.enrolledUnits.push(courseCode);
+        }
+      }
+    }
+    try {
+      fs.writeFileSync(DB_FILE, JSON.stringify(cachedDb, null, 2), "utf-8");
+    } catch (e) {
+      console.error("Error writing fallback db_store.json", e);
+    }
 
     res.status(201).json(enrollment);
   } catch (error: any) {

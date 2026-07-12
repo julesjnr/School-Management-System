@@ -13,6 +13,7 @@ import { subjectMap } from '../data';
 import GlobalSearchBar from './GlobalSearchBar';
 import FinanceSuite from './FinanceSuite';
 import LibraryHQ from './LibraryHQ';
+import { toast } from 'react-hot-toast';
 import SystemDiagnostics from './SystemDiagnostics';
 import StudentAdmissionDossierStation from './StudentAdmissionDossierStation';
 import { 
@@ -105,14 +106,14 @@ export default function AdminDashboard({
     return 'overview';
   });
 
-  const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: 'success' | 'error' | 'info' }>>([]);
-
   const triggerToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
-    const id = Math.random().toString(36).substring(2, 9);
-    setToasts((prev) => [...prev, { id, message, type }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 3500);
+    if (type === 'success') {
+      toast.success(message);
+    } else if (type === 'error') {
+      toast.error(message);
+    } else {
+      toast(message);
+    }
   };
 
   const [financeSubTab, setFinanceSubTab] = useState<'revenue' | 'vouchers' | 'budgets' | 'payroll' | 'audit'>('revenue');
@@ -668,17 +669,17 @@ export default function AdminDashboard({
     setNewCode('');
     setNewDesc('');
     setNewFees('');
-    alert(`Course "${newTitle}" registered successfully! It is now published live on the public landing page.`);
+    triggerToast(`Course "${newTitle}" registered successfully! It is now published live on the public landing page.`, 'success');
   };
 
   const handleAllocateSubjectSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!allocateLecturerId || !allocateSubjectCode) {
-      alert('Please choose matching lecturer and class module codes.');
+      triggerToast('Please choose matching lecturer and class module codes.', 'error');
       return;
     }
     onAllocateSubject(allocateLecturerId, allocateSubjectCode);
-    alert('Subject allocated successfully. Module added to targeted lecturer.');
+    triggerToast('Subject allocated successfully. Module added to targeted lecturer.', 'success');
     setAllocateLecturerId('');
     setAllocateSubjectCode('');
   };
@@ -794,32 +795,6 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
   return (
     <div className="min-h-screen flex bg-slate-50 dark:bg-slate-950 font-sans transition-colors duration-300 w-full animate-fade-in" id="admin-dashboard-root">
       
-      {/* TOAST NOTIFICATION CONTAINER */}
-      <div className="fixed top-6 right-6 z-100 space-y-3 pointer-events-none max-w-sm w-full font-sans">
-        {toasts.map((t) => {
-          return (
-            <div
-              key={t.id}
-              className={`p-4 rounded-2xl shadow-xl border flex items-center gap-3 transition-all duration-300 transform translate-y-0 animate-fade-in pointer-events-auto ${
-                t.type === 'success' 
-                  ? 'bg-emerald-50 border-emerald-200 text-emerald-950 dark:bg-slate-900 dark:border-emerald-500/20 dark:text-emerald-400'
-                  : t.type === 'error'
-                  ? 'bg-rose-50 border-rose-200 text-rose-950 dark:bg-slate-900 dark:border-rose-500/20 dark:text-rose-400'
-                  : 'bg-indigo-50 border-indigo-200 text-indigo-950 dark:bg-slate-900 dark:border-indigo-500/20 dark:text-indigo-400'
-              }`}
-            >
-              {t.type === 'success' ? (
-                <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              ) : t.type === 'error' ? (
-                <AlertCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0" />
-              ) : (
-                <Info className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-              )}
-              <span className="text-xs font-bold leading-normal">{t.message}</span>
-            </div>
-          );
-        })}
-      </div>
       {/* LEFT SIDEBAR NAVIGATION */}
       <aside className="w-64 bg-slate-900 dark:bg-slate-950 text-slate-300 flex flex-col border-r border-slate-800 shrink-0 hidden md:flex font-sans">
         {/* Brand Header */}

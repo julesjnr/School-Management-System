@@ -189,7 +189,12 @@ export default function App() {
       })
       .then((db) => {
         if (db) {
-          if (db.courses) setCourses(db.courses);
+          if (db.courses) {
+            setCourses(db.courses);
+            db.courses.forEach((c: any) => {
+              subjectMap[c.code] = c.title;
+            });
+          }
           if (db.lecturers) setLecturers(db.lecturers);
           if (db.students) setStudents(db.students);
           if (db.expenses) setExpenses(db.expenses);
@@ -251,7 +256,7 @@ export default function App() {
       .finally(() => {
         setIsBooting(false);
       });
-  }, []);
+  }, [currentUserRole]);
 
   // Synchronize local session configuration back to localStorage
   useEffect(() => {
@@ -259,6 +264,7 @@ export default function App() {
       localStorage.setItem("zenti_current_user_role", currentUserRole);
     } else {
       localStorage.removeItem("zenti_current_user_role");
+      localStorage.removeItem("zenti_session_token");
     }
   }, [currentUserRole]);
 
@@ -267,6 +273,7 @@ export default function App() {
       localStorage.setItem("zenti_current_user_id", currentUserId);
     } else {
       localStorage.removeItem("zenti_current_user_id");
+      localStorage.removeItem("zenti_session_token");
     }
   }, [currentUserId]);
 
