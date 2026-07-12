@@ -1,10 +1,18 @@
+<<<<<<< HEAD
 # Zenti Portal — School Management System
 
 A full-stack, multi-role school management platform. It brings academics, finance, and the library under one roof, with a dashboard tailored to each type of user.
+=======
+
+>>>>>>> 13639d3ac553372c9f6d5523404c69ffd816f8b3
 
 ## What it does
 
+<<<<<<< HEAD
 Zenti Portal handles the day-to-day running of an institution:
+=======
+
+>>>>>>> 13639d3ac553372c9f6d5523404c69ffd816f8b3
 
 - **Academics** — course catalog, student enrollment, attendance, grading, exam papers, and degree progress tracking
 - **Finance** — student invoices, payments, ledgers, and expense/requisition tracking for the accounts team
@@ -15,6 +23,7 @@ Zenti Portal handles the day-to-day running of an institution:
 
 The system supports five roles, each with its own dashboard and permissions:
 
+<<<<<<< HEAD
 | Role | Can do |
 |---|---|
 | **Student** | View courses, grades, invoices, attendance, and the library |
@@ -113,3 +122,10 @@ Full data model (tables, keys, and constraints) is documented in `backend/databa
 
 - Data can sync to Supabase (Postgres) in addition to the local JSON store used for quick local testing (`db_store.json`).
 - Authentication uses JWTs with bcrypt-hashed passwords and role-based endpoint protection.
+=======
+1. Install dependencies:
+
+3. Run the app:   `npm install`
+2. Set 
+   `npm run dev`
+>>>>>>> 13639d3ac553372c9f6d5523404c69ffd816f8b3
