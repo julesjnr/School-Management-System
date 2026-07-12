@@ -21,9 +21,7 @@ Zenti Portal handles the day-to-day running of an institution:
 ## Who uses it
 
 The system supports five roles, each with its own dashboard and permissions:
-
-<<<<<<< HEAD
-| Role | Can do |
+| what the system Can do |
 |---|---|
 | **Student** | View courses, grades, invoices, attendance, and the library |
 | **Lecturer** | Manage courses, grade students, log office hours, publish research |
@@ -121,7 +119,7 @@ Full data model (tables, keys, and constraints) is documented in `backend/databa
 
 - Data can sync to Supabase (Postgres) in addition to the local JSON store used for quick local testing (`db_store.json`).
 - Authentication uses JWTs with bcrypt-hashed passwords and role-based endpoint protection.
-=======
+
 1. Install dependencies:
 
 3. Run the app:   `npm install`
