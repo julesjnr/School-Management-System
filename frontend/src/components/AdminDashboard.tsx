@@ -7,7 +7,7 @@ import {
   BookOpen, Users, DollarSign, Package, FileText, Plus, CheckCircle2, 
   AlertCircle, Bookmark, ClipboardCheck, ArrowRight, Save, Trash2, Check, X,
   Shield, Lock, Fingerprint, Library, Link, Copy, KeyRound, RefreshCw,
-  TrendingUp, Calendar, Clock, MapPin, UserCheck, AlertTriangle, Info, School, Landmark, Sliders, Award, Activity, User, LogOut
+  TrendingUp, Calendar, Clock, MapPin, UserCheck, AlertTriangle, Info, School, Landmark, Sliders, Award, Activity, User, LogOut, Menu
 } from 'lucide-react';
 import { subjectMap } from '../data';
 import GlobalSearchBar from './GlobalSearchBar';
@@ -105,6 +105,7 @@ export default function AdminDashboard({
     if (isAccountantView) return 'finances';
     return 'overview';
   });
+  const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
   const triggerToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
     if (type === 'success') {
@@ -795,6 +796,119 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
   return (
     <div className="min-h-screen flex bg-slate-50 dark:bg-slate-950 font-sans transition-colors duration-300 w-full animate-fade-in" id="admin-dashboard-root">
       
+      {/* MOBILE NAVIGATION DRAWER */}
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-50 flex md:hidden font-sans">
+          {/* Backdrop */}
+          <button 
+            type="button" 
+            onClick={() => setMobileMenuOpen(false)}
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity cursor-default border-none w-full h-full"
+            aria-label="Close Menu"
+          />
+          
+          {/* Drawer Content */}
+          <div className="relative flex w-full max-w-xs flex-col bg-slate-900 dark:bg-slate-950 p-6 text-slate-300 shadow-xl focus:outline-none z-10">
+            {/* Close Button */}
+            <button 
+              type="button; cursor-pointer"
+              onClick={() => setMobileMenuOpen(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white p-2 rounded-full cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Brand Header */}
+            <div className="pb-6 border-b border-slate-800 flex items-center gap-2 mb-4">
+              <div className="w-8 h-8 bg-slate-800 rounded-lg flex items-center justify-center shrink-0 border border-slate-700">
+                <School className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <span className="text-sm font-black tracking-tight text-white block uppercase leading-none">ZENTI</span>
+                <span className="text-[8px] text-slate-500 font-bold uppercase tracking-widest block">Admin Console</span>
+              </div>
+            </div>
+
+            {/* Navigation Menu */}
+            <nav className="flex-1 space-y-1.5 overflow-y-auto pr-2">
+              {isLibrarianView ? (
+                <button type="button" onClick={() => { setActiveTab('library'); setMobileMenuOpen(false); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold bg-amber-600 text-white shadow-md uppercase tracking-wider cursor-pointer">
+                  <Library className="w-4 h-4" />
+                  <span>Library Registry</span>
+                </button>
+              ) : isAccountantView ? (
+                <>
+                  <button type="button" onClick={() => { setActiveTab('finances'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'finances' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                    <Landmark className="w-4 h-4" />
+                    <span>Ledger & Finances</span>
+                  </button>
+                  <button type="button" onClick={() => { setActiveTab('payroll'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'payroll' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                    <DollarSign className="w-4 h-4" />
+                    <span>HR & Payroll</span>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button type="button" onClick={() => { setActiveTab('overview'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'overview' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                    <Sliders className="w-4 h-4" />
+                    <span>Overview</span>
+                  </button>
+                  <button type="button" onClick={() => { setActiveTab('academics'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'academics' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                    <Award className="w-4 h-4" />
+                    <span>Academics Allocation</span>
+                  </button>
+                  <button type="button" onClick={() => { setActiveTab('finances'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'finances' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                    <Landmark className="w-4 h-4" />
+                    <span>Ledger & Finances</span>
+                  </button>
+                  <button type="button" onClick={() => { setActiveTab('payroll'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'payroll' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                    <DollarSign className="w-4 h-4" />
+                    <span>HR & Payroll</span>
+                  </button>
+                  <button type="button" onClick={() => { setActiveTab('inventory'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'inventory' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                    <Activity className="w-4 h-4" />
+                    <span>Procurement Stock</span>
+                  </button>
+                  <button type="button" onClick={() => { setActiveTab('roles'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'roles' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                    <User className="w-4 h-4" />
+                    <span>Role Management</span>
+                  </button>
+                  <button type="button" onClick={() => { setActiveTab('library'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'library' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                    <Library className="w-4 h-4" />
+                    <span>Library Registry</span>
+                  </button>
+                  <button type="button" onClick={() => { setActiveTab('diagnostics'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'diagnostics' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Diagnostics</span>
+                  </button>
+                </>
+              )}
+            </nav>
+
+            {/* Profile Info & Logout */}
+            <div className="p-4 border-t border-slate-800/60 bg-slate-950/40 space-y-3 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-slate-800 text-white flex items-center justify-center font-bold text-sm shrink-0 border border-slate-700">
+                  {isLibrarianView ? 'L' : isAccountantView ? 'A' : 'M'}
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white leading-none">
+                    {isLibrarianView ? 'Sarah Kendi' : isAccountantView ? 'Grace Wanjiku' : 'Admin Master'}
+                  </h4>
+                  <span className="text-[9px] text-slate-500 font-mono block mt-1">
+                    {isLibrarianView ? 'Librarian' : isAccountantView ? 'Accountant' : 'Administrator'}
+                  </span>
+                </div>
+              </div>
+              <button type="button" onClick={() => { setMobileMenuOpen(false); onLogout(); }} className="w-full py-2.5 bg-slate-800 hover:bg-rose-955/30 hover:text-rose-455 text-slate-400 hover:text-white text-xs font-bold rounded-lg uppercase tracking-wider transition-colors flex items-center justify-center gap-1.5 cursor-pointer">
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Logout Portal</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* LEFT SIDEBAR NAVIGATION */}
       <aside className="w-64 bg-slate-900 dark:bg-slate-950 text-slate-300 flex flex-col border-r border-slate-800 shrink-0 hidden md:flex font-sans">
         {/* Brand Header */}
@@ -891,7 +1005,15 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
         {/* TOP UTILITY BAR */}
         <header className="bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-2xs shrink-0 font-sans">
           <div className="flex items-center gap-3">
-            <div className="space-y-0.5 text-center sm:text-left">
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(true)}
+              className="md:hidden p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 dark:text-slate-400 cursor-pointer"
+              title="Toggle Menu"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <div className="space-y-0.5 text-left">
               <h2 className="text-[9px] font-bold text-slate-450 uppercase tracking-widest leading-none font-mono">Restricted MIS Console</h2>
               <h1 className="text-base font-black text-slate-800 dark:text-white leading-tight font-display">
                 {isLibrarianView ? 'Archival & Textbook Catalog' : isAccountantView ? 'Billing & Ledger Registry' : 'Master School Management'}

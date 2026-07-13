@@ -6,7 +6,7 @@ import fs from "fs";
 import crypto from "crypto";
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import cors from 'cors';
+import { createCorsMiddleware } from "./src/cors.ts";
 import { db } from "./src/db/index.ts";
 import {
   systemState,
@@ -62,27 +62,8 @@ app.use(express.json({ limit: "20mb" }));
 // JWT Secret Key configuration (loads from environment, fallback to secure random on the fly)
 const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
 
-// Set up proper CORS configuration
-const allowedOrigins = [
-  'http://localhost:8000',
-  'http://127.0.0.1:8000',
-  process.env.APP_URL
-].filter(Boolean) as string[];
-
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    const isAllowed = allowedOrigins.some(allowed => allowed === origin || origin.startsWith(allowed));
-    if (isAllowed) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-user-role', 'x-user-id'],
-  credentials: true
-}));
+// CORS must be enabled on the API layer that serves database routes.
+app.use(createCorsMiddleware());
 
 const DB_FILE = path.join(process.cwd(), "db_store.json");
 

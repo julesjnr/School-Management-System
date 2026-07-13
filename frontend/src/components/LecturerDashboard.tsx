@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Award, Calendar, BookOpen, Clock, 
   CheckCircle2, Save, FileSpreadsheet, Plus, 
-  DollarSign, Activity, AlertCircle, Sparkles, LogOut, ChevronDown, Trash2, User, Sliders, X,
+  DollarSign, Activity, AlertCircle, Sparkles, LogOut, ChevronDown, Trash2, User, Sliders, X, Menu,
   Megaphone, UserCheck, MapPin, School, ArrowRight
  } from 'lucide-react';
 import { Lecturer, Student, Grade, Course, StockItem, Book, LMSReadingList, TeacherResource, BookRequest, AttendanceSession } from '../types';
@@ -73,6 +73,7 @@ export default function LecturerDashboard({
   onLogout
 }: LecturerDashboardProps) {
   const [activeTab, setActiveTab] = useState<'workstation' | 'grading' | 'schedule' | 'attendance' | 'profile' | 'books'>('workstation');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
   const [timerSeconds, setTimerSeconds] = useState<number>(1500);
   const [timerActive, setTimerActive] = useState<boolean>(false);
@@ -338,6 +339,87 @@ export default function LecturerDashboard({
 
   return (
     <div className="min-h-screen flex bg-slate-50 dark:bg-slate-950 font-sans transition-colors duration-300 w-full animate-fade-in" id="lecturer-dashboard-root">
+      {/* MOBILE NAVIGATION DRAWER */}
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-50 flex md:hidden font-sans">
+          {/* Backdrop */}
+          <button 
+            type="button" 
+            onClick={() => setMobileMenuOpen(false)}
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity cursor-default border-none w-full h-full"
+            aria-label="Close Menu"
+          />
+          
+          {/* Drawer Content */}
+          <div className="relative flex w-full max-w-xs flex-col bg-slate-900 dark:bg-slate-950 p-6 text-slate-300 shadow-xl focus:outline-none z-10">
+            {/* Close Button */}
+            <button 
+              type="button"
+              onClick={() => setMobileMenuOpen(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white p-2 rounded-full cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Brand Header */}
+            <div className="pb-6 border-b border-slate-800 flex items-center gap-2 mb-4">
+              <div className="w-8 h-8 bg-violet-650 rounded-lg flex items-center justify-center shrink-0">
+                <School className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <span className="text-sm font-black tracking-tight text-white block uppercase leading-none">ZENTI</span>
+                <span className="text-[8px] text-slate-500 font-bold uppercase tracking-widest block">Faculty Portal</span>
+              </div>
+            </div>
+
+            {/* Navigation Menu */}
+            <nav className="flex-1 space-y-1.5 overflow-y-auto pr-2">
+              <button type="button" onClick={() => { setActiveTab('workstation'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'workstation' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                <Sliders className="w-4 h-4" />
+                <span>My Workstation</span>
+              </button>
+              <button type="button" onClick={() => { setActiveTab('grading'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'grading' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                <Award className="w-4 h-4" />
+                <span>Assess & Grade</span>
+              </button>
+              <button type="button" onClick={() => { setActiveTab('schedule'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'schedule' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                <Calendar className="w-4 h-4" />
+                <span>Subjects Roster</span>
+              </button>
+              <button type="button" onClick={() => { setActiveTab('attendance'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'attendance' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                <UserCheck className="w-4 h-4" />
+                <span>Attendance Log</span>
+              </button>
+              <button type="button" onClick={() => { setActiveTab('profile'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'profile' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                <User className="w-4 h-4" />
+                <span>Faculty Profile</span>
+              </button>
+              <button type="button" onClick={() => { setActiveTab('books'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'books' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                <BookOpen className="w-4 h-4" />
+                <span>Reading Lists</span>
+              </button>
+            </nav>
+
+            {/* Profile Info & Logout */}
+            <div className="p-4 border-t border-slate-800/60 bg-slate-950/40 space-y-3 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-violet-650 text-white flex items-center justify-center font-bold text-sm shrink-0">
+                  {lecturer.name.charAt(0)}
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white leading-none">{lecturer.name}</h4>
+                  <span className="text-[9px] text-slate-500 font-mono block mt-1">{lecturer.designatorCode}</span>
+                </div>
+              </div>
+              <button type="button" onClick={() => { setMobileMenuOpen(false); onLogout(); }} className="w-full py-2.5 bg-slate-800 hover:bg-rose-955/30 hover:text-rose-450 text-slate-400 hover:text-white text-xs font-bold rounded-lg uppercase tracking-wider transition-colors flex items-center justify-center gap-1.5 cursor-pointer">
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Logout Portal</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* LEFT SIDEBAR NAVIGATION */}
       <aside className="w-64 bg-slate-900 dark:bg-slate-950 text-slate-300 flex flex-col border-r border-slate-800 shrink-0 hidden md:flex font-sans">
         {/* Brand Header */}
@@ -402,7 +484,15 @@ export default function LecturerDashboard({
         {/* TOP UTILITY BAR */}
         <header className="bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-2xs shrink-0 font-sans">
           <div className="flex items-center gap-3">
-            <div className="space-y-0.5 text-center sm:text-left">
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(true)}
+              className="md:hidden p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 dark:text-slate-400 cursor-pointer"
+              title="Toggle Menu"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <div className="space-y-0.5 text-left">
               <h2 className="text-[9px] font-bold text-slate-450 uppercase tracking-widest leading-none font-mono font-sans">Faculty Command Console</h2>
               <h1 className="text-base font-black text-slate-800 dark:text-white leading-tight">Welcome, Prof. {lecturer.name.split(' ').pop()}</h1>
             </div>

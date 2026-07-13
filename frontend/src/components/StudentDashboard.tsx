@@ -5,7 +5,7 @@ import {
   Trash2, Landmark, Smartphone, Coins, ListFilter, Plus, RefreshCw,
   Printer, Sliders, TrendingUp, TrendingDown, Gauge, Calculator, Clock, Calendar,
   GripVertical, ChevronUp, ChevronDown, ArrowRight, UserCheck, Camera, X, CameraOff,
-  Search, MapPin, ArrowUpRight, School, Library
+  Search, MapPin, ArrowUpRight, School, Library, Menu, LogOut
 } from 'lucide-react';
 import { Student, Course, Grade, Invoice, Payment, StockItem, Lecturer, CourseReview, Book, Loan, Reservation, LMSReadingList, BookReview, BookRequest, ExamPaper, LibraryGateLog, AttendanceSession } from '../types';
 import { subjectMap } from '../data';
@@ -99,6 +99,7 @@ export default function StudentDashboard({
   onLogout
 }: StudentDashboardProps) {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'grades' | 'financials' | 'materials' | 'units' | 'officeHours' | 'library'>('dashboard');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
   const [timerSeconds, setTimerSeconds] = useState<number>(1500);
   const [timerActive, setTimerActive] = useState<boolean>(false);
@@ -665,6 +666,95 @@ export default function StudentDashboard({
 
   return (
     <div className="min-h-screen flex bg-slate-50 dark:bg-slate-950 font-sans transition-colors duration-300 w-full animate-fade-in" id="student-dashboard-root">
+      {/* MOBILE NAVIGATION DRAWER */}
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-50 flex md:hidden font-sans">
+          {/* Backdrop */}
+          <button 
+            type="button" 
+            onClick={() => setMobileMenuOpen(false)}
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity cursor-default border-none w-full h-full"
+            aria-label="Close Menu"
+          />
+          
+          {/* Drawer Content */}
+          <div className="relative flex w-full max-w-xs flex-col bg-slate-900 dark:bg-slate-950 p-6 text-slate-300 shadow-xl focus:outline-none z-10">
+            {/* Close Button */}
+            <button 
+              type="button"
+              onClick={() => setMobileMenuOpen(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white p-2 rounded-full cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Brand Header */}
+            <div className="pb-6 border-b border-slate-800 flex items-center gap-2 mb-4">
+              <div className="w-8 h-8 bg-blue-650 rounded-lg flex items-center justify-center shrink-0">
+                <School className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <span className="text-sm font-black tracking-tight text-white block uppercase leading-none">ZENTI</span>
+                <span className="text-[8px] text-slate-500 font-bold uppercase tracking-widest block">Student Portal</span>
+              </div>
+            </div>
+
+            {/* Navigation Menu */}
+            <nav className="flex-1 space-y-1.5 overflow-y-auto pr-2">
+              <button type="button" onClick={() => { setActiveTab('dashboard'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'dashboard' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                <Sliders className="w-4 h-4" />
+                <span>My Dashboard</span>
+              </button>
+              <button type="button" onClick={() => { setActiveTab('grades'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'grades' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                <Award className="w-4 h-4" />
+                <span>Academic Marks</span>
+              </button>
+              <button type="button" onClick={() => { setActiveTab('financials'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'financials' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                <Landmark className="w-4 h-4" />
+                <span>My Financials</span>
+              </button>
+              <button type="button" onClick={() => { setActiveTab('materials'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'materials' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                <BookOpen className="w-4 h-4" />
+                <span>Supplementary</span>
+              </button>
+              <button type="button" onClick={() => { setActiveTab('units'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'units' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                <Plus className="w-4 h-4" />
+                <span>Unit Register</span>
+              </button>
+              <button type="button" onClick={() => { setActiveTab('officeHours'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'officeHours' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                <Clock className="w-4 h-4" />
+                <span>Office Hours</span>
+              </button>
+              <button type="button" onClick={() => { setActiveTab('library'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'library' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                <Library className="w-4 h-4" />
+                <span>Library HQ</span>
+              </button>
+            </nav>
+
+            {/* Profile Info & Logout */}
+            <div className="p-4 border-t border-slate-800/60 bg-slate-950/40 space-y-3 shrink-0">
+              <div className="flex items-center gap-3">
+                {student.avatar ? (
+                  <img src={student.avatar} alt={student.name} className="w-9 h-9 rounded-lg object-cover border border-slate-700" referrerPolicy="no-referrer" />
+                ) : (
+                  <div className="w-9 h-9 rounded-lg bg-blue-650 text-white flex items-center justify-center font-bold text-sm shrink-0">
+                    {student.name.charAt(0)}
+                  </div>
+                )}
+                <div>
+                  <h4 className="text-xs font-bold text-white leading-none">{student.name}</h4>
+                  <span className="text-[9px] text-slate-500 font-mono block mt-1">{student.admissionNo}</span>
+                </div>
+              </div>
+              <button type="button" onClick={() => { setMobileMenuOpen(false); onLogout(); }} className="w-full py-2.5 bg-slate-800 hover:bg-rose-955/30 hover:text-rose-455 text-slate-400 hover:text-white text-xs font-bold rounded-lg uppercase tracking-wider transition-colors flex items-center justify-center gap-1.5 cursor-pointer">
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Logout Portal</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* LEFT SIDEBAR NAVIGATION */}
       <aside className="w-64 bg-slate-900 dark:bg-slate-950 text-slate-300 flex flex-col border-r border-slate-800 shrink-0 hidden md:flex font-sans">
         {/* Brand Header */}

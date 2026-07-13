@@ -4,13 +4,24 @@ import App from './App.tsx';
 import './index.css';
 import { Toaster } from 'react-hot-toast';
 
-// Global Fetch Interceptor to attach JWT token
+// Global Fetch Interceptor to attach JWT token and bypass ngrok warning
 const originalFetch = window.fetch;
 window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+  init = init || {};
+  init.headers = init.headers || {};
+
+  // Add ngrok bypass header to all requests
+  if (init.headers instanceof Headers) {
+    init.headers.set('ngrok-skip-browser-warning', 'true');
+  } else if (Array.isArray(init.headers)) {
+    init.headers.push(['ngrok-skip-browser-warning', 'true']);
+  } else {
+    const headersRecord = init.headers as Record<string, string>;
+    headersRecord['ngrok-skip-browser-warning'] = 'true';
+  }
+
   const token = localStorage.getItem('zenti_session_token');
   if (token) {
-    init = init || {};
-    init.headers = init.headers || {};
     if (init.headers instanceof Headers) {
       if (!init.headers.has('Authorization')) {
         init.headers.set('Authorization', `Bearer ${token}`);
