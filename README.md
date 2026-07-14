@@ -9,9 +9,6 @@ A full-stack, multi-role school management platform. It brings academics, financ
 A full-stack, multi-role school management platform. It brings academics, finance, and the library under one roof, with a dashboard tailored to each type of user.
 
 
-
->>>>>>> 07d6213a18a425ef6ac2efb3aadc6974a0115e3c
-
 ## What it does
 
 Zenti Portal handles the day-to-day running of an institution:
