@@ -23,9 +23,9 @@ The system supports five roles, each with its own dashboard and permissions:
 <<<<<<< HEAD
 
 | Role | Can do |
-=======
+
 | what the system Can do |
->>>>>>> 07d6213a18a425ef6ac2efb3aadc6974a0115e3c
+
 |---|---|
 | **Student** | View courses, grades, invoices, attendance, and the library |
 | **Lecturer** | Manage courses, grade students, log office hours, publish research |
