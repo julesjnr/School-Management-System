@@ -28,6 +28,7 @@ import AdminDashboard from './components/AdminDashboard';
 import LoginModal from './components/LoginModal';
 import Forbidden403 from './components/Forbidden403';
 import DashboardShowcase from './components/DashboardShowcase';
+import SessionTimeout from './components/SessionTimeout';
 
 export default function App() {
   const [darkMode, setDarkMode] = useState<boolean>(() => {
@@ -146,6 +147,20 @@ export default function App() {
   });
 
   const [currentPath, setCurrentPath] = useState<string>(() => window.location.pathname || '/');
+
+  const [sessionExpiredMessage, setSessionExpiredMessage] = useState<string>('');
+
+  useEffect(() => {
+    const handleExpired = () => {
+      setCurrentUserRole(null);
+      setCurrentUserId("");
+      setSessionExpiredMessage("Your session has expired due to inactivity. Please log in again.");
+      window.history.pushState({}, '', '/login');
+      setCurrentPath('/login');
+    };
+    window.addEventListener('zenti-session-expired', handleExpired);
+    return () => window.removeEventListener('zenti-session-expired', handleExpired);
+  }, []);
 
   useEffect(() => {
     const handleLocationChange = () => {
@@ -1421,7 +1436,9 @@ Zenti Library Services`;
           <LoginPage
             students={students}
             lecturers={lecturers}
+            infoMessage={sessionExpiredMessage}
             onLogin={(role, userId) => {
+              setSessionExpiredMessage('');
               if (role === 'lecturer') {
                 const targetLecturer = lecturers.find(l => l.id === userId);
                 if (targetLecturer?.isAccountant) {
@@ -1438,6 +1455,7 @@ Zenti Library Services`;
               setCurrentPath('/');
             }}
             onClose={() => {
+              setSessionExpiredMessage('');
               window.history.pushState({}, '', '/');
               setCurrentPath('/');
             }}
@@ -1656,6 +1674,7 @@ Zenti Library Services`;
               setCurrentPath('/');
             }}
             onOpenLogin={() => {
+              setSessionExpiredMessage('');
               window.history.pushState({}, '', '/login');
               setCurrentPath('/login');
             }}
@@ -1784,6 +1803,25 @@ Zenti Library Services`;
           </div>
         );
       })()}
+
+      <SessionTimeout
+        isAuthenticated={!!currentUserRole}
+        onLogout={(isTimeout) => {
+          setCurrentUserRole(null);
+          setCurrentUserId("");
+          if (isTimeout) {
+            setSessionExpiredMessage("Your session has expired due to inactivity. Please log in again.");
+            window.history.pushState({}, '', '/login');
+            setCurrentPath('/login');
+          } else {
+            setSessionExpiredMessage("");
+            window.history.pushState({}, '', '/');
+            setCurrentPath('/');
+          }
+        }}
+        timeoutMinutes={15}
+        warningSeconds={60}
+      />
 
     </div>
   );

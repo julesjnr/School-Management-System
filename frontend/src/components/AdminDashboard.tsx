@@ -2461,6 +2461,7 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
                   const targetEmail = (e.currentTarget.elements.namedItem('acc-email') as HTMLInputElement).value;
                   const targetCode = (e.currentTarget.elements.namedItem('acc-code') as HTMLInputElement).value;
                   const targetRate = parseFloat((e.currentTarget.elements.namedItem('acc-rate') as HTMLInputElement).value);
+                  const targetPasscode = (e.currentTarget.elements.namedItem('acc-passcode') as HTMLInputElement).value;
 
                   if (!targetName || !targetEmail || !targetCode || isNaN(targetRate)) {
                     alert('Please provide complete accountant data.');
@@ -2476,7 +2477,8 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
                     contractLength: 'Permanent',
                     designatorCode: targetCode,
                     subjects: [],
-                    isAccountant: true
+                    isAccountant: true,
+                    passcode: targetPasscode || 'acc123'
                   });
 
                   e.currentTarget.reset();
@@ -2530,6 +2532,17 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
                         required
                       />
                     </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label htmlFor="acc-passcode" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Account Passcode</label>
+                    <input
+                      id="acc-passcode"
+                      name="acc-passcode"
+                      type="password"
+                      placeholder="Default: acc123"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:outline-hidden text-slate-800 font-mono"
+                    />
                   </div>
 
                   <button

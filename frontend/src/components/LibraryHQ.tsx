@@ -562,7 +562,7 @@ export default function LibraryHQ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             
             {/* CATALOG LIST TABLE */}
-            <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-xs">
+            <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-xs overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 border-b border-slate-100 font-bold text-slate-500 uppercase tracking-wider text-[10px]">
                   <tr>
@@ -837,7 +837,8 @@ export default function LibraryHQ({
             </div>
           </div>
 
-          <table className="w-full text-xs text-left">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left">
             <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
               <tr>
                 <th className="p-3">Asset Title</th>
@@ -925,6 +926,7 @@ export default function LibraryHQ({
               )}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
@@ -936,7 +938,8 @@ export default function LibraryHQ({
             <h4 className="text-xs font-black text-slate-700">High-demand active reservations list</h4>
           </div>
 
-          <table className="w-full text-xs text-left">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left">
             <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
               <tr>
                 <th className="p-3">Book Title</th>
@@ -992,6 +995,7 @@ export default function LibraryHQ({
               )}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
@@ -1179,7 +1183,8 @@ export default function LibraryHQ({
               <span className="text-[10.5px] font-mono text-slate-400">Total Suggested: {bookRequests.length}</span>
             </div>
 
-            <table className="w-full text-xs text-left">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
               <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider text-[10.5px]">
                 <tr>
                   <th className="p-3">Title & Editor</th>
@@ -1293,6 +1298,7 @@ export default function LibraryHQ({
                 )}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
       )}
@@ -1359,7 +1365,7 @@ export default function LibraryHQ({
             </div>
 
             {/* LOG STREAM TABLE CONTAINER */}
-            <div className="border border-slate-800 bg-slate-950/80 rounded-xl overflow-hidden">
+            <div className="border border-slate-800 bg-slate-950/80 rounded-xl overflow-hidden overflow-x-auto">
               <table className="w-full text-left text-xs font-mono">
                 <thead className="bg-slate-900 text-slate-400 font-bold text-[9px] uppercase tracking-wider">
                   <tr>

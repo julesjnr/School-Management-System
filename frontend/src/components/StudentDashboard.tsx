@@ -3838,7 +3838,8 @@ export default function StudentDashboard({
         <div className="space-y-4">
           <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-900 pb-1 border-b border-dashed border-slate-350 font-display">Registered Subject grade metric</h3>
           
-          <table className="w-full text-left font-sans border-collapse text-[11px]">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left font-sans border-collapse text-[11px]">
             <thead>
               <tr className="border-b border-slate-950 text-[9px] font-bold uppercase tracking-wider text-slate-600">
                 <th className="py-2">Unit Code</th>
@@ -3883,6 +3884,7 @@ export default function StudentDashboard({
               })}
             </tbody>
           </table>
+          </div>
         </div>
 
         {/* Average Calculations Summary Block */}

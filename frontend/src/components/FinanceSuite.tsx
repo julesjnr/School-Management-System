@@ -1789,7 +1789,7 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
             )}
           </div>
 
-          <div className="border border-slate-150 rounded-2xl overflow-hidden shadow-xs">
+          <div className="border border-slate-150 rounded-2xl overflow-hidden shadow-xs overflow-x-auto">
             <table className="w-full border-collapse text-left text-xs bg-white">
               <thead>
                 <tr className="bg-slate-900 text-white font-bold text-[11px] uppercase tracking-wider">

@@ -12,6 +12,7 @@ interface LoginPageProps {
   lecturers: Lecturer[];
   onLogin: (role: UserRole, userId: string) => void;
   onClose: () => void;
+  infoMessage?: string;
 }
 
 type ExtendedRole = 'student' | 'lecturer' | 'accountant' | 'librarian' | 'admin';
@@ -36,7 +37,8 @@ export default function LoginPage({
   students, 
   lecturers, 
   onLogin, 
-  onClose
+  onClose,
+  infoMessage
 }: LoginPageProps) {
   const [activePortal, setActivePortal] = useState<ExtendedRole>('student');
   const [selectedUser, setSelectedUser] = useState<string>('');
@@ -419,6 +421,14 @@ export default function LoginPage({
           {/* Core Login Form */}
           <form onSubmit={handleFormSubmit} className="space-y-5">
             
+            {/* Session expired notifications */}
+            {infoMessage && (
+              <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 text-xs px-4 py-3 rounded-xl border border-blue-100 dark:border-blue-950/30 font-medium animate-fadeIn">
+                <span className="w-2 h-2 rounded-full bg-blue-550 shrink-0 animate-ping"></span>
+                <span>{infoMessage}</span>
+              </div>
+            )}
+
             {/* Error notifications */}
             {errorText && (
               <div className="flex items-center gap-2 bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 text-xs px-4 py-3 rounded-xl border border-rose-100 dark:border-rose-950/30 font-medium">

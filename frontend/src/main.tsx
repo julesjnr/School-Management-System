@@ -38,7 +38,15 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       }
     }
   }
-  return originalFetch(input, init);
+
+  const response = await originalFetch(input, init);
+  if (response.status === 401) {
+    localStorage.removeItem("zenti_current_user_role");
+    localStorage.removeItem("zenti_current_user_id");
+    localStorage.removeItem("zenti_session_token");
+    window.dispatchEvent(new CustomEvent('zenti-session-expired'));
+  }
+  return response;
 };
 
 createRoot(document.getElementById('root')!).render(
