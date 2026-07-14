@@ -11,12 +11,6 @@ A full-stack, multi-role school management platform. It brings academics, financ
 ## What it does
 
 Zenti Portal handles the day-to-day running of an institution:
-<<<<<<< HEAD
-=======
-
-
-
->>>>>>> 07d6213a18a425ef6ac2efb3aadc6974a0115e3c
 
 - **Academics** — course catalog, student enrollment, attendance, grading, exam papers, and degree progress tracking
 - **Finance** — student invoices, payments, ledgers, and expense/requisition tracking for the accounts team
