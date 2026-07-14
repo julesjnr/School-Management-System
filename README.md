@@ -123,8 +123,6 @@ Full data model (tables, keys, and constraints) is documented in `backend/databa
 
 - Data can sync to Supabase (Postgres) in addition to the local JSON store used for quick local testing (`db_store.json`).
 - Authentication uses JWTs with bcrypt-hashed passwords and role-based endpoint protection.
-<<<<<<< HEAD
-=======
 
 1. Install dependencies:
 
@@ -132,4 +130,4 @@ Full data model (tables, keys, and constraints) is documented in `backend/databa
 2. Set 
    `npm run dev`
 
->>>>>>> 07d6213a18a425ef6ac2efb3aadc6974a0115e3c
+
