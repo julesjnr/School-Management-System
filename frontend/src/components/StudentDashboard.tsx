@@ -10,7 +10,6 @@ import {
 import { Student, Course, Grade, Invoice, Payment, StockItem, Lecturer, CourseReview, Book, Loan, Reservation, LMSReadingList, BookReview, BookRequest, ExamPaper, LibraryGateLog, AttendanceSession } from '../types';
 import { subjectMap } from '../data';
 import StudentTranscript from './StudentTranscript';
-import GlobalSearchBar from './GlobalSearchBar';
 import PerformanceInsights from './PerformanceInsights';
 import DegreeProgress from './DegreeProgress';
 import CourseReviewModal from './CourseReviewModal';
@@ -833,10 +832,6 @@ export default function StudentDashboard({
             </div>
           </div>
           <div className="flex items-center gap-4 w-full sm:w-auto justify-end">
-            <div className="w-full sm:w-64 md:w-80">
-              <GlobalSearchBar students={students} courses={allCourses} inventory={inventory} />
-            </div>
-            <span className="hidden sm:inline-block w-px h-6 bg-slate-200 dark:bg-slate-800"></span>
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse animate-duration-1000"></div>
               <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider font-mono font-sans">Telemetry Live</span>

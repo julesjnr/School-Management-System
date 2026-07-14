@@ -8,7 +8,7 @@ import { Student, Book, Loan, Reservation, BookRequest, LibraryGateLog, Course, 
 
 interface StudentAdmissionDossierStationProps {
   students: Student[];
-  role: 'admin' | 'lecturer' | 'accountant' | 'librarian';
+  role: 'admin' | 'lecturer' | 'accountant' | 'librarian' | 'student';
   books?: Book[];
   loans?: Loan[];
   reservations?: Reservation[];
@@ -16,6 +16,7 @@ interface StudentAdmissionDossierStationProps {
   libraryGateLogs?: LibraryGateLog[];
   courses?: Course[];
   currentLecturer?: Lecturer;
+  studentId?: string;
 }
 
 export default function StudentAdmissionDossierStation({
@@ -27,7 +28,8 @@ export default function StudentAdmissionDossierStation({
   bookRequests = [],
   libraryGateLogs = [],
   courses = [],
-  currentLecturer
+  currentLecturer,
+  studentId
 }: StudentAdmissionDossierStationProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
@@ -38,8 +40,10 @@ export default function StudentAdmissionDossierStation({
     student.admissionNo.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const selectedStudent = students.find(s => s.id === selectedStudentId) || 
-    (searchQuery ? students.find(s => s.admissionNo.toLowerCase() === searchQuery.trim().toLowerCase()) : null);
+  const selectedStudent = role === 'student'
+    ? (students.find(s => s.id === studentId) || students.find(s => s.admissionNo === studentId) || null)
+    : (students.find(s => s.id === selectedStudentId) || 
+       (searchQuery ? students.find(s => s.admissionNo.toLowerCase() === searchQuery.trim().toLowerCase()) : null));
 
   // Calculate final grade helper
   const getGradeDetails = (cat: number, exam: number) => {
@@ -100,27 +104,87 @@ export default function StudentAdmissionDossierStation({
         </div>
       </div>
 
-      {/* SEARCH COMPONENT ONLY */}
-      <div className="grid grid-cols-1 gap-4 items-center">
-        <div className="relative">
-          <label htmlFor="admission-search-input" className="block text-[10px] font-bold text-slate-550 dark:text-slate-400 uppercase tracking-wider mb-1.5">
-            Search Admission Number
-          </label>
-          <div className="relative">
-            <input
-              id="admission-search-input"
-              type="text"
-              placeholder="Enter student admission number (e.g. ED-CS-2026-048) and press Enter..."
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-              }}
-              className="w-full bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-750 rounded-xl py-2.5 pl-10 pr-4 text-xs focus:outline-hidden focus:ring-1 focus:ring-indigo-500 text-slate-850 dark:text-slate-100 font-mono"
-            />
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+      {/* SEARCH & QUICK SELECT COMPONENT */}
+      {role !== 'student' && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+          <div className="md:col-span-2 relative font-sans">
+            <label htmlFor="admission-search-input" className="block text-[10px] font-bold text-slate-550 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+              Search Admission Number
+            </label>
+            <div className="relative">
+              <input
+                id="admission-search-input"
+                type="text"
+                placeholder="Enter student admission number (e.g. ADM-000001)..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setIsDropdownOpen(false);
+                }}
+                className="w-full bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-750 rounded-xl py-2.5 pl-10 pr-4 text-xs focus:outline-hidden focus:ring-1 focus:ring-indigo-500 text-slate-850 dark:text-slate-100 font-mono"
+              />
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
+              
+              {/* Search results autocomplete dropdown */}
+              {searchQuery && matchedStudents.length > 0 && (
+                <div className="absolute left-0 right-0 z-50 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-750 rounded-xl mt-1 shadow-lg max-h-60 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                  {matchedStudents.map(student => (
+                    <button
+                      key={student.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedStudentId(student.id);
+                        setSearchQuery(student.admissionNo);
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-xs hover:bg-indigo-50 dark:hover:bg-slate-750 flex justify-between items-center transition-colors cursor-pointer text-slate-850 dark:text-slate-200 font-mono border-none"
+                    >
+                      <span className="font-sans font-bold">{student.name}</span>
+                      <span className="text-indigo-600 dark:text-indigo-400 font-bold">{student.admissionNo}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="relative font-sans">
+            <label className="block text-[10px] font-bold text-slate-550 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+              Quick Select Student
+            </label>
+            <button
+              type="button"
+              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+              className="w-full flex items-center justify-between bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-750 rounded-xl py-2.5 px-4 text-xs font-semibold text-slate-850 dark:text-slate-200 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            >
+              <span>
+                {selectedStudent ? selectedStudent.name : 'Select Student...'}
+              </span>
+              <ChevronDown className={`w-4 h-4 text-slate-450 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {/* Quick Select Dropdown Menu */}
+            {isDropdownOpen && (
+              <div className="absolute right-0 z-50 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-750 rounded-xl mt-1 shadow-lg max-h-60 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                {students.map(student => (
+                  <button
+                    key={student.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedStudentId(student.id);
+                      setSearchQuery(student.admissionNo);
+                      setIsDropdownOpen(false);
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-xs hover:bg-indigo-50 dark:hover:bg-slate-750 flex justify-between items-center transition-colors cursor-pointer text-slate-850 dark:text-slate-200 font-mono border-none"
+                  >
+                    <span className="font-sans font-semibold">{student.name}</span>
+                    <span className="text-slate-400 text-[10px]">{student.admissionNo}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
-      </div>
+      )}
 
       {/* STUDENT PROFILE DOSSIER */}
       {selectedStudent ? (
@@ -153,7 +217,7 @@ export default function StudentAdmissionDossierStation({
             <div className="lg:col-span-8 space-y-6">
 
               {/* 1. FINANCIAL MODULES (Visible to Admin, Accountant) */}
-              {(role === 'admin' || role === 'accountant') && (
+              {(role === 'admin' || role === 'accountant' || role === 'student') && (
                 <div className="bg-white dark:bg-slate-850 rounded-xl border border-slate-200 dark:border-slate-800 p-5 space-y-4 shadow-3xs">
                   <div className="flex justify-between items-center border-b border-slate-150 dark:border-slate-800 pb-2.5">
                     <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
@@ -276,7 +340,7 @@ export default function StudentAdmissionDossierStation({
               )}
 
               {/* 2. LIBRARY WORKSPACE (Visible to Admin, Librarian) */}
-              {(role === 'admin' || role === 'librarian') && (
+              {(role === 'admin' || role === 'librarian' || role === 'student') && (
                 <div className="bg-white dark:bg-slate-850 rounded-xl border border-slate-200 dark:border-slate-800 p-5 space-y-4 shadow-3xs">
                   <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 border-b border-slate-150 dark:border-slate-800 pb-2.5">
                     <BookOpen className="w-4 h-4 text-blue-600" />
@@ -388,7 +452,7 @@ export default function StudentAdmissionDossierStation({
               )}
 
               {/* 3. ACADEMICS & GRADES MODULES (Visible to Admin, Lecturer) */}
-              {(role === 'admin' || role === 'lecturer') && (
+              {(role === 'admin' || role === 'lecturer' || role === 'student') && (
                 <div className="bg-white dark:bg-slate-850 rounded-xl border border-slate-200 dark:border-slate-800 p-5 space-y-4 shadow-3xs">
                   <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 border-b border-slate-150 dark:border-slate-800 pb-2.5">
                     <Award className="w-4 h-4 text-indigo-600" />

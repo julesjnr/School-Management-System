@@ -811,7 +811,7 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
           <div className="relative flex w-full max-w-xs flex-col bg-slate-900 dark:bg-slate-950 p-6 text-slate-300 shadow-xl focus:outline-none z-10">
             {/* Close Button */}
             <button 
-              type="button; cursor-pointer"
+              type="button"
               onClick={() => setMobileMenuOpen(false)}
               className="absolute top-4 right-4 text-slate-400 hover:text-white p-2 rounded-full cursor-pointer"
             >
@@ -1035,21 +1035,9 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
         {/* WORKSPACE CONTENT AREA */}
         <div className="p-6 space-y-6 flex-1 bg-slate-50 dark:bg-slate-950">
           
-          {/* STUDENT ADMISSION QUICK-SEARCH & LEDGER STATION */}
-          <StudentAdmissionDossierStation
-            students={students}
-            role={isLibrarianView ? 'librarian' : isAccountantView ? 'accountant' : 'admin'}
-            books={books}
-            loans={loans}
-            reservations={reservations}
-            bookRequests={bookRequests}
-            libraryGateLogs={libraryGateLogs}
-            courses={courses}
-          />
-          
           {/* Restricted Mode Alert Notice Box */}
           {(isLibrarianView || isAccountantView) && (
-            <div className={`border rounded-xl p-4 flex items-center justify-between text-xs font-medium ${isLibrarianView ? 'bg-amber-50 border-amber-200 text-amber-900' : 'bg-blue-50 border-blue-150 text-blue-800'}`}>
+            <div className={`border rounded-xl p-4 flex items-center justify-between text-xs font-medium ${isLibrarianView ? 'bg-amber-50 border-amber-200 text-amber-950' : 'bg-blue-50 border-blue-150 text-blue-800'}`}>
               <div className="flex items-center gap-2.5">
                 <span className={`w-2.5 h-2.5 rounded-full animate-pulse shrink-0 ${isLibrarianView ? 'bg-amber-600' : 'bg-blue-600'}`}></span>
                 <div>
@@ -1085,6 +1073,17 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
         {/* TAB 0: OVERVIEW WORKSPACE (DASHBOARD A) */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
+            {/* STUDENT ADMISSION QUICK-SEARCH & LEDGER STATION */}
+            <StudentAdmissionDossierStation
+              students={students}
+              role={isLibrarianView ? 'librarian' : isAccountantView ? 'accountant' : 'admin'}
+              books={books}
+              loans={loans}
+              reservations={reservations}
+              bookRequests={bookRequests}
+              libraryGateLogs={libraryGateLogs}
+              courses={courses}
+            />
             {/* HIGH-DENSITY SUMMARY STRIP */}
             <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-150 dark:border-slate-800 p-6 shadow-xs grid grid-cols-1 md:grid-cols-4 gap-6 divide-y md:divide-y-0 md:divide-x divide-slate-100 dark:divide-slate-800">
               
