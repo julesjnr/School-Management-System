@@ -519,3 +519,15 @@ export const studentEnrollments = pgTable("student_enrollments", {
 	primaryKey({ columns: [table.studentId, table.courseCode], name: "student_enrollments_pkey"}),
 ]);
 
+export const transactions = pgTable("transactions", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	referenceNo: varchar("reference_no", { length: 50 }).notNull(),
+	recipientSender: varchar("recipient_sender", { length: 255 }).notNull(),
+	description: text().notNull(),
+	amount: numeric({ precision: 12, scale: 2 }).notNull(),
+	currency: varchar({ length: 10 }).default('KES').notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	unique("transactions_reference_no_key").on(table.referenceNo),
+]);
+

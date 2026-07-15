@@ -1,4 +1,51 @@
 {
+  "transactions": [
+    {
+      "id": "t1111111-1111-1111-1111-111111111111",
+      "reference_no": "INV-4820",
+      "recipient_sender": "Sarah Wanjiku",
+      "description": "Tuition Installment",
+      "amount": 45000,
+      "currency": "KES",
+      "created_at": "2026-07-15T14:20:00.000Z"
+    },
+    {
+      "id": "t2222222-2222-2222-2222-222222222222",
+      "reference_no": "PO-9031",
+      "recipient_sender": "Apex Lab Equipment Ltd",
+      "description": "Physics Lab Equipment Purchase",
+      "amount": -28500,
+      "currency": "KES",
+      "created_at": "2026-07-15T13:10:00.000Z"
+    },
+    {
+      "id": "t3333333-3333-3333-3333-333333333333",
+      "reference_no": "VOU-101",
+      "recipient_sender": "John Doe (Admin Petty Cash)",
+      "description": "Office Stationery Supplies",
+      "amount": -3500,
+      "currency": "KES",
+      "created_at": "2026-07-15T11:05:00.000Z"
+    },
+    {
+      "id": "t4444444-4444-4444-4444-444444444444",
+      "reference_no": "INV-4821",
+      "recipient_sender": "David Kiprop",
+      "description": "Hostel Accommodation Fee",
+      "amount": 12000,
+      "currency": "KES",
+      "created_at": "2026-07-15T10:30:00.000Z"
+    },
+    {
+      "id": "t5555555-5555-5555-5555-555555555555",
+      "reference_no": "VOU-102",
+      "recipient_sender": "Mrs. Beatrice Bibliotheca",
+      "description": "Library Book Binding Service Vendor",
+      "amount": -8000,
+      "currency": "KES",
+      "created_at": "2026-07-15T09:15:00.000Z"
+    }
+  ],
   "news": [
     {
       "id": "n1",

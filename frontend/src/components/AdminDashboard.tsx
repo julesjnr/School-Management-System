@@ -105,6 +105,26 @@ export default function AdminDashboard({
     if (isAccountantView) return 'finances';
     return 'overview';
   });
+  const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
+  const [loadingTransactions, setLoadingTransactions] = useState<boolean>(true);
+
+  useEffect(() => {
+    const fetchRecentTransactions = async () => {
+      try {
+        const response = await fetch('/api/transactions');
+        if (response.ok) {
+          const data = await response.json();
+          setRecentTransactions(data);
+        }
+      } catch (error) {
+        console.error('Failed to load recent transactions:', error);
+      } finally {
+        setLoadingTransactions(false);
+      }
+    };
+    fetchRecentTransactions();
+  }, []);
+
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
   const triggerToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
@@ -1288,26 +1308,34 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
                     <p className="text-[9px] text-slate-500 font-sans">Live ledger invoices and outgoing purchase accounts.</p>
                   </div>
                   <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs font-sans">
-                    <div className="py-2.5 first:pt-0 flex items-center justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-1.5 font-bold">
-                          <span>Sarah Wanjiku</span>
-                          <span className="text-[9px] font-mono text-slate-400">INV-4820</span>
-                        </div>
-                        <p className="text-[9px] text-slate-500 font-sans">Tuition Installment • <span className="font-mono">10m ago</span></p>
-                      </div>
-                      <span className="font-bold font-mono text-emerald-600 text-right">+KES 45,000</span>
-                    </div>
-                    <div className="py-2.5 flex items-center justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-1.5 font-bold">
-                          <span>Apex Lab Equipment</span>
-                          <span className="text-[9px] font-mono text-slate-400">PO-9031</span>
-                        </div>
-                        <p className="text-[9px] text-slate-500 font-sans">Physics Lab Equip • <span className="font-mono">1h ago</span></p>
-                      </div>
-                      <span className="font-bold font-mono text-slate-650 text-right">-KES 28,500</span>
-                    </div>
+                    {loadingTransactions ? (
+                      <p className="text-[10px] text-slate-400 py-3 text-center">Loading transactions...</p>
+                    ) : recentTransactions.length === 0 ? (
+                      <p className="text-[10px] text-slate-400 py-3 text-center">No recent transactions found.</p>
+                    ) : (
+                      recentTransactions.map((tx) => {
+                        const isIncome = Number(tx.amount) >= 0;
+                        return (
+                          <div key={tx.id || tx.reference_no} className="py-2.5 first:pt-0 flex items-center justify-between gap-3">
+                            <div>
+                              <div className="flex items-center gap-1.5 font-bold">
+                                <span>{tx.recipient_sender}</span>
+                                <span className="text-[9px] font-mono text-slate-400">{tx.reference_no}</span>
+                              </div>
+                              <p className="text-[9px] text-slate-500 font-sans">
+                                {tx.description} •{' '}
+                                <span className="font-mono text-slate-400">
+                                  {tx.created_at ? new Date(tx.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'Recent'}
+                                </span>
+                              </p>
+                            </div>
+                            <span className={`font-bold font-mono text-right ${isIncome ? 'text-emerald-600' : 'text-rose-600'}`}>
+                              {isIncome ? '+' : ''}{tx.currency || 'KES'} {Math.abs(Number(tx.amount)).toLocaleString()}
+                            </span>
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
               </div>

@@ -487,5 +487,29 @@ INSERT INTO library_gate_logs (id, patron_name, patron_id, role, auth_method, ga
 ('00000002-2222-2222-2222-222222222222', 'Ochieng Julius', 'a1111111-1111-1111-1111-111111111111', 'student', 'biometric_fingerprint', 'Exit', 'success');
 
 -- =========================================================================
+-- =========================================================================
+-- SECTION 6: FINANCIAL TRANSACTIONS SCHEMA & SEED DATA
+-- =========================================================================
+
+CREATE TABLE transactions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    reference_no VARCHAR(50) UNIQUE NOT NULL,
+    recipient_sender VARCHAR(255) NOT NULL,
+    description TEXT NOT NULL,
+    amount DECIMAL(12, 2) NOT NULL,
+    currency VARCHAR(10) DEFAULT 'KES' NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE INDEX idx_transactions_created_at ON transactions(created_at DESC);
+
+-- Seed statements
+INSERT INTO transactions (reference_no, recipient_sender, description, amount, currency) VALUES
+('INV-4820', 'Sarah Wanjiku', 'Tuition Installment Payment', 45000.00, 'KES'),
+('PO-9031', 'Apex Lab Equipment Ltd', 'Physics Lab Equipment Purchase', -28500.00, 'KES'),
+('VOU-101', 'John Doe (Admin Petty Cash)', 'Office Stationery Supplies', -3500.00, 'KES'),
+('INV-4821', 'David Kiprop', 'First Semester Hostel Accommodation fee', 12000.00, 'KES'),
+('VOU-102', 'Mrs. Beatrice Bibliotheca', 'Library Book Binding Service Vendor payment', -8000.00, 'KES');
+
 -- END OF SCRIPT
 -- =========================================================================

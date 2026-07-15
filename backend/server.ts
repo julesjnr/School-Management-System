@@ -39,8 +39,9 @@ import {
   libraryGateLogs,
   notifications,
   passwordResetRequests,
+  transactions,
 } from "./src/db/schema.ts";
-import { eq, notInArray, and } from "drizzle-orm";
+import { eq, notInArray, and, desc } from "drizzle-orm";
 import { supabase } from "./src/db/supabaseClient.ts";
 
 // Import initial mock databases from src/data.ts to bootstrap our persistent store
@@ -2340,6 +2341,73 @@ app.post("/api/lecturers", async (req, res) => {
   }
 });
    
+// GET API for transactions (fetches 5 most recent)
+app.get("/api/transactions", async (req, res) => {
+  try {
+    const recentTransactions = await db
+      .select()
+      .from(transactions)
+      .orderBy(desc(transactions.createdAt))
+      .limit(5);
+
+    const result = recentTransactions.map(t => ({
+      id: t.id,
+      reference_no: t.referenceNo,
+      recipient_sender: t.recipientSender,
+      description: t.description,
+      amount: Number(t.amount),
+      currency: t.currency,
+      created_at: t.createdAt,
+    }));
+    res.json(result);
+  } catch (err: any) {
+    console.error("Failed to fetch transactions:", err);
+    // Dynamic fallback to local JSON file database
+    const dbVal = getDatabase();
+    const mockTx = dbVal.transactions || [];
+    const sorted = [...mockTx]
+      .sort((a: any, b: any) => new Date(b.created_at || b.createdAt || 0).getTime() - new Date(a.created_at || a.createdAt || 0).getTime())
+      .slice(0, 5);
+    res.json(sorted);
+  }
+});
+
+// GET API to search for a student by their admission_no
+app.get("/api/students/search", async (req, res) => {
+  try {
+    const admissionNoQuery = req.query.admission_no || req.query.admissionNo;
+    if (!admissionNoQuery || typeof admissionNoQuery !== "string") {
+      return res.status(400).json({ error: "admission_no query parameter is required" });
+    }
+
+    const admissionNo = admissionNoQuery.trim();
+
+    // Query fully constructed students list (with all nested details like grades, ledger, etc.)
+    const fullDb = await loadFullDatabaseState();
+    const student = (fullDb.students || []).find(
+      (s: any) => s.admissionNo?.toLowerCase() === admissionNo.toLowerCase()
+    );
+
+    if (!student) {
+      // Fallback: check local database cache
+      const cachedStudents = getDatabase().students || [];
+      const cachedStudent = cachedStudents.find(
+        (s: any) => s.admissionNo?.toLowerCase() === admissionNo.toLowerCase()
+      );
+
+      if (cachedStudent) {
+        return res.json(cachedStudent);
+      }
+      return res.status(404).json({ error: `Student with admission number ${admissionNo} not found.` });
+    }
+
+    res.json(student);
+  } catch (err: any) {
+    console.error("Error searching student by admission_no:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // 6. REST Resource: Students
 app.get("/api/students", async (req, res) => {
   try {

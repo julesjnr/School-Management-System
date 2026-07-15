@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Search, GraduationCap, User, BookOpen, CreditCard, FileText, 
   Calendar, TrendingUp, Clock, ChevronDown, CheckCircle2, 
   AlertCircle, Fingerprint, Bookmark, Award, ShieldCheck, DollarSign
 } from 'lucide-react';
 import { Student, Book, Loan, Reservation, BookRequest, LibraryGateLog, Course, Lecturer } from '../types';
+import { toast } from 'react-hot-toast';
 
 interface StudentAdmissionDossierStationProps {
   students: Student[];
