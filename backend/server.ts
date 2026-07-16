@@ -40,6 +40,7 @@ import {
   notifications,
   passwordResetRequests,
   transactions,
+  studentLedger,
 } from "./src/db/schema.ts";
 import { eq, notInArray, and, desc } from "drizzle-orm";
 import { supabase } from "./src/db/supabaseClient.ts";
@@ -2408,6 +2409,403 @@ app.get("/api/students/search", async (req, res) => {
   }
 });
 
+// FINANCIAL SUITE AND LEDGER APIS
+// 1. GET /api/finance/students (fetches students with computed outstanding ledger balances)
+app.get("/api/finance/students", async (req, res) => {
+  try {
+    const allStudents = await db.select().from(students);
+    const ledgerEntries = await db.select().from(studentLedger);
+
+    const result = allStudents.map(s => {
+      const studentEntries = ledgerEntries.filter(entry => entry.studentId === s.id);
+      const debits = studentEntries
+        .filter(entry => entry.entryType === 'DEBIT')
+        .reduce((sum, entry) => sum + Number(entry.amount), 0);
+      const credits = studentEntries
+        .filter(entry => entry.entryType === 'CREDIT')
+        .reduce((sum, entry) => sum + Number(entry.amount), 0);
+      
+      const outstandingBalance = debits - credits;
+      const status = outstandingBalance > 0 ? "Outstanding" : "Cleared";
+
+      return {
+        id: s.id,
+        name: s.name,
+        admissionNo: s.admissionNo,
+        cohort: s.cohort,
+        outstandingBalance,
+        status
+      };
+    });
+
+    res.json(result);
+  } catch (err: any) {
+    console.error("Failed to fetch finance students from PostgreSQL:", err);
+    // JSON file fallback
+    try {
+      const dbVal = getDatabase();
+      const localStudents = dbVal.students || [];
+      const localLedger = dbVal.student_ledger || [];
+
+      const result = localStudents.map((s: any) => {
+        const studentEntries = localLedger.filter((entry: any) => entry.student_id === s.id || entry.studentId === s.id);
+        const debits = studentEntries
+          .filter((entry: any) => entry.entry_type === 'DEBIT' || entry.entryType === 'DEBIT')
+          .reduce((sum: number, entry: any) => sum + Number(entry.amount), 0);
+        const credits = studentEntries
+          .filter((entry: any) => entry.entry_type === 'CREDIT' || entry.entryType === 'CREDIT')
+          .reduce((sum: number, entry: any) => sum + Number(entry.amount), 0);
+
+        const outstandingBalance = debits - credits;
+        const status = outstandingBalance > 0 ? "Outstanding" : "Cleared";
+
+        return {
+          id: s.id,
+          name: s.name,
+          admissionNo: s.admissionNo || s.admission_no,
+          cohort: s.cohort,
+          outstandingBalance,
+          status
+        };
+      });
+      res.json(result);
+    } catch (fallbackErr: any) {
+      res.status(500).json({ error: fallbackErr.message });
+    }
+  }
+});
+
+// 2. POST /api/finance/bill (process a debit ledger entry and corresponding unpaid invoice)
+app.post("/api/finance/bill", async (req, res) => {
+  const { studentId, voteHead, amount, description } = req.body;
+
+  if (!studentId || !voteHead || !amount || isNaN(Number(amount))) {
+    return res.status(400).json({ error: "Missing required billing fields or invalid amount" });
+  }
+
+  const invoiceNo = `INV-${Math.floor(100000 + Math.random() * 900000)}`;
+  const dateStr = new Date().toISOString().substring(0, 10);
+  const formattedDesc = `[${voteHead}] ${description || "Semester Fees"}`;
+
+  try {
+    // 1. Insert into student_ledger
+    const [ledgerEntry] = await db.insert(studentLedger).values({
+      studentId,
+      entryType: 'DEBIT',
+      voteHead,
+      amount: String(amount),
+      description: formattedDesc,
+    }).returning();
+
+    // 2. Insert corresponding invoice to maintain system compatibility
+    await db.insert(invoices).values({
+      studentId,
+      invoiceNo,
+      description: formattedDesc,
+      amount: String(amount),
+      date: dateStr,
+      status: "unpaid",
+    });
+
+    res.status(201).json({
+      success: true,
+      ledgerEntry,
+      invoiceNo
+    });
+  } catch (err: any) {
+    console.error("Failed to create billing debit entry in PostgreSQL:", err);
+    // JSON file fallback
+    try {
+      const dbVal = getDatabase();
+      dbVal.student_ledger = dbVal.student_ledger || [];
+      dbVal.invoices = dbVal.invoices || [];
+
+      const newLedgerEntry = {
+        id: `ledger-${Date.now()}`,
+        studentId,
+        entryType: 'DEBIT',
+        voteHead,
+        amount: Number(amount),
+        description: formattedDesc,
+        createdAt: new Date().toISOString(),
+      };
+
+      const newInvoice = {
+        id: `inv-${Date.now()}`,
+        studentId,
+        invoiceNo,
+        description: formattedDesc,
+        amount: Number(amount),
+        date: dateStr,
+        status: "unpaid"
+      };
+
+      dbVal.student_ledger.push(newLedgerEntry);
+      dbVal.invoices.push(newInvoice);
+
+      const student = dbVal.students?.find((s: any) => s.id === studentId);
+      if (student) {
+        student.ledger = student.ledger || [];
+        student.ledger.push(newInvoice);
+      }
+
+      saveDatabase(dbVal);
+      res.status(201).json({
+        success: true,
+        ledgerEntry: newLedgerEntry,
+        invoiceNo
+      });
+    } catch (fallbackErr: any) {
+      res.status(500).json({ error: fallbackErr.message });
+    }
+  }
+});
+
+// 3. POST /api/finance/grant (process a credit ledger entry and negative waiver invoice)
+app.post("/api/finance/grant", async (req, res) => {
+  const { studentId, discountTypology, amount, description } = req.body;
+
+  if (!studentId || !discountTypology || !amount || isNaN(Number(amount))) {
+    return res.status(400).json({ error: "Missing required grant fields or invalid credit value" });
+  }
+
+  const creditNo = `CRD-${Math.floor(100000 + Math.random() * 900000)}`;
+  const dateStr = new Date().toISOString().substring(0, 10);
+  const formattedDesc = `[${discountTypology} Approved] ${description || "Waiver allocation"}`;
+
+  try {
+    // 1. Insert into student_ledger
+    const [ledgerEntry] = await db.insert(studentLedger).values({
+      studentId,
+      entryType: 'CREDIT',
+      voteHead: discountTypology,
+      amount: String(amount),
+      description: formattedDesc,
+    }).returning();
+
+    // 2. Insert corresponding negative amount invoice to maintain compatibility
+    await db.insert(invoices).values({
+      studentId,
+      invoiceNo: creditNo,
+      description: formattedDesc,
+      amount: String(-Number(amount)),
+      date: dateStr,
+      status: "paid",
+    });
+
+    res.status(201).json({
+      success: true,
+      ledgerEntry,
+      creditNo
+    });
+  } catch (err: any) {
+    console.error("Failed to create grant credit entry in PostgreSQL:", err);
+    // JSON file fallback
+    try {
+      const dbVal = getDatabase();
+      dbVal.student_ledger = dbVal.student_ledger || [];
+      dbVal.invoices = dbVal.invoices || [];
+
+      const newLedgerEntry = {
+        id: `ledger-${Date.now()}`,
+        studentId,
+        entryType: 'CREDIT',
+        voteHead: discountTypology,
+        amount: Number(amount),
+        description: formattedDesc,
+        createdAt: new Date().toISOString(),
+      };
+
+      const newInvoice = {
+        id: `inv-${Date.now()}`,
+        studentId,
+        invoiceNo: creditNo,
+        description: formattedDesc,
+        amount: -Number(amount),
+        date: dateStr,
+        status: "paid"
+      };
+
+      dbVal.student_ledger.push(newLedgerEntry);
+      dbVal.invoices.push(newInvoice);
+
+      const student = dbVal.students?.find((s: any) => s.id === studentId);
+      if (student) {
+        student.ledger = student.ledger || [];
+        student.ledger.push(newInvoice);
+      }
+
+      saveDatabase(dbVal);
+      res.status(201).json({
+        success: true,
+        ledgerEntry: newLedgerEntry,
+        creditNo
+      });
+    } catch (fallbackErr: any) {
+      res.status(500).json({ error: fallbackErr.message });
+    }
+  }
+});
+
+// 4. POST /api/finance/reconcile (automatically match statement records with unpaid student bills)
+app.post("/api/finance/reconcile", async (req, res) => {
+  let matchCount = 0;
+  const matches: any[] = [];
+
+  try {
+    const allTransactions = await db.select().from(transactions);
+    const unpaidInvoices = await db.select().from(invoices).where(eq(invoices.status, "unpaid"));
+    const allPayments = await db.select().from(payments);
+
+    const usedRefs = new Set(allPayments.map(p => p.transactionId));
+
+    for (const tx of allTransactions) {
+      if (usedRefs.has(tx.referenceNo) || Number(tx.amount) <= 0) {
+        continue;
+      }
+
+      const txAmount = Number(tx.amount);
+      const matchingInvoice = unpaidInvoices.find(inv => Number(inv.amount) === txAmount && !matches.some(m => m.invoiceId === inv.id));
+
+      if (matchingInvoice) {
+        const dateStr = new Date().toISOString().substring(0, 10);
+        
+        let paymentMethod: 'M-Pesa' | 'Bank Transfer' | 'Card' = 'Bank Transfer';
+        if (tx.referenceNo.toLowerCase().includes('mpesa') || tx.description.toLowerCase().includes('mpesa')) {
+          paymentMethod = 'M-Pesa';
+        } else if (tx.referenceNo.toLowerCase().includes('card') || tx.description.toLowerCase().includes('card')) {
+          paymentMethod = 'Card';
+        }
+
+        await db.update(invoices)
+          .set({ status: 'paid' })
+          .where(eq(invoices.id, matchingInvoice.id));
+
+        await db.insert(payments).values({
+          studentId: matchingInvoice.studentId,
+          invoiceId: matchingInvoice.id,
+          amount: String(txAmount),
+          paymentMethod,
+          transactionId: tx.referenceNo,
+          date: dateStr,
+          status: 'reconciled',
+        });
+
+        await db.insert(studentLedger).values({
+          studentId: matchingInvoice.studentId,
+          entryType: 'CREDIT',
+          voteHead: 'Tuition',
+          amount: String(txAmount),
+          description: `Broad Matching Sync Reconciled Ref: ${tx.referenceNo}`,
+        });
+
+        matches.push({
+          invoiceId: matchingInvoice.id,
+          referenceNo: tx.referenceNo,
+          studentId: matchingInvoice.studentId,
+          amount: txAmount
+        });
+
+        matchCount++;
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Broad matching sync complete. Reconciled ${matchCount} payments.`,
+      matchCount,
+      matches
+    });
+  } catch (err: any) {
+    console.error("PostgreSQL automated reconciliation failed:", err);
+    // JSON file fallback
+    try {
+      const dbVal = getDatabase();
+      dbVal.transactions = dbVal.transactions || [];
+      dbVal.invoices = dbVal.invoices || [];
+      dbVal.payments = dbVal.payments || [];
+      dbVal.student_ledger = dbVal.student_ledger || [];
+
+      const usedRefs = new Set(dbVal.payments.map((p: any) => p.transactionId || p.transaction_id));
+      const unpaidInvoices = dbVal.invoices.filter((inv: any) => inv.status === 'unpaid');
+
+      for (const tx of dbVal.transactions) {
+        const ref = tx.referenceNo || tx.reference_no;
+        const amt = tx.amount;
+
+        if (usedRefs.has(ref) || amt <= 0) {
+          continue;
+        }
+
+        const matchingInvoice = unpaidInvoices.find((inv: any) => Number(inv.amount) === amt && !matches.some(m => m.invoiceId === inv.id));
+
+        if (matchingInvoice) {
+          const dateStr = new Date().toISOString().substring(0, 10);
+          
+          let paymentMethod: 'M-Pesa' | 'Bank Transfer' | 'Card' = 'Bank Transfer';
+          if (ref.toLowerCase().includes('mpesa') || tx.description.toLowerCase().includes('mpesa')) {
+            paymentMethod = 'M-Pesa';
+          }
+
+          matchingInvoice.status = 'paid';
+
+          const student = dbVal.students?.find((s: any) => s.id === matchingInvoice.studentId);
+          if (student) {
+            const studentInv = student.ledger?.find((i: any) => i.id === matchingInvoice.id);
+            if (studentInv) studentInv.status = 'paid';
+          }
+
+          const newPayment = {
+            id: `pay-${Date.now()}-${matchCount}`,
+            studentId: matchingInvoice.studentId,
+            invoiceId: matchingInvoice.id,
+            amount: amt,
+            paymentMethod,
+            transactionId: ref,
+            date: dateStr,
+            status: 'reconciled'
+          };
+          dbVal.payments.push(newPayment);
+          if (student) {
+            student.payments = student.payments || [];
+            student.payments.push(newPayment);
+          }
+
+          const newLedgerEntry = {
+            id: `ledger-${Date.now()}-${matchCount}`,
+            studentId: matchingInvoice.studentId,
+            entryType: 'CREDIT',
+            voteHead: 'Tuition',
+            amount: amt,
+            description: `Broad Matching Sync Reconciled Ref: ${ref}`,
+            createdAt: new Date().toISOString()
+          };
+          dbVal.student_ledger.push(newLedgerEntry);
+
+          matches.push({
+            invoiceId: matchingInvoice.id,
+            referenceNo: ref,
+            studentId: matchingInvoice.studentId,
+            amount: amt
+          });
+
+          matchCount++;
+        }
+      }
+
+      saveDatabase(dbVal);
+      res.json({
+        success: true,
+        message: `Broad matching sync complete (fallback mode). Reconciled ${matchCount} payments.`,
+        matchCount,
+        matches
+      });
+    } catch (fallbackErr: any) {
+      res.status(500).json({ error: fallbackErr.message });
+    }
+  }
+});
+
 // 6. REST Resource: Students
 app.get("/api/students", async (req, res) => {
   try {
@@ -2459,6 +2857,31 @@ app.post("/api/students", async (req, res) => {
   } catch (error: any) {
     console.error("Registration failed:", error);
 
+    res.status(500).json({
+      error: error.message,
+    });
+  }
+});
+
+app.delete("/api/students/:id", async (req, res) => {
+  try {
+    const studentId = req.params.id;
+    if (!studentId) {
+      return res.status(400).json({ error: "Student ID required" });
+    }
+
+    const result = await db.delete(students).where(eq(students.id, studentId)).returning();
+    if (result.length === 0) {
+      return res.status(404).json({ error: "Student not found" });
+    }
+
+    // Sync database cache
+    const fullDb = await loadFullDatabaseState();
+    saveDatabase(fullDb);
+
+    res.status(200).json({ success: true, message: "Student deleted successfully", deletedId: studentId });
+  } catch (error: any) {
+    console.error("Deletion failed:", error);
     res.status(500).json({
       error: error.message,
     });

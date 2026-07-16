@@ -46,6 +46,7 @@ interface Voucher {
   amount: number;
   date: string;
   approvedBy: string;
+  status?: 'Approved' | 'Pending Admin Approval';
 }
 
 // Imprest Interface
@@ -139,15 +140,56 @@ export default function FinanceSuite({
   const [vouchers, setVouchers] = useState<Voucher[]>(() => {
     const saved = localStorage.getItem('zenti_vouchers');
     return saved ? JSON.parse(saved) : [
-      { id: 'v-1', voucherNo: 'VOU-101', type: 'Debit', category: 'Utility Bills', description: 'Settled internet fiber bill for Computing Block', amount: 35000, date: '2026-06-10', approvedBy: 'Grace Wanjiku (Accountant)' },
-      { id: 'v-2', voucherNo: 'VOU-102', type: 'Credit', category: 'General Administration', description: 'Interest accumulated on fixed asset capital fund', amount: 8400, date: '2026-06-12', approvedBy: 'Grace Wanjiku (Accountant)' },
-      { id: 'v-3', voucherNo: 'VOU-103', type: 'Contra', category: 'General Administration', description: 'Transferred petty cash to main bank ledger', amount: 20000, date: '2026-06-15', approvedBy: 'Grace Wanjiku (Accountant)' }
+      { id: 'v-1', voucherNo: 'VOU-101', type: 'Debit', category: 'Utility Bills', description: 'Settled internet fiber bill for Computing Block', amount: 35000, date: '2026-06-10', approvedBy: 'Grace Wanjiku (Accountant)', status: 'Approved' },
+      { id: 'v-2', voucherNo: 'VOU-102', type: 'Credit', category: 'General Administration', description: 'Interest accumulated on fixed asset capital fund', amount: 8400, date: '2026-06-12', approvedBy: 'Grace Wanjiku (Accountant)', status: 'Approved' },
+      { id: 'v-3', voucherNo: 'VOU-103', type: 'Contra', category: 'General Administration', description: 'Transferred petty cash to main bank ledger', amount: 20000, date: '2026-06-15', approvedBy: 'Grace Wanjiku (Accountant)', status: 'Approved' }
     ];
   });
 
   useEffect(() => {
     localStorage.setItem('zenti_vouchers', JSON.stringify(vouchers));
   }, [vouchers]);
+
+  // Customizable Payroll Configuration State
+  const [payrollConfig, setPayrollConfig] = useState(() => {
+    const saved = localStorage.getItem('zenti_payroll_config');
+    return saved ? JSON.parse(saved) : {
+      nssf: 1080,
+      nhif: 1700,
+      payeThreshold: 24000,
+      payeRate: 30
+    };
+  });
+
+  useEffect(() => {
+    localStorage.setItem('zenti_payroll_config', JSON.stringify(payrollConfig));
+  }, [payrollConfig]);
+
+  // Handler to approve high-value vouchers (Admin Action)
+  const handleApproveVoucher = (voucherId: string) => {
+    setVouchers(prev => prev.map(v => {
+      if (v.id === voucherId) {
+        const updated = { 
+          ...v, 
+          status: 'Approved' as const, 
+          approvedBy: 'System Admin' 
+        };
+        // Log as expense if it's a Debit voucher
+        if (updated.type === 'Debit') {
+          onAddExpense({
+            description: `[Voucher ${updated.voucherNo}] ${updated.description} (Approved by Admin)`,
+            category: updated.category,
+            amount: updated.amount,
+            date: updated.date
+          });
+        }
+        logAudit('APPROVE_VOUCHER', `Approved High-Value ${updated.type} Voucher ${updated.voucherNo} of KES ${updated.amount.toLocaleString()}`);
+        return updated;
+      }
+      return v;
+    }));
+    alert('Voucher approved successfully and ledger balances synchronized.');
+  };
 
   // Imprests
   const [imprests, setImprests] = useState<Imprest[]>(() => {
@@ -239,6 +281,44 @@ export default function FinanceSuite({
     setAudits(prev => [newLog, ...prev]);
   };
 
+  // Local state for finance students loaded from GET /api/finance/students
+  const [financeStudents, setFinanceStudents] = useState<any[]>([]);
+
+  const fetchFinanceStudents = async () => {
+    try {
+      const res = await fetch("/api/finance/students");
+      if (!res.ok) throw new Error("HTTP error " + res.status);
+      const data = await res.json();
+      setFinanceStudents(data);
+    } catch (err) {
+      console.error("Failed to load finance students dropdown data:", err);
+      // Fallback: construct from parent students list
+      const fallback = students.map(s => {
+        const debits = (s.ledger || [])
+          .filter(inv => inv.amount > 0)
+          .reduce((sum, inv) => sum + inv.amount, 0);
+        const credits = (s.ledger || [])
+          .filter(inv => inv.amount < 0)
+          .reduce((sum, inv) => sum + Math.abs(inv.amount), 0);
+        const outstandingBalance = debits - credits;
+        const status = outstandingBalance > 0 ? "Outstanding" : "Cleared";
+        return {
+          id: s.id,
+          name: s.name,
+          admissionNo: s.admissionNo,
+          cohort: s.cohort,
+          outstandingBalance,
+          status
+        };
+      });
+      setFinanceStudents(fallback);
+    }
+  };
+
+  useEffect(() => {
+    fetchFinanceStudents();
+  }, [students]);
+
   // --- FORM STATES ---
   // Student Billing Cockpit
   const [billingStudentId, setBillingStudentId] = useState(students[0]?.id || '');
@@ -251,6 +331,13 @@ export default function FinanceSuite({
   const [waiverType, setWaiverType] = useState<'Scholarship' | 'Sibling Discount' | 'Bursary'>('Bursary');
   const [waiverAmount, setWaiverAmount] = useState('');
   const [waiverDescription, setWaiverDescription] = useState('Bursary Award');
+
+  useEffect(() => {
+    if (financeStudents.length > 0) {
+      if (!billingStudentId) setBillingStudentId(financeStudents[0].id);
+      if (!waiverStudentId) setWaiverStudentId(financeStudents[0].id);
+    }
+  }, [financeStudents]);
 
   // Single-entry Expense Logging (synchronized with parent state)
   const [expenseDesc, setExpenseDesc] = useState('');
@@ -454,6 +541,8 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
       return;
     }
     const val = Number(vouAmount);
+    const isHighValue = val > 50000;
+    const initialStatus = isHighValue ? 'Pending Admin Approval' : 'Approved';
     const newVou: Voucher = {
       id: `v-${Date.now()}`,
       voucherNo: `VOU-${Math.floor(100 + Math.random() * 900)}`,
@@ -462,13 +551,14 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
       description: vouDesc,
       amount: val,
       date: vouDate,
-      approvedBy: 'Grace Wanjiku (Accountant)'
+      approvedBy: isHighValue ? 'Pending Admin Review' : 'Grace Wanjiku (Accountant)',
+      status: initialStatus
     };
 
     setVouchers(prev => [newVou, ...prev]);
 
-    // If it is operational debit, we also log it directly as a system expense under corporate outlays
-    if (vouType === 'Debit') {
+    // If it is operational debit and is immediately approved, we also log it directly as a system expense under corporate outlays
+    if (vouType === 'Debit' && !isHighValue) {
       onAddExpense({
         description: `[Voucher ${newVou.voucherNo}] ${vouDesc} (Payee: ${vouPayee || 'Internal'})`,
         category: vouCategory,
@@ -477,7 +567,13 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
       });
     }
 
-    logAudit('CREATE_VOUCHER', `Created ${vouType} Voucher ${newVou.voucherNo} for KES ${val.toLocaleString()} (${catLabel(vouCategory)})`);
+    if (isHighValue) {
+      logAudit('CREATE_VOUCHER_PENDING', `Created High-Value ${vouType} Voucher ${newVou.voucherNo} of KES ${val.toLocaleString()} awaiting Admin authorization`, 'Warning');
+      alert(`Voucher ${newVou.voucherNo} logged. Since the amount exceeds KES 50,000, it has been submitted for Admin Dual-Authorization.`);
+    } else {
+      logAudit('CREATE_VOUCHER', `Created ${vouType} Voucher ${newVou.voucherNo} for KES ${val.toLocaleString()} (${catLabel(vouCategory)})`);
+      alert(`Success: Multi-entry Journal Voucher ${newVou.voucherNo} finalized and cross-balanced.`);
+    }
     setVouDesc('');
     setVouAmount('');
     setVouPayee('');
@@ -622,6 +718,8 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
             // Deduct supplier balance sheet
             // Generate counter Debit payment voucher matching PO settle
             const journalNo = `VOU-${Math.floor(100 + Math.random() * 900)}`;
+            const isHighValue = po.amount > 50000;
+            const initialStatus = isHighValue ? 'Pending Admin Approval' : 'Approved';
             const paymentVoucher: Voucher = {
               id: `v-${Date.now()}`,
               voucherNo: journalNo,
@@ -630,17 +728,25 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
               description: `[Supplier PO Settlement] Paid KES ${po.amount.toLocaleString()} to ${sup.companyName} for invoice matching ${po.poNo}`,
               amount: po.amount,
               date: new Date().toISOString().substring(0, 10),
-              approvedBy: 'Grace Wanjiku (Accountant)'
+              approvedBy: isHighValue ? 'Pending Admin Review' : 'Grace Wanjiku (Accountant)',
+              status: initialStatus
             };
             setVouchers(v => [paymentVoucher, ...v]);
-            onAddExpense({
-              description: `[PO Payee ${po.poNo}] Cleared Apex/Labs supplier contract`,
-              category: 'Utility Bills',
-              amount: po.amount,
-              date: new Date().toISOString().substring(0, 10)
-            });
 
-            logAudit('SETTLE_SUPPLIER_ACCOUNT', `Issued cash ledger payout KES ${po.amount.toLocaleString()} matching PO ${po.poNo}`, 'Success');
+            if (!isHighValue) {
+              onAddExpense({
+                description: `[PO Payee ${po.poNo}] Cleared Apex/Labs supplier contract`,
+                category: 'Utility Bills',
+                amount: po.amount,
+                date: new Date().toISOString().substring(0, 10)
+              });
+            }
+
+            if (isHighValue) {
+              logAudit('SETTLE_SUPPLIER_ACCOUNT_PENDING', `Drafted payout KES ${po.amount.toLocaleString()} matching PO ${po.poNo} awaiting Admin authorization`, 'Warning');
+            } else {
+              logAudit('SETTLE_SUPPLIER_ACCOUNT', `Issued cash ledger payout KES ${po.amount.toLocaleString()} matching PO ${po.poNo}`, 'Success');
+            }
             return { ...po, status: 'paid' as const };
           }
           return po;
@@ -753,8 +859,8 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
     let nameFilter = '';
 
     if (type === 'vouchers') {
-      headers = ['Voucher No', 'Type', 'Category', 'Description', 'Amount (KES)', 'Date', 'Authorized By'];
-      rows = vouchers.map(v => [v.voucherNo, v.type, v.category, v.description, String(v.amount), v.date, v.approvedBy]);
+      headers = ['Voucher No', 'Type', 'Category', 'Description', 'Amount (KES)', 'Date', 'Authorized By', 'Status'];
+      rows = vouchers.map(v => [v.voucherNo, v.type, v.category, v.description, String(v.amount), v.date, v.approvedBy, v.status || 'Approved']);
       nameFilter = 'institutional_accounting_vouchers';
     } else if (type === 'suppliers') {
       headers = ['Supplier Company', 'Contact Person', 'Status', 'Account Balance (KES)', 'Orders Count'];
@@ -768,10 +874,10 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
       headers = ['Lecturer Name', 'Email Address', 'Contract Code', 'Logged Hours', 'Base Pay (KES)', 'Stat Deductions NHIF (KES)', 'NSSF Contribution (KES)', 'PAYE Tax (KES)', 'Net Disbursed (KES)'];
       rows = lecturers.map(lec => {
         const gross = lec.loggedHours * lec.hourlyRate;
-        const nssf = 1080; 
-        const nhif = 1700;
+        const nssf = payrollConfig.nssf; 
+        const nhif = payrollConfig.nhif;
         const taxable = Math.max(0, gross - nssf);
-        const paye = taxable > 24000 ? Math.round(taxable * 0.3) : 0;
+        const paye = taxable > payrollConfig.payeThreshold ? Math.round(taxable * (payrollConfig.payeRate / 100)) : 0;
         const deductions = nssf + nhif + paye;
         const net = Math.max(0, gross - deductions);
         return [
@@ -1502,6 +1608,86 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
               )))}
             </div>
           </div>
+          
+          {/* Vouchers Audit/Registry list */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4 shadow-sm font-sans mt-6">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Institutional Vouchers Registry</h3>
+                <p className="text-[10px] text-slate-400">View voucher states and authorize pending vouchers (Admin clearance required for amounts &gt; KES 50,000).</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleExportCSVFile('vouchers')}
+                className="px-2.5 py-1 bg-slate-950 hover:bg-slate-800 text-white font-bold text-[10px] rounded-lg cursor-pointer flex items-center gap-1 shadow-3xs"
+              >
+                <FileSpreadsheet className="w-3 h-3 text-emerald-400" /> Export CSV
+              </button>
+            </div>
+            <div className="border border-slate-150 rounded-2xl overflow-hidden shadow-xs overflow-x-auto">
+              <table className="w-full border-collapse text-left text-xs bg-white">
+                <thead>
+                  <tr className="bg-slate-900 text-white font-bold text-[11px] uppercase tracking-wider">
+                    <th className="p-3">Voucher No</th>
+                    <th className="p-3">Type</th>
+                    <th className="p-3">Category</th>
+                    <th className="p-3">Description</th>
+                    <th className="p-3">Date</th>
+                    <th className="p-3">Amount</th>
+                    <th className="p-3">Approved By</th>
+                    <th className="p-3 text-center">Status</th>
+                    {!isAccountantView && <th className="p-3 text-center">Actions</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-150 text-slate-800 font-medium">
+                  {vouchers.map(v => (
+                    <tr key={v.id} className="hover:bg-slate-55/30 transition-colors">
+                      <td className="p-3 font-bold font-mono">{v.voucherNo}</td>
+                      <td className="p-3">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          v.type === 'Debit' ? 'bg-rose-50 text-rose-700' :
+                          v.type === 'Credit' ? 'bg-emerald-50 text-emerald-700' :
+                          v.type === 'Contra' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-700'
+                        }`}>
+                          {v.type}
+                        </span>
+                      </td>
+                      <td className="p-3 text-slate-500">{v.category}</td>
+                      <td className="p-3 max-w-[200px] truncate" title={v.description}>{v.description}</td>
+                      <td className="p-3 text-slate-400">{v.date}</td>
+                      <td className="p-3 font-mono font-bold">KES {v.amount.toLocaleString()}</td>
+                      <td className="p-3 text-slate-500">{v.approvedBy}</td>
+                      <td className="p-3 text-center">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          (v.status || 'Approved') === 'Approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900 animate-pulse'
+                        }`}>
+                          {v.status || 'Approved'}
+                        </span>
+                      </td>
+                      {!isAccountantView && (
+                        <td className="p-3 text-center">
+                          {(v.status || 'Approved') === 'Pending Admin Approval' && (
+                            <button
+                              type="button"
+                              onClick={() => handleApproveVoucher(v.id)}
+                              className="bg-emerald-600 hover:bg-emerald-750 text-white font-bold px-2 py-1 rounded text-[10px] cursor-pointer shadow-3xs"
+                            >
+                              Approve
+                            </button>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                  {vouchers.length === 0 && (
+                    <tr>
+                      <td colSpan={isAccountantView ? 8 : 9} className="p-3 text-center text-slate-400 italic">No vouchers registered.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
         </div>
       )}
@@ -1789,6 +1975,56 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
             )}
           </div>
 
+          {/* Statutory Tax Configurations panel */}
+          {!isAccountantView ? (
+            <div className="bg-slate-50 border border-slate-250 rounded-xl p-4 grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs font-sans">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase block">NSSF Fixed Deduction (KES)</label>
+                <input
+                  type="number"
+                  value={payrollConfig.nssf}
+                  onChange={(e) => setPayrollConfig(prev => ({ ...prev, nssf: Number(e.target.value) }))}
+                  className="w-full bg-white border border-slate-200 rounded-lg p-2 font-bold focus:border-slate-400 outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase block">NHIF Fixed Deduction (KES)</label>
+                <input
+                  type="number"
+                  value={payrollConfig.nhif}
+                  onChange={(e) => setPayrollConfig(prev => ({ ...prev, nhif: Number(e.target.value) }))}
+                  className="w-full bg-white border border-slate-200 rounded-lg p-2 font-bold focus:border-slate-400 outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase block">PAYE Income Threshold (KES)</label>
+                <input
+                  type="number"
+                  value={payrollConfig.payeThreshold}
+                  onChange={(e) => setPayrollConfig(prev => ({ ...prev, payeThreshold: Number(e.target.value) }))}
+                  className="w-full bg-white border border-slate-200 rounded-lg p-2 font-bold focus:border-slate-400 outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase block">PAYE Tax Rate (%)</label>
+                <input
+                  type="number"
+                  value={payrollConfig.payeRate}
+                  onChange={(e) => setPayrollConfig(prev => ({ ...prev, payeRate: Number(e.target.value) }))}
+                  className="w-full bg-white border border-slate-200 rounded-lg p-2 font-bold focus:border-slate-400 outline-none"
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="bg-slate-50 border border-slate-150 rounded-xl p-3.5 flex flex-wrap gap-6 text-[11px] text-slate-650 font-sans">
+              <span className="font-semibold flex items-center gap-1.5"><Lock className="w-3.5 h-3.5 text-slate-400" /> Statutory Tax Configurations (Admin Locked):</span>
+              <span>NSSF: <strong className="text-slate-900 font-mono">KES {payrollConfig.nssf.toLocaleString()}</strong></span>
+              <span>NHIF: <strong className="text-slate-900 font-mono">KES {payrollConfig.nhif.toLocaleString()}</strong></span>
+              <span>PAYE Threshold: <strong className="text-slate-900 font-mono">KES {payrollConfig.payeThreshold.toLocaleString()}</strong></span>
+              <span>PAYE Rate: <strong className="text-slate-900 font-mono">{payrollConfig.payeRate}%</strong></span>
+            </div>
+          )}
+
           <div className="border border-slate-150 rounded-2xl overflow-hidden shadow-xs overflow-x-auto">
             <table className="w-full border-collapse text-left text-xs bg-white">
               <thead>
@@ -1807,10 +2043,10 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
               <tbody className="divide-y divide-slate-150 text-slate-800 font-medium">
                 {lecturers.map(lec => {
                   const grossPay = lec.loggedHours * lec.hourlyRate;
-                  const nssf = 1080;
-                  const nhif = 1700;
+                  const nssf = payrollConfig.nssf;
+                  const nhif = payrollConfig.nhif;
                   const taxable = Math.max(0, grossPay - nssf);
-                  const paye = taxable > 24000 ? Math.round(taxable * 0.3) : 0;
+                  const paye = taxable > payrollConfig.payeThreshold ? Math.round(taxable * (payrollConfig.payeRate / 100)) : 0;
                   const totalDeductions = nssf + nhif + paye;
                   const netPay = Math.max(0, grossPay - totalDeductions);
 
@@ -1933,10 +2169,10 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
         {activePayslipLecturer && (() => {
           const lec = activePayslipLecturer;
           const grossPay = lec.loggedHours * lec.hourlyRate;
-          const nssf = 1080;
-          const nhif = 1700;
+          const nssf = payrollConfig.nssf;
+          const nhif = payrollConfig.nhif;
           const taxable = Math.max(0, grossPay - nssf);
-          const paye = taxable > 24000 ? Math.round(taxable * 0.3) : 0;
+          const paye = taxable > payrollConfig.payeThreshold ? Math.round(taxable * (payrollConfig.payeRate / 100)) : 0;
           const totalDeductions = nssf + nhif + paye;
           const netPay = Math.max(0, grossPay - totalDeductions);
 
@@ -2005,7 +2241,7 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
                       <span className="font-mono">KES {nhif.toLocaleString()}</span>
                     </div>
                     <div className="p-2.5 flex justify-between text-slate-650">
-                      <span>PAYE State Withholding Tax (30.0% fixed tier above KES 24,000)</span>
+                      <span>PAYE State Withholding Tax ({payrollConfig.payeRate.toFixed(1)}% tier above KES {payrollConfig.payeThreshold.toLocaleString()})</span>
                       <span className="font-mono text-rose-600 font-semibold">KES {paye.toLocaleString()}</span>
                     </div>
                   </div>

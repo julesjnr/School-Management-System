@@ -1265,8 +1265,29 @@ Zenti Library Services`;
   };
 
   // 15e. SYSTEM DELETE UNDERGRADUATE STUDENT PROFILE
-  const handleDeleteStudent = (studentId: string) => {
+  const handleDeleteStudent = async (studentId: string) => {
+    // Optimistic UI updates
     setStudents(prev => prev.filter(s => s.id !== studentId));
+    try {
+      const res = await fetch(`/api/students/${studentId}`, {
+        method: "DELETE"
+      });
+      if (!res.ok) {
+        throw new Error("HTTP error " + res.status);
+      }
+    } catch (err) {
+      console.error("Failed to delete student from database:", err);
+      alert("Failed to delete student from the database. Re-fetching state...");
+      fetch("/api/data")
+        .then((res) => {
+          if (!res.ok) throw new Error("HTTP error " + res.status);
+          return res.json();
+        })
+        .then((db) => {
+          if (db && db.students) setStudents(db.students);
+        })
+        .catch(syncErr => console.error("Sync error after deletion failure:", syncErr));
+    }
   };
 
   // 16. BOOK LECTURER OFFICE HOUR

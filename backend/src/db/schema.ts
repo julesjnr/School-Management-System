@@ -531,3 +531,22 @@ export const transactions = pgTable("transactions", {
 	unique("transactions_reference_no_key").on(table.referenceNo),
 ]);
 
+export const studentLedger = pgTable("student_ledger", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	studentId: uuid("student_id").notNull(),
+	entryType: varchar("entry_type", { length: 10 }).notNull(), // 'DEBIT' or 'CREDIT'
+	voteHead: varchar("vote_head", { length: 100 }).notNull(),
+	amount: numeric({ precision: 12, scale: 2 }).notNull(),
+	description: text().notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+		columns: [table.studentId],
+		foreignColumns: [students.id],
+		name: "student_ledger_student_id_fkey"
+	}).onDelete("cascade"),
+	check("student_ledger_entry_type_check", sql`(entry_type)::text = ANY ((ARRAY['DEBIT'::character varying, 'CREDIT'::character varying])::text[])`),
+	check("student_ledger_amount_check", sql`amount >= (0)::numeric`),
+]);
+
+

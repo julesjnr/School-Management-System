@@ -8,6 +8,13 @@
       "when": 1783404551140,
       "tag": "0000_clumsy_bulldozer",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1784193509195,
+      "tag": "0001_orange_garia",
+      "breakpoints": true
     }
   ]
 }
