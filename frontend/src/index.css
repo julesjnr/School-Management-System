@@ -49,7 +49,7 @@
   border-color: #1e293b !important; /* slate-800 */
 }
 
-.dark .bg-[#f8fafc] {
+.dark .bg-\[\#f8fafc\] {
   background-color: #060913 !important; /* slate-950 dark space */
 }
 

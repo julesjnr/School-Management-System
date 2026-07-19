@@ -79,6 +79,28 @@
   "loans": [],
   "courses": [
     {
+      "id": "5926c717-d7d5-4993-b275-1f762fa6ea76",
+      "code": "CS101",
+      "title": "Computer Science",
+      "description": "Study of computer systems, programming, and software development.",
+      "duration": "4 Years",
+      "fees": 180000,
+      "thumbnail": "",
+      "faculty": "School of Computing",
+      "active": true
+    },
+    {
+      "id": "72c483ad-cf68-4526-a185-7f4dd65d0a27",
+      "code": "IT102",
+      "title": "Information Technology",
+      "description": "Study of information systems, networking, and IT infrastructure.",
+      "duration": "4 Years",
+      "fees": 170000,
+      "thumbnail": "",
+      "faculty": "School of Computing",
+      "active": true
+    },
+    {
       "id": "ae775501-6963-4c07-ab8b-a2e9c9fe3b28",
       "code": "SE103",
       "title": "Software Engineering",
@@ -107,28 +129,6 @@
       "description": "Covers business information systems, databases, and enterprise applications.",
       "duration": "4 Years",
       "fees": 175000,
-      "thumbnail": "",
-      "faculty": "School of Computing",
-      "active": true
-    },
-    {
-      "id": "5926c717-d7d5-4993-b275-1f762fa6ea76",
-      "code": "CS101",
-      "title": "Computer Science",
-      "description": "Study of computer systems, programming, and software development.",
-      "duration": "4 Years",
-      "fees": 180000,
-      "thumbnail": "",
-      "faculty": "School of Computing",
-      "active": true
-    },
-    {
-      "id": "72c483ad-cf68-4526-a185-7f4dd65d0a27",
-      "code": "IT102",
-      "title": "Information Technology",
-      "description": "Study of information systems, networking, and IT infrastructure.",
-      "duration": "4 Years",
-      "fees": 170000,
       "thumbnail": "",
       "faculty": "School of Computing",
       "active": true
