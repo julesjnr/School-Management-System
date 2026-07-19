@@ -79,6 +79,28 @@
   "loans": [],
   "courses": [
     {
+      "id": "7d6bf4e2-9a3a-4d86-9442-ba28ae1e61bc",
+      "code": "DS104",
+      "title": "Data Science",
+      "description": "Study of data analysis, statistics, and machine learning.",
+      "duration": "4 Years",
+      "fees": 190000,
+      "thumbnail": "",
+      "faculty": "School of Computing",
+      "active": true
+    },
+    {
+      "id": "88199fa1-0bd6-4e6f-86df-8962184ffc79",
+      "code": "IS105",
+      "title": "Information Systems",
+      "description": "Covers business information systems, databases, and enterprise applications.",
+      "duration": "4 Years",
+      "fees": 175000,
+      "thumbnail": "",
+      "faculty": "School of Computing",
+      "active": true
+    },
+    {
       "id": "5926c717-d7d5-4993-b275-1f762fa6ea76",
       "code": "CS101",
       "title": "Computer Science",
@@ -110,28 +132,6 @@
       "thumbnail": "",
       "faculty": "School of Computing",
       "active": true
-    },
-    {
-      "id": "7d6bf4e2-9a3a-4d86-9442-ba28ae1e61bc",
-      "code": "DS104",
-      "title": "Data Science",
-      "description": "Study of data analysis, statistics, and machine learning.",
-      "duration": "4 Years",
-      "fees": 190000,
-      "thumbnail": "",
-      "faculty": "School of Computing",
-      "active": true
-    },
-    {
-      "id": "88199fa1-0bd6-4e6f-86df-8962184ffc79",
-      "code": "IS105",
-      "title": "Information Systems",
-      "description": "Covers business information systems, databases, and enterprise applications.",
-      "duration": "4 Years",
-      "fees": 175000,
-      "thumbnail": "",
-      "faculty": "School of Computing",
-      "active": true
     }
   ],
   "reviews": [],
@@ -144,7 +144,7 @@
       "phone": "",
       "admissionNo": "ADM-001",
       "cohort": "2026 Intake",
-      "passcode": "$2b$10$AD8P5rnoHFqDzWT8zZOu/OSfiuRoS9YXyObTa0Doq/Qt/mI1ck0be",
+      "accountStatus": "Pending Setup",
       "createdAt": "2026-07-17 19:55:07.907309+00",
       "enrolledUnits": [
         "IT102"
@@ -165,50 +165,7 @@
     }
   ],
   "inventory": [],
-  "lecturers": [
-    {
-      "id": "8d48b318-4164-4b69-90f8-c020a034e4a2",
-      "name": "kamu njoroge",
-      "email": "mike@edu.ac.ke",
-      "phone": "+254793657607",
-      "hourlyRate": 67,
-      "loggedHours": 0,
-      "bankDetails": "KCB:5673898276",
-      "contractLength": "2 Year Contract",
-      "designatorCode": "LEC-425",
-      "bio": "",
-      "avatar": "",
-      "isActive": true,
-      "isAccountant": false,
-      "isLibrarian": false,
-      "passcode": "$2b$10$fB5/lgsFIjdFILODpRsoEOkr7HJ6k8.nnBZknlwQgQxpK8nBjkMTy",
-      "subjects": [],
-      "publications": [],
-      "researchInterests": [],
-      "officeHours": []
-    },
-    {
-      "id": "33d75481-db04-463c-994b-4ffba7ba7ece",
-      "name": "David Jackson",
-      "email": "jackson@zenti.edu",
-      "phone": "+254 711 000000",
-      "hourlyRate": 70,
-      "loggedHours": 0,
-      "bankDetails": "NCBA Bank - Accountant Settlement",
-      "contractLength": "Permanent",
-      "designatorCode": "ACC-014",
-      "bio": "",
-      "avatar": "",
-      "isActive": true,
-      "isAccountant": true,
-      "isLibrarian": false,
-      "passcode": "$2b$10$INdZpw5TM1nolAXGyYyHTO21wUOzyMtJoPRG.Gfv3XgteAtYDRZja",
-      "subjects": [],
-      "publications": [],
-      "researchInterests": [],
-      "officeHours": []
-    }
-  ],
+  "lecturers": [],
   "examPapers": [],
   "bookReviews": [],
   "testimonies": [],

@@ -2574,7 +2574,7 @@ subjects.forEach(subj => {
               {/* Form Body */}
               <div className="p-6 space-y-4">
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  You can change your portal passcode below. The default passcode assigned to your profile is <code className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-mono font-bold text-slate-800 dark:text-slate-200">{lecturer.isAccountant ? 'acc123' : (lecturer.isLibrarian || lecturer.id === 'l3') ? 'lib123' : 'staff123'}</code> unless it has been previously modified.
+                  You can change your portal passcode below to secure your account. Please keep this passcode private and secure.
                 </p>
 
                 {passcodeError && (

@@ -986,6 +986,10 @@ Zenti Library Services`;
     const lecturer = await res.json();
 
     setLecturers((prev) => [...prev, lecturer]);
+
+    if (lecturer.temporaryPasscode) {
+      alert(`Staff registered successfully!\n\nSecure Temporary Passcode: ${lecturer.temporaryPasscode}\n\nIMPORTANT: Copy this passcode and provide it to the staff member now. It is stored securely (hashed) and cannot be retrieved again.`);
+    }
   } catch (err) {
     console.error(err);
     alert("Failed to register lecturer.");

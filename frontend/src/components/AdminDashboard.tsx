@@ -373,6 +373,49 @@ export default function AdminDashboard({
   const [resetFeedbackMap, setResetFeedbackMap] = useState<Record<string, string>>({});
   const [resetPasscodeMap, setResetPasscodeMap] = useState<Record<string, string>>({});
 
+  // Password reset modal state for manually resetting a student's password
+  const [resetModalData, setResetModalData] = useState<{
+    isOpen: boolean;
+    studentName: string;
+    temporaryPasscode: string;
+  } | null>(null);
+
+  const handleResetStudentPassword = async (studentId: string, studentName: string) => {
+    try {
+      const res = await fetch(`/api/students/${studentId}/reset-password`, {
+        method: 'POST'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.temporaryPasscode) {
+          setResetModalData({
+            isOpen: true,
+            studentName,
+            temporaryPasscode: data.temporaryPasscode
+          });
+          
+          logAudit(
+            `Generated temporary passcode for student ${studentName} (${studentId})`,
+            'Authentication Access Control'
+          );
+          
+          if (onUpdateStudent) {
+            onUpdateStudent(studentId, { accountStatus: 'Pending Setup' });
+          }
+          
+          triggerToast(`Temporary passcode generated for ${studentName}`, 'success');
+        } else {
+          triggerToast(data.error || 'Failed to reset password.', 'error');
+        }
+      } else {
+        triggerToast('Failed to reset student password.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      triggerToast('Network error while resetting password.', 'error');
+    }
+  };
+
   const fetchResetRequests = async () => {
     setIsFetchingResets(true);
     setResetError('');
@@ -480,6 +523,8 @@ export default function AdminDashboard({
   const [staffIsAccountant, setStaffIsAccountant] = useState(false);
   const [staffIsLibrarian, setStaffIsLibrarian] = useState(false);
   const [staffPasscode, setStaffPasscode] = useState('');
+  const [autoGeneratePasscode, setAutoGeneratePasscode] = useState(true);
+  const [autoGenerateAccPasscode, setAutoGenerateAccPasscode] = useState(true);
 
   // Auto-Reconciliation stats helper
   const allPayments = students.flatMap(s => s.payments);
@@ -764,7 +809,7 @@ export default function AdminDashboard({
       subjects: [],
       isAccountant: staffIsAccountant,
       isLibrarian: staffIsLibrarian,
-      passcode: staffPasscode || (staffIsAccountant ? 'acc123' : staffIsLibrarian ? 'lib123' : 'staff123')
+      passcode: autoGeneratePasscode ? '' : staffPasscode
     });
     setStaffName('');
     setStaffEmail('');
@@ -775,6 +820,7 @@ export default function AdminDashboard({
     setStaffIsAccountant(false);
     setStaffIsLibrarian(false);
     setStaffPasscode('');
+    setAutoGeneratePasscode(true);
     triggerToast('Faculty registrar profile compiled successfully.', 'success');
   };
 
@@ -1674,7 +1720,7 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
                       <th className="py-3 px-4">Admission No</th>
                       <th className="py-3 px-4">Full Name</th>
                       <th className="py-3 px-4">Cohort</th>
-                      <th className="py-3 px-4">Passcode</th>
+                      <th className="py-3 px-4">Account Status</th>
                       <th className="py-3 px-4">Registered Units</th>
                       <th className="py-3 px-4 text-right">Invoiced (KES)</th>
                       <th className="py-3 px-4 text-right">Total Paid (KES)</th>
@@ -1699,7 +1745,15 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
                             <td className="py-3 px-4 font-mono font-bold text-blue-700">{stud.admissionNo}</td>
                             <td className="py-3 px-4 font-semibold text-slate-900">{stud.name}</td>
                             <td className="py-3 px-4 text-slate-505 font-medium">{stud.cohort}</td>
-                            <td className="py-3 px-4 font-mono text-[11px] text-indigo-600 font-bold">{stud.passcode || 'student123'}</td>
+                            <td className="py-3 px-4">
+                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
+                                stud.accountStatus === 'Active'
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-250 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900'
+                                  : 'bg-amber-50 text-amber-700 border-amber-250 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-900'
+                              }`}>
+                                {stud.accountStatus || 'Pending Setup'}
+                              </span>
+                            </td>
                             <td className="py-3 px-4">
                               <span className="bg-slate-100 text-slate-705 border border-slate-200 px-2 py-0.5 rounded text-[10px] font-bold font-mono">
                                 {stud.enrolledUnits.length} Units ({stud.enrolledUnits.join(', ') || 'None'})
@@ -1709,18 +1763,28 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
                             <td className="py-3 px-4 text-right font-mono font-bold text-emerald-600">KES {totalPaid.toLocaleString()}</td>
                             <td className={`py-3 px-4 text-right font-mono font-black ${outstandingBal > 0 ? 'text-rose-650' : 'text-slate-400'}`}>KES {outstandingBal.toLocaleString()}</td>
                             <td className="py-3 px-4 text-center">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (confirm(`Are you absolutely sure you want to dismiss the academic file for ${stud.name} (${stud.admissionNo}) from Zenti systems? This cannot be undone.`)) {
-                                    onDeleteStudent(stud.id);
-                                  }
-                                }}
-                                className="bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-750 text-[9px] font-black uppercase tracking-wider py-1 px-2 rounded-lg border border-rose-200 transition-colors cursor-pointer"
-                                title="Dismiss active record"
-                              >
-                                Purge Account
-                              </button>
+                              <div className="flex justify-center items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleResetStudentPassword(stud.id, stud.name)}
+                                  className="bg-indigo-50 hover:bg-indigo-100 text-indigo-650 hover:text-indigo-800 text-[9px] font-black uppercase tracking-wider py-1 px-2 rounded-lg border border-indigo-200 transition-colors cursor-pointer"
+                                  title="Generate temporary passcode"
+                                >
+                                  Reset Password
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (confirm(`Are you absolutely sure you want to dismiss the academic file for ${stud.name} (${stud.admissionNo}) from Zenti systems? This cannot be undone.`)) {
+                                      onDeleteStudent(stud.id);
+                                    }
+                                  }}
+                                  className="bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-750 text-[9px] font-black uppercase tracking-wider py-1 px-2 rounded-lg border border-rose-200 transition-colors cursor-pointer"
+                                  title="Dismiss active record"
+                                >
+                                  Purge Account
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -1862,16 +1926,34 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
                     />
                   </div>
 
-                  <div className="space-y-1">
-                    <label htmlFor="staff-passcode" className="block text-[11px] font-bold text-slate-650">Account Passcode</label>
-                    <input
-                      id="staff-passcode"
-                      type="password"
-                      placeholder="Default: staff123 (or acc123 / lib123 based on roles)"
-                      value={staffPasscode}
-                      onChange={(e) => setStaffPasscode(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs focus:outline-hidden text-slate-800 font-mono"
-                    />
+                  <div className="space-y-2">
+                    <label className="block text-[11px] font-bold text-slate-650">Account Passcode Configuration</label>
+                    <div className="flex flex-col gap-2 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                      <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={autoGeneratePasscode}
+                          onChange={(e) => setAutoGeneratePasscode(e.target.checked)}
+                          className="rounded border-slate-350 text-indigo-650 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
+                        />
+                        <span>Securely auto-generate random passcode (Recommended)</span>
+                      </label>
+                      
+                      {!autoGeneratePasscode && (
+                        <div className="mt-1 space-y-1">
+                          <label htmlFor="staff-passcode" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Custom Passcode</label>
+                          <input
+                            id="staff-passcode"
+                            type="password"
+                            placeholder="Enter custom passcode"
+                            value={staffPasscode}
+                            onChange={(e) => setStaffPasscode(e.target.value)}
+                            className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs focus:outline-hidden text-slate-850 font-mono"
+                            required={!autoGeneratePasscode}
+                          />
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <div className="space-y-1.5 mt-1.5">
@@ -1981,7 +2063,6 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
                       <th className="py-3 px-4">Designator ID</th>
                       <th className="py-3 px-4">Full Name</th>
                       <th className="py-3 px-4">Email</th>
-                      <th className="py-3 px-4">Passcode</th>
                       <th className="py-3 px-4">Subjects Allocated</th>
                       <th className="py-3 px-4">Base Payout Rate</th>
                       <th className="py-3 px-4">Contract Status</th>
@@ -1995,7 +2076,6 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
                         <td className="py-3 px-4 font-mono font-bold text-slate-700">{l.designatorCode}</td>
                         <td className="py-3 px-4 font-semibold text-slate-900">{l.name}</td>
                         <td className="py-3 px-4 text-slate-505">{l.email}</td>
-                        <td className="py-3 px-4 font-mono text-[11px] text-indigo-600 font-bold">{l.passcode || (l.isAccountant ? 'acc123' : (l.isLibrarian || l.id === 'l3') ? 'lib123' : 'staff123')}</td>
                         <td className="py-3 px-4">
                           <div className="flex flex-wrap gap-1">
                             {(l.subjects ?? []).length === 0 ? (
@@ -2489,7 +2569,7 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
                   const targetEmail = (e.currentTarget.elements.namedItem('acc-email') as HTMLInputElement).value;
                   const targetCode = (e.currentTarget.elements.namedItem('acc-code') as HTMLInputElement).value;
                   const targetRate = parseFloat((e.currentTarget.elements.namedItem('acc-rate') as HTMLInputElement).value);
-                  const targetPasscode = (e.currentTarget.elements.namedItem('acc-passcode') as HTMLInputElement).value;
+                  const targetPasscode = autoGenerateAccPasscode ? '' : (e.currentTarget.elements.namedItem('acc-passcode') as HTMLInputElement).value;
 
                   if (!targetName || !targetEmail || !targetCode || isNaN(targetRate)) {
                     alert('Please provide complete accountant data.');
@@ -2506,8 +2586,9 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
                     designatorCode: targetCode,
                     subjects: [],
                     isAccountant: true,
-                    passcode: targetPasscode || 'acc123'
+                    passcode: targetPasscode
                   });
+                  setAutoGenerateAccPasscode(true);
 
                   e.currentTarget.reset();
                   alert(`Accountant ${targetName} registered with designator code ${targetCode}.`);
@@ -2562,15 +2643,33 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
                     </div>
                   </div>
 
-                  <div className="space-y-1">
-                    <label htmlFor="acc-passcode" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Account Passcode</label>
-                    <input
-                      id="acc-passcode"
-                      name="acc-passcode"
-                      type="password"
-                      placeholder="Default: acc123"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:outline-hidden text-slate-800 font-mono"
-                    />
+                  <div className="space-y-2">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Account Passcode Configuration</label>
+                    <div className="flex flex-col gap-2 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                      <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={autoGenerateAccPasscode}
+                          onChange={(e) => setAutoGenerateAccPasscode(e.target.checked)}
+                          className="rounded border-slate-300 text-indigo-650 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
+                        />
+                        <span>Securely auto-generate random passcode (Recommended)</span>
+                      </label>
+                      
+                      {!autoGenerateAccPasscode && (
+                        <div className="mt-1 space-y-1">
+                          <label htmlFor="acc-passcode" className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider font-mono">Custom Passcode</label>
+                          <input
+                            id="acc-passcode"
+                            name="acc-passcode"
+                            type="password"
+                            placeholder="Enter custom passcode"
+                            className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs focus:outline-hidden text-slate-800 font-mono"
+                            required={!autoGenerateAccPasscode}
+                          />
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <button
@@ -2836,6 +2935,71 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
             mockEmails={mockEmails}
             onTriggerOverdueScan={onTriggerOverdueScan}
           />
+        )}
+
+        {/* Temporary passcode copy confirmation modal */}
+        {resetModalData && resetModalData.isOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center font-sans">
+            {/* Backdrop */}
+            <div 
+              onClick={() => setResetModalData(null)}
+              className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity cursor-default"
+            />
+            
+            {/* Modal Card */}
+            <div className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full max-w-md p-6 rounded-2xl shadow-2xl z-10 animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex flex-col items-center text-center space-y-4">
+                {/* Shield Icon */}
+                <div className="w-12 h-12 bg-indigo-50 dark:bg-indigo-950/40 rounded-full flex items-center justify-center text-indigo-650 dark:text-indigo-400">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                </div>
+                
+                <div className="space-y-1">
+                  <h4 className="text-base font-bold text-slate-900 dark:text-white">Temporary Passcode Generated</h4>
+                  <p className="text-xs text-slate-500">
+                    A secure, single-use activation credential has been generated for <strong>{resetModalData.studentName}</strong>.
+                  </p>
+                </div>
+
+                {/* Secure Credentials Display */}
+                <div className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 p-4 rounded-xl flex flex-col items-center space-y-2 relative">
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest font-mono">Temporary Passcode</span>
+                  <code className="text-2xl font-black text-indigo-650 dark:text-indigo-400 tracking-wider font-mono select-all">
+                    {resetModalData.temporaryPasscode}
+                  </code>
+                  <p className="text-[10px] text-rose-500 font-semibold">
+                    ⚠️ This code will not be shown again. Please copy it now.
+                  </p>
+                </div>
+
+                {/* Action buttons */}
+                <div className="flex w-full gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(resetModalData.temporaryPasscode);
+                      triggerToast('Passcode copied to clipboard!', 'success');
+                    }}
+                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold py-2.5 rounded-xl text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-xs"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                    </svg>
+                    <span>Copy Passcode</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setResetModalData(null)}
+                    className="flex-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-350 font-extrabold py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
+                  >
+                    Close Window
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
       </div>

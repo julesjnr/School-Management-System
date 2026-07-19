@@ -157,6 +157,8 @@ export async function loadFullDatabaseState(): Promise<any> {
   const paymentRows = await db.select().from(payments);
   const attendanceRows = await db.select().from(studentAttendance);
 
+  const oldStudents = dbState.students || [];
+
   dbState.students = studentRows.map(s => {
     const enrolledUnits = enrollmentRows.filter(e => e.studentId === s.id).map(e => e.courseCode);
     
@@ -193,6 +195,15 @@ export async function loadFullDatabaseState(): Promise<any> {
       attendanceMap[a.subjectCode] = a.attendanceRate;
     });
 
+    const matchedCachedStudent = oldStudents.find((cs: any) => cs.id === s.id);
+    const cachedStatus = matchedCachedStudent?.accountStatus;
+    
+    const isDefault = !s.passcode || s.passcode === "student123" || 
+      ((s.passcode.startsWith('$2b$') || s.passcode.startsWith('$2a$') || s.passcode.startsWith('$2y$')) && 
+       bcrypt.compareSync("student123", s.passcode));
+       
+    const accountStatus = cachedStatus || (isDefault ? "Pending Setup" : "Active");
+
     return {
       id: s.id,
       name: s.name,
@@ -202,6 +213,7 @@ export async function loadFullDatabaseState(): Promise<any> {
       cohort: s.cohort,
       avatar: s.avatar ?? undefined,
       passcode: s.passcode ?? undefined,
+      accountStatus,
       createdAt: s.createdAt ?? undefined,
       enrolledUnits,
       grades: studentGrades,
@@ -1551,15 +1563,21 @@ app.get("/api/supabase/lecturers", async (req, res) => {
     const isPlaceholder = !process.env.SUPABASE_URL || !process.env.SUPABASE_KEY || process.env.SUPABASE_URL.includes("placeholder");
     
     if (isPlaceholder) {
+      const lecturersList = (getDatabase().lecturers || []).map((l: any) => {
+        const { passcode, ...rest } = l;
+        return rest;
+      });
       return res.json({
         success: false,
         status: "unconfigured",
         message: "Supabase connection is not configured.",
-        lecturers: getDatabase().lecturers || []
+        lecturers: lecturersList
       });
     }
 
-    const { data, error } = await supabase.from('lecturers').select('*');
+    const { data, error } = await supabase
+      .from('lecturers')
+      .select('id, name, email, phone, hourly_rate, logged_hours, bank_details, contract_length, designator_code, bio, avatar, is_active, is_accountant, is_librarian');
     if (error) throw error;
 
     res.json({
@@ -1663,6 +1681,12 @@ app.post("/api/auth/login", (req, res) => {
 
   const db = getDatabase();
 
+  const sanitizeProfile = (profileObj: any) => {
+    if (!profileObj) return profileObj;
+    const { passcode: _, ...rest } = profileObj;
+    return rest;
+  };
+
   // Helper to verify passcode and upgrade to bcrypt dynamically on success
   const verifyAndMigratePasscode = (inputPasscode: string, storedHashOrPlain: string, updateCallback: (hashed: string) => void) => {
     const isBcrypt = storedHashOrPlain.startsWith('$2b$') || storedHashOrPlain.startsWith('$2a$') || storedHashOrPlain.startsWith('$2y$');
@@ -1733,7 +1757,7 @@ app.post("/api/auth/login", (req, res) => {
         role: "accountant",
         userId: accountantLecturer.id,
         token: token,
-        profile: accountantLecturer
+        profile: sanitizeProfile(accountantLecturer)
       });
     } else {
       res.status(401).json({ success: false, error: "Invalid Accountant security authorization key." });
@@ -1769,7 +1793,7 @@ app.post("/api/auth/login", (req, res) => {
         role: "librarian",
         userId: librarianLecturer.id,
         token: token,
-        profile: librarianLecturer
+        profile: sanitizeProfile(librarianLecturer)
       });
     } else {
       res.status(401).json({ success: false, error: "Invalid Librarian security clearance key." });
@@ -1804,7 +1828,7 @@ app.post("/api/auth/login", (req, res) => {
         role: "student",
         userId: studentRecord.id,
         token: token,
-        profile: studentRecord
+        profile: sanitizeProfile(studentRecord)
       });
     } else {
       res.status(401).json({ success: false, error: "Invalid student passcode credential." });
@@ -1840,7 +1864,7 @@ app.post("/api/auth/login", (req, res) => {
         role: "lecturer",
         userId: lecturerRecord.id,
         token: token,
-        profile: lecturerRecord
+        profile: sanitizeProfile(lecturerRecord)
       });
     } else {
       res.status(401).json({ success: false, error: "Invalid lecturer/instructor passcode credential." });
@@ -1892,6 +1916,7 @@ app.post("/api/auth/change-passcode", (req, res) => {
       return;
     }
     db.students[studentIdx].passcode = bcrypt.hashSync(newPasscode, 10);
+    db.students[studentIdx].accountStatus = "Active";
     saveDatabase(db);
     res.json({ success: true, message: "Passcode updated successfully." });
     return;
@@ -2063,6 +2088,7 @@ app.post("/api/admin/reset-requests/:id/action", checkRBAC(["admin"]), (req, res
       const studentIdx = (db.students || []).findIndex((s: any) => s.id === resetReq.userId);
       if (studentIdx !== -1) {
         db.students[studentIdx].passcode = finalPasscode;
+        db.students[studentIdx].accountStatus = "Pending Setup";
         userFound = true;
       }
     } else {
@@ -2092,13 +2118,32 @@ app.post("/api/admin/reset-requests/:id/action", checkRBAC(["admin"]), (req, res
 });
 
 // 2. Fetch Full Database State
+// Helper to sanitize state for client consumption by removing passcodes
+function sanitizeStateForClient(dbState: any) {
+  if (!dbState) return dbState;
+  const cloned = { ...dbState };
+  if (Array.isArray(cloned.students)) {
+    cloned.students = cloned.students.map((s: any) => {
+      const { passcode, ...rest } = s;
+      return rest;
+    });
+  }
+  if (Array.isArray(cloned.lecturers)) {
+    cloned.lecturers = cloned.lecturers.map((l: any) => {
+      const { passcode, ...rest } = l;
+      return rest;
+    });
+  }
+  return cloned;
+}
+
 app.get("/api/data", async (req, res) => {
   try {
     const dbState = await loadFullDatabaseState();
-    res.json(dbState);
+    res.json(sanitizeStateForClient(dbState));
   } catch (error) {
     console.error("Failed to load full database state:", error);
-    res.json(getDatabase());
+    res.json(sanitizeStateForClient(getDatabase()));
   }
 });
 
@@ -2264,32 +2309,50 @@ app.post("/api/student-attendance", async (req, res) => {
 // 5. REST Resource: Lecturers
 app.get("/api/lecturers", async (req, res) => {
   try {
-    const lecturerRows = await db.select().from(lecturers);
+    const lecturerRows = await db
+      .select({
+        id: lecturers.id,
+        name: lecturers.name,
+        email: lecturers.email,
+        phone: lecturers.phone,
+        hourlyRate: lecturers.hourlyRate,
+        loggedHours: lecturers.loggedHours,
+        bankDetails: lecturers.bankDetails,
+        contractLength: lecturers.contractLength,
+        designatorCode: lecturers.designatorCode,
+        bio: lecturers.bio,
+        avatar: lecturers.avatar,
+        isActive: lecturers.isActive,
+        isAccountant: lecturers.isAccountant,
+        isLibrarian: lecturers.isLibrarian,
+      })
+      .from(lecturers);
 
     const subjectRows = await db.select().from(lecturerSubjects);
     const publicationRows = await db.select().from(lecturerPublications);
     const researchRows = await db.select().from(lecturerResearchInterests);
     const officeRows = await db.select().from(officeHourSlots);
 
-    const result = lecturerRows.map((lecturer) => ({
-      ...lecturer,
+    const result = lecturerRows.map((lecturer) => {
+      return {
+        ...lecturer,
+        subjects: subjectRows
+          .filter((s) => s.lecturerId === lecturer.id)
+          .map((s) => s.subjectCode),
 
-      subjects: subjectRows
-        .filter((s) => s.lecturerId === lecturer.id)
-        .map((s) => s.subjectCode),
+        publications: publicationRows
+          .filter((p) => p.lecturerId === lecturer.id)
+          .map((p) => p.publicationText),
 
-      publications: publicationRows
-        .filter((p) => p.lecturerId === lecturer.id)
-        .map((p) => p.publicationText),
+        researchInterests: researchRows
+          .filter((r) => r.lecturerId === lecturer.id)
+          .map((r) => r.interestText),
 
-      researchInterests: researchRows
-        .filter((r) => r.lecturerId === lecturer.id)
-        .map((r) => r.interestText),
-
-      officeHours: officeRows.filter(
-        (o) => o.lecturerId === lecturer.id
-      ),
-    }));
+        officeHours: officeRows.filter(
+          (o) => o.lecturerId === lecturer.id
+        ),
+      };
+    });
 
     res.json(result);
   } catch (error) {
@@ -2308,6 +2371,12 @@ app.post("/api/lecturers", async (req, res) => {
       });
     }
 
+    const isGenerated = !lecturerData.passcode;
+    const rawPasscode = lecturerData.passcode || crypto.randomBytes(6).toString('hex');
+    const hashedPasscode = rawPasscode.startsWith('$2b$') || rawPasscode.startsWith('$2a$') || rawPasscode.startsWith('$2y$')
+      ? rawPasscode
+      : bcrypt.hashSync(rawPasscode, 10);
+
     const [lecturer] = await db
       .insert(lecturers)
       .values({
@@ -2324,7 +2393,7 @@ app.post("/api/lecturers", async (req, res) => {
         isActive: lecturerData.isActive ?? true,
         isAccountant: lecturerData.isAccountant ?? false,
         isLibrarian: lecturerData.isLibrarian ?? false,
-        passcode: lecturerData.passcode ?? "lecturer123",
+        passcode: hashedPasscode,
       })
       .returning();
 
@@ -2332,7 +2401,14 @@ app.post("/api/lecturers", async (req, res) => {
     const fullDb = await loadFullDatabaseState();
     saveDatabase(fullDb);
 
-    res.status(201).json(lecturer);
+    if (lecturer) {
+      delete (lecturer as any).passcode;
+    }
+
+    res.status(201).json({
+      ...lecturer,
+      ...(isGenerated ? { temporaryPasscode: rawPasscode } : {})
+    });
   } catch (error: any) {
     console.error("Failed to create lecturer:", error);
 
@@ -2397,12 +2473,14 @@ app.get("/api/students/search", async (req, res) => {
       );
 
       if (cachedStudent) {
-        return res.json(cachedStudent);
+        const { passcode, ...studentWithoutPasscode } = cachedStudent;
+        return res.json(studentWithoutPasscode);
       }
       return res.status(404).json({ error: `Student with admission number ${admissionNo} not found.` });
     }
 
-    res.json(student);
+    const { passcode, ...studentWithoutPasscode } = student;
+    res.json(studentWithoutPasscode);
   } catch (err: any) {
     console.error("Error searching student by admission_no:", err);
     res.status(500).json({ error: "Internal Server Error" });
@@ -2810,10 +2888,18 @@ app.post("/api/finance/reconcile", async (req, res) => {
 app.get("/api/students", async (req, res) => {
   try {
     const fullDb = await loadFullDatabaseState();
-    res.json(fullDb.students || []);
+    const studentsWithoutCredentials = (fullDb.students || []).map((s: any) => {
+      const { passcode, ...studentWithoutPasscode } = s;
+      return studentWithoutPasscode;
+    });
+    res.json(studentsWithoutCredentials);
   } catch (err: any) {
     console.error("Failed to fetch students:", err);
-    res.json(getDatabase().students || []);
+    const cachedStudents = (getDatabase().students || []).map((s: any) => {
+      const { passcode, ...studentWithoutPasscode } = s;
+      return studentWithoutPasscode;
+    });
+    res.json(cachedStudents);
   }
 });
 
@@ -2853,6 +2939,10 @@ app.post("/api/students", async (req, res) => {
     const fullDb = await loadFullDatabaseState();
     saveDatabase(fullDb);
 
+    if (result) {
+      delete (result as any).passcode;
+    }
+
     res.status(201).json(result);
   } catch (error: any) {
     console.error("Registration failed:", error);
@@ -2882,6 +2972,43 @@ app.delete("/api/students/:id", async (req, res) => {
     res.status(200).json({ success: true, message: "Student deleted successfully", deletedId: studentId });
   } catch (error: any) {
     console.error("Deletion failed:", error);
+    res.status(500).json({
+      error: error.message,
+    });
+  }
+});
+
+// Admin Route: Generate temporary activation credentials / password reset
+app.post("/api/students/:id/reset-password", async (req, res) => {
+  try {
+    const studentId = req.params.id;
+    if (!studentId) {
+      return res.status(400).json({ error: "Student ID required" });
+    }
+
+    const dbVal = getDatabase();
+    const studentIdx = (dbVal.students || []).findIndex((s: any) => s.id === studentId);
+    if (studentIdx === -1) {
+      return res.status(404).json({ error: "Student not found" });
+    }
+
+    // Generate a temporary, single-use activation credential passcode
+    const temporaryPasscode = "ZENTI-" + Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Update in memory cache and flag as pending setup
+    dbVal.students[studentIdx].passcode = temporaryPasscode;
+    dbVal.students[studentIdx].accountStatus = "Pending Setup";
+
+    // Save database (hashes passcode automatically and writes to PG / fallback)
+    saveDatabase(dbVal);
+
+    res.status(200).json({
+      success: true,
+      message: "Student passcode reset successfully.",
+      temporaryPasscode
+    });
+  } catch (error: any) {
+    console.error("Password reset failed:", error);
     res.status(500).json({
       error: error.message,
     });
