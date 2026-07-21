@@ -361,6 +361,7 @@ export const students = pgTable("students", {
 	cohort: varchar({ length: 50 }).notNull(),
 	avatar: text(),
 	passcode: varchar({ length: 100 }).default('student123').notNull(),
+	mustChangePassword: boolean("must_change_password").default(true).notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	index("idx_students_admission").using("btree", table.admissionNo.asc().nullsLast().op("text_ops")),
@@ -386,6 +387,7 @@ export const lecturers = pgTable("lecturers", {
 	isAccountant: boolean("is_accountant").default(false).notNull(),
 	isLibrarian: boolean("is_librarian").default(false).notNull(),
 	passcode: varchar({ length: 100 }).default('lecturer123').notNull(),
+	mustChangePassword: boolean("must_change_password").default(true).notNull(),
 }, (table) => [
 	index("idx_lecturers_email").using("btree", table.email.asc().nullsLast().op("text_ops")),
 	unique("lecturers_email_key").on(table.email),
@@ -484,6 +486,8 @@ export const users = pgTable("users", {
 	uid: text().notNull(),
 	email: text().notNull(),
 	role: text().default('student'),
+	passwordHash: text("password_hash"),
+	mustChangePassword: boolean("must_change_password").default(true).notNull(),
 	createdAt: timestamp("created_at", { mode: 'string' }).defaultNow(),
 }, (table) => [
 	unique("users_uid_key").on(table.uid),

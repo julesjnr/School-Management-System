@@ -246,6 +246,18 @@ export default function LoginModal({
       })
       .then((data) => {
         if (data.success) {
+          if (data.status === 'REQUIRES_PASSWORD_CHANGE') {
+            localStorage.setItem('zenti_pending_password_change', JSON.stringify({
+              userId: data.userId,
+              role: data.role,
+              email: data.email
+            }));
+            onClose();
+            window.history.pushState({}, '', '/change-password');
+            window.dispatchEvent(new Event('popstate'));
+            return;
+          }
+
           // Store security session details
           localStorage.setItem('zenti_session_token', data.token);
           

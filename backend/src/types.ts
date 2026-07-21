@@ -62,6 +62,7 @@ export interface Student {
   attendance?: Record<string, number>; // subjectCode -> Attendance percentage (e.g. 0-100)
   avatar?: string;
   passcode?: string;
+  accountStatus?: string;
 }
 
 export interface Invoice {

@@ -16,6 +16,7 @@ import DegreeProgress from './DegreeProgress';
 import CourseReviewModal from './CourseReviewModal';
 import StudentLibraryView from './StudentLibraryView';
 import StudentVisualSummaryDashboard from './StudentVisualSummaryDashboard';
+import UnitRegister from './UnitRegister';
 import {
   ResponsiveContainer,
   BarChart,
@@ -3097,169 +3098,13 @@ export default function StudentDashboard({
 
         {/* TAB 4: UNIT REGISTRATION Dropdown engine */}
         {activeTab === 'units' && (
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-1.5">
-                <BookOpen className="w-5 h-5 text-blue-600" />
-                Unit Module Allocator & Registration
-              </h2>
-              <p className="text-xs text-slate-500 mt-1">Register or drop supplementary class subjects. Enrolling instantly lists subjects in your grading sheets and gradebooks.</p>
-            </div>
-
-            <div className="grid md:grid-cols-2 gap-8">
-              
-              {/* Left Column: Register New Unit */}
-              <div className="space-y-4">
-                <h3 className="text-xs uppercase font-bold text-slate-400 tracking-wider flex items-center gap-1">
-                  <Plus className="w-4 h-4 text-emerald-600" />
-                  Add/Enroll Registered Modules
-                </h3>
-
-                {unregisteredCodes.length === 0 ? (
-                  <div className="bg-emerald-50 text-emerald-800 p-4 rounded-xl border border-emerald-100 text-xs">
-                    <span className="font-bold block flex items-center gap-1">
-                      <Sparkles className="w-4 h-4 text-emerald-600" />
-                      All curriculum units registered.
-                    </span>
-                    <span>No outstanding units remain for placement this intake season.</span>
-                  </div>
-                ) : (
-                  <form onSubmit={handleAddUnitRegister} className="space-y-3">
-                    <div className="space-y-1.5">
-                      <label htmlFor="unit-selector" className="block text-xs font-semibold text-slate-700">Choose Available Module</label>
-                      <select
-                        id="unit-selector"
-                        value={selectedUnitCode}
-                        onChange={(e) => setSelectedUnitCode(e.target.value)}
-                        className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs text-slate-800 focus:outline-hidden"
-                      >
-                        <option value="">-- Choose Module --</option>
-                        {unregisteredCodes.map((code) => (
-                          <option key={code} value={code}>
-                            {code} - {subjectMap[code] || code}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={!selectedUnitCode}
-                      className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2 rounded-lg text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors"
-                    >
-                      <span>Complete Registration</span>
-                    </button>
-                  </form>
-                )}
-
-                <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100/40 text-[11px] text-blue-800 leading-relaxed space-y-1.5">
-                  <span className="font-bold block">Academic Policy Checklist:</span>
-                  <p>• Adding a unit instantly registers your index to the corresponding lecturer's spreadsheet.</p>
-                  <p>• Retakes/Supplementary marks will use the same module indices.</p>
-                </div>
-                        {/* Right Column: Currently enrolled modules */}
-              <div className="space-y-4">
-                <h3 className="text-xs uppercase font-bold text-slate-400 tracking-wider">My Active Module Registrations</h3>
-                
-                {student.enrolledUnits.length === 0 ? (
-                  <p className="text-xs italic text-slate-400">No active units catalogued.</p>
-                ) : (
-                  <div className="space-y-4.5">
-                    {student.enrolledUnits.map((code) => {
-                      const progress = getUnitAcademicProgress(code);
-                      return (
-                        <div key={code} className="bg-slate-50 p-4.5 rounded-2xl border border-slate-150 space-y-3.5 hover:border-slate-300 transition-all shadow-3xs">
-                          {/* Unit Title and Drop Action */}
-                          <div className="flex justify-between items-start gap-3">
-                            <div className="space-y-1">
-                              <span className="font-mono font-black text-xs text-blue-700 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-md">
-                                {code}
-                              </span>
-                              <h4 className="text-slate-800 font-bold block text-xs mt-1.5 leading-tight">
-                                {subjectMap[code] || 'Unassigned Catalog Title'}
-                              </h4>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (confirm(`Are you absolutely sure you want to drop unit: ${code}?\nThis will clear any uploaded grades associated with it.`)) {
-                                  onDeregisterUnit(code);
-                                }
-                              }}
-                              className="bg-white hover:bg-rose-50 text-rose-600 hover:text-rose-700 p-1.5 rounded-xl border border-slate-200 hover:border-rose-200 transition-all cursor-pointer shrink-0 shadow-xs"
-                              title="Deregister Module"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-
-                          {/* Attendance and Assignment Breakdown */}
-                          <div className="grid grid-cols-2 gap-2.5 text-[10px]">
-                            <div className="bg-white p-2.5 rounded-xl border border-slate-100 space-y-1">
-                              <span className="text-slate-400 font-bold uppercase tracking-wider block text-[8px]">Attendance Log</span>
-                              <div className="flex justify-between items-baseline">
-                                <span className="font-extrabold text-slate-700">{progress.lectures}</span>
-                                <span className="font-mono font-extrabold text-emerald-600">{progress.attendanceRate}%</span>
-                              </div>
-                            </div>
-
-                            <div className="bg-white p-2.5 rounded-xl border border-slate-100 space-y-1">
-                              <span className="text-slate-400 font-bold uppercase tracking-wider block text-[8px]">Assignments Submitted</span>
-                              <div className="flex justify-between items-baseline">
-                                <span className="font-extrabold text-slate-700">{progress.assignments}</span>
-                                <span className="font-mono font-extrabold text-blue-600">{progress.assignmentRate}%</span>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Complex Visual Progress Bar */}
-                          <div className="space-y-1.5">
-                            <div className="flex justify-between items-center text-[10px]">
-                              <span className="text-slate-400 uppercase font-bold tracking-wider text-[8px]">Academic completion rate</span>
-                              <span className="font-mono font-black text-slate-800 bg-white border border-slate-150 px-1.5 py-0.5 rounded-md">
-                                {progress.overallProgress}%
-                              </span>
-                            </div>
-
-                            {/* Split Segmented Bar */}
-                            <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden flex p-0.5">
-                              {/* Attendance Rate component (takes up 50% max of track width, multiplied by compliance) */}
-                              <div 
-                                style={{ width: `${progress.attendanceRate * 0.5}%` }} 
-                                className="bg-emerald-500 rounded-l-full transition-all duration-300"
-                                title={`Attendance Segment: ${(progress.attendanceRate * 0.5).toFixed(0)}%`}
-                              />
-                              {/* Spacer to simulate segment dividing */}
-                              <div className="w-[1px] bg-slate-200 shrink-0" />
-                              {/* Assignment Rate component (takes up 50% max of track width, multiplied by compliance) */}
-                              <div 
-                                style={{ width: `${progress.assignmentRate * 0.5}%` }} 
-                                className="bg-blue-600 rounded-r-gradient transition-all duration-300"
-                                title={`Assignment Segment: ${(progress.assignmentRate * 0.5).toFixed(0)}%`}
-                              />
-                            </div>
-
-                            <div className="flex justify-between text-[8px] uppercase tracking-wider font-bold text-slate-400 font-mono">
-                              <span className="flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
-                                Attendance Log info
-                              </span>
-                              <span className="flex items-center gap-1">
-                                Aufgaben Tasks
-                                <span className="w-1.5 h-1.5 rounded-full bg-blue-600 inline-block"></span>
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>      </div>
-
-            </div>
-          </div>
+          <UnitRegister
+            studentId={student.id}
+            allCourses={allCourses}
+            onRegisterUnit={onRegisterUnit}
+            onDeregisterUnit={onDeregisterUnit}
+            subjectMap={subjectMap}
+          />
         )}
 
         {/* TAB 5: OFFICE HOURS SCHEDULING (30-minute Slots Booking) */}

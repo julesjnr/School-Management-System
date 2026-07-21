@@ -22,6 +22,7 @@ import {
 
 import LandingPage from './components/LandingPage';
 import LoginPage from './components/LoginPage';
+import ChangePasswordPage from './components/ChangePasswordPage';
 import StudentDashboard from './components/StudentDashboard';
 import LecturerDashboard from './components/LecturerDashboard';
 import AdminDashboard from './components/AdminDashboard';
@@ -1455,6 +1456,30 @@ Zenti Library Services`;
             onBack={() => {
               window.history.pushState({}, '', '/');
               setCurrentPath('/');
+            }}
+          />
+        ) : currentPath === '/change-password' ? (
+          <ChangePasswordPage
+            onSuccess={(role, userId) => {
+              setSessionExpiredMessage('');
+              if (role === 'lecturer') {
+                const targetLecturer = lecturers.find(l => l.id === userId);
+                if (targetLecturer?.isAccountant) {
+                  setCurrentUserRole('accountant');
+                  setCurrentUserId(userId);
+                  window.history.pushState({}, '', '/');
+                  setCurrentPath('/');
+                  return;
+                }
+              }
+              setCurrentUserRole(role);
+              setCurrentUserId(userId);
+              window.history.pushState({}, '', '/');
+              setCurrentPath('/');
+            }}
+            onCancel={() => {
+              window.history.pushState({}, '', '/login');
+              setCurrentPath('/login');
             }}
           />
         ) : currentPath === '/login' ? (

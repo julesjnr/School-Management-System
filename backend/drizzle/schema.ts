@@ -472,6 +472,8 @@ export const users = pgTable("users", {
 	uid: text().notNull(),
 	email: text().notNull(),
 	role: text().default('student'),
+	passwordHash: text("password_hash"),
+	mustChangePassword: boolean("must_change_password").default(true).notNull(),
 	createdAt: timestamp("created_at", { mode: 'string' }).defaultNow(),
 }, (table) => [
 	unique("users_uid_key").on(table.uid),

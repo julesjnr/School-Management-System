@@ -234,6 +234,17 @@ export default function LoginPage({
       })
       .then((data) => {
         if (data.success) {
+          if (data.status === 'REQUIRES_PASSWORD_CHANGE') {
+            localStorage.setItem('zenti_pending_password_change', JSON.stringify({
+              userId: data.userId,
+              role: data.role,
+              email: data.email
+            }));
+            window.history.pushState({}, '', '/change-password');
+            window.dispatchEvent(new Event('popstate'));
+            return;
+          }
+
           localStorage.setItem('zenti_session_token', data.token);
           
           if (data.role === 'lecturer' && data.profile?.isAccountant) {
