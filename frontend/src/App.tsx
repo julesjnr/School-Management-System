@@ -11,14 +11,7 @@ import {
   AttendanceSession
 } from './types';
 
-import { 
-  initialCourses, initialLecturers, initialStudents, 
-  initialExpenses, initialInventory, initialRequisitions, 
-  initialNews, initialTestimonies, subjectMap, initialReviews,
-  initialBooks, initialLoans, initialReservations, initialReadingLists,
-  initialBookReviews, initialBookRequests, initialExamPapers, initialTeacherResources, initialLibraryGateLogs,
-  initialNotifications
-} from './data';
+import { subjectMap, initialNews, initialTestimonies } from './data';
 
 import LandingPage from './components/LandingPage';
 import LoginPage from './components/LoginPage';
@@ -46,90 +39,90 @@ export default function App() {
     }
   }, [darkMode]);
 
-  // Try loading states from localStorage, falling back to preconfigured mock databases
+  // Load persistent state from localStorage only when available. Otherwise, rely on backend-provided data.
   const [courses, setCourses] = useState<Course[]>(() => {
     const raw = localStorage.getItem('zenti_courses');
-    return raw ? JSON.parse(raw) : initialCourses;
+    return raw ? JSON.parse(raw) : [];
   });
 
   const [lecturers, setLecturers] = useState<Lecturer[]>(() => {
     const raw = localStorage.getItem('zenti_lecturers');
-    return raw ? JSON.parse(raw) : initialLecturers;
+    return raw ? JSON.parse(raw) : [];
   });
 
   const [students, setStudents] = useState<Student[]>(() => {
     const raw = localStorage.getItem('zenti_students');
-    return raw ? JSON.parse(raw) : initialStudents;
+    return raw ? JSON.parse(raw) : [];
   });
 
   const [expenses, setExpenses] = useState<Expense[]>(() => {
     const raw = localStorage.getItem('zenti_expenses');
-    return raw ? JSON.parse(raw) : initialExpenses;
+    return raw ? JSON.parse(raw) : [];
   });
 
   const [inventory, setInventory] = useState<StockItem[]>(() => {
     const raw = localStorage.getItem('zenti_inventory');
-    return raw ? JSON.parse(raw) : initialInventory;
+    return raw ? JSON.parse(raw) : [];
   });
 
   const [requisitions, setRequisitions] = useState<Requisition[]>(() => {
     const raw = localStorage.getItem('zenti_requisitions');
-    return raw ? JSON.parse(raw) : initialRequisitions;
+    return raw ? JSON.parse(raw) : [];
   });
 
   const [reviews, setReviews] = useState<CourseReview[]>(() => {
     const raw = localStorage.getItem('zenti_reviews');
-    return raw ? JSON.parse(raw) : initialReviews;
+    return raw ? JSON.parse(raw) : [];
   });
 
   const [books, setBooks] = useState<Book[]>(() => {
     const raw = localStorage.getItem('zenti_books');
-    return raw ? JSON.parse(raw) : initialBooks;
+    return raw ? JSON.parse(raw) : [];
   });
 
   const [loans, setLoans] = useState<Loan[]>(() => {
     const raw = localStorage.getItem('zenti_loans');
-    return raw ? JSON.parse(raw) : initialLoans;
+    return raw ? JSON.parse(raw) : [];
   });
 
   const [reservations, setReservations] = useState<Reservation[]>(() => {
     const raw = localStorage.getItem('zenti_loans_reservations');
-    return raw ? JSON.parse(raw) : initialReservations;
+    return raw ? JSON.parse(raw) : [];
   });
 
   const [readingLists, setReadingLists] = useState<LMSReadingList[]>(() => {
     const raw = localStorage.getItem('zenti_reading_lists');
-    return raw ? JSON.parse(raw) : initialReadingLists;
+    return raw ? JSON.parse(raw) : [];
   });
 
   const [bookReviews, setBookReviews] = useState<BookReview[]>(() => {
     const raw = localStorage.getItem('zenti_book_reviews');
-    return raw ? JSON.parse(raw) : initialBookReviews;
+    return raw ? JSON.parse(raw) : [];
   });
 
   const [bookRequests, setBookRequests] = useState<BookRequest[]>(() => {
     const raw = localStorage.getItem('zenti_book_requests');
-    return raw ? JSON.parse(raw) : initialBookRequests;
+    return raw ? JSON.parse(raw) : [];
   });
 
   const [examPapers, setExamPapers] = useState<ExamPaper[]>(() => {
     const raw = localStorage.getItem('zenti_exam_papers');
-    return raw ? JSON.parse(raw) : initialExamPapers;
+    return raw ? JSON.parse(raw) : [];
   });
 
   const [teacherResources, setTeacherResources] = useState<TeacherResource[]>(() => {
     const raw = localStorage.getItem('zenti_teacher_resources');
-    return raw ? JSON.parse(raw) : initialTeacherResources;
+    return raw ? JSON.parse(raw) : [];
   });
 
   const [libraryGateLogs, setLibraryGateLogs] = useState<LibraryGateLog[]>(() => {
     const raw = localStorage.getItem('zenti_library_gate_logs');
-    return raw ? JSON.parse(raw) : initialLibraryGateLogs;
+    return raw ? JSON.parse(raw) : [];
   });
 
   const [notifications, setNotifications] = useState<InAppNotification[]>(() => {
     const raw = localStorage.getItem('zenti_notifications');
-    return raw ? JSON.parse(raw) : initialNotifications;
+    return raw ? JSON.parse(raw) : [];
   });
 
   const [mockEmails, setMockEmails] = useState<MockEmail[]>(() => {
@@ -1453,6 +1446,11 @@ Zenti Library Services`;
       <main className="flex-1 flex flex-col">
         {currentPath === '/showcase' ? (
           <DashboardShowcase 
+            students={students}
+            lecturers={lecturers}
+            courses={courses}
+            expenses={expenses}
+            notifications={notifications}
             onBack={() => {
               window.history.pushState({}, '', '/');
               setCurrentPath('/');

@@ -13,20 +13,27 @@ export const createPool = () => {
     user: process.env.SQL_USER,
     password: process.env.SQL_PASSWORD,
     database: process.env.SQL_DB_NAME,
-    connectionTimeoutMillis: 15000,
+    connectionTimeoutMillis: 10000,
     ssl: { rejectUnauthorized: false },
-    max: 20,
-    idleTimeoutMillis: 30000,
+    max: 10,
+    min: 0,
+    idleTimeoutMillis: 10000,
     keepAlive: true,
+    keepAliveInitialDelayMillis: 2000,
   });
 };
 
 // Create a pool instance.
 const pool = createPool();
 
-// Prevent unhandled pool-level errors from crashing the application
-pool.on('error', (err) => {
-  console.error('Unexpected error on idle SQL pool client:', err);
+// Prevent unhandled pool-level errors from crashing the app or spamming logs on remote socket timeouts
+pool.on('error', (err: any) => {
+  const code = err?.code || err?.errno;
+  if (code === 'ETIMEDOUT' || code === 'ECONNRESET' || code === '57P01' || code === '57P02' || code === -110) {
+    console.log(`[SQL Pool] Idle connection closed by remote pooler (${code || 'ETIMEDOUT'}); pool will automatically reconnect on next query.`);
+  } else {
+    console.error('Unexpected error on idle SQL pool client:', err?.message || err);
+  }
 });
 
 // Initialize Drizzle with the pool and schema.

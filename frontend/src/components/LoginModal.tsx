@@ -52,14 +52,14 @@ export default function LoginModal({
   const [errorText, setErrorText] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  useEffect(() => {
-    // Run initial state setup for the selected portal
-    const portal = activePortal;
+  const autoSelectUserForPortal = (portal: ExtendedRole) => {
     if (portal === 'student' && students.length > 0) {
       setSelectedUser(students[0].id);
+      setPasscode('student123');
     } else if (portal === 'lecturer' && lecturers.length > 0) {
       const standardLec = lecturers.find(l => !l.isAccountant && !l.isLibrarian) || lecturers[0];
       setSelectedUser(standardLec.id);
+      setPasscode('lecturer123');
     } else if (portal === 'accountant') {
       const accountantLec = lecturers.find(l => l.isAccountant) || lecturers[0];
       setSelectedUser(accountantLec ? accountantLec.id : '');
@@ -72,31 +72,23 @@ export default function LoginModal({
       setSelectedUser('admin');
       setPasscode('admin123');
     }
-  }, []);
-  
+  };
+
+  useEffect(() => {
+    autoSelectUserForPortal(activePortal);
+  }, [students, lecturers, activePortal]);
+
   // Password Recovery States
   const [isRecoveryMode, setIsRecoveryMode] = useState<boolean>(false);
   const [recoveryEmail, setRecoveryEmail] = useState<string>('');
   const [recoverySuccess, setRecoverySuccess] = useState<boolean>(false);
   const [recoveredPasscode, setRecoveredPasscode] = useState<string>('');
- 
+
   // Auto-select first item when portal changes to ensure smooth UX
   const handlePortalSwitch = (portal: ExtendedRole) => {
     setActivePortal(portal);
     setErrorText('');
-    setPasscode('');
-    
-    if (portal === 'admin') {
-      setSelectedUser('admin');
-      setPasscode('admin123');
-    } else {
-      setSelectedUser('');
-      if (portal === 'accountant') {
-        setPasscode('acc123');
-      } else if (portal === 'librarian') {
-        setPasscode('lib123');
-      }
-    }
+    autoSelectUserForPortal(portal);
   };
 
   const portalConfigs: Record<ExtendedRole, RolePortalConfig> = {
@@ -217,6 +209,10 @@ export default function LoginModal({
       setErrorText(`Please enter your ${activePortal === 'student' ? 'Admission Number or Email' : 'Staff ID or Email'}.`);
       return;
     }
+
+    // Invalidate stale local sessions before starting a new authentication request
+    localStorage.removeItem('zenti_session_token');
+    localStorage.removeItem('zenti_pending_password_change');
 
     setIsSubmitting(true);
 

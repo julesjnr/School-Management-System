@@ -49,28 +49,45 @@ export default function LoginPage({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isRecoveryMode, setIsRecoveryMode] = useState<boolean>(false);
 
+  const autoSelectUserForPortal = (portal: ExtendedRole) => {
+    if (portal === 'student' && students.length > 0) {
+      setSelectedUser(students[0].id);
+      setEmailText(students[0].email || '');
+      setPasscode('student123');
+    } else if (portal === 'lecturer' && lecturers.length > 0) {
+      const standardLec = lecturers.find(l => !l.isAccountant && !l.isLibrarian) || lecturers[0];
+      setSelectedUser(standardLec.id);
+      setEmailText(standardLec.email || '');
+      setPasscode('lecturer123');
+    } else if (portal === 'accountant') {
+      const accountantLec = lecturers.find(l => l.isAccountant) || lecturers[0];
+      if (accountantLec) {
+        setSelectedUser(accountantLec.id);
+        setEmailText(accountantLec.email || '');
+      }
+      setPasscode('acc123');
+    } else if (portal === 'librarian') {
+      const librarianLec = lecturers.find(l => l.isLibrarian) || lecturers.find(l => l.id === 'l3') || lecturers[0];
+      if (librarianLec) {
+        setSelectedUser(librarianLec.id);
+        setEmailText(librarianLec.email || '');
+      }
+      setPasscode('lib123');
+    } else if (portal === 'admin') {
+      setSelectedUser('admin');
+      setEmailText('admin@zenti.edu');
+      setPasscode('admin123');
+    }
+  };
+
   useEffect(() => {
-    handlePortalSwitch(activePortal);
-  }, []);
+    autoSelectUserForPortal(activePortal);
+  }, [students, lecturers, activePortal]);
 
   const handlePortalSwitch = (portal: ExtendedRole) => {
     setActivePortal(portal);
     setErrorText('');
-    setPasscode('');
-    
-    if (portal === 'admin') {
-      setSelectedUser('admin');
-      setEmailText('admin@zenti.edu');
-      setPasscode('admin123');
-    } else {
-      setSelectedUser('');
-      setEmailText('');
-      if (portal === 'accountant') {
-        setPasscode('acc123');
-      } else if (portal === 'librarian') {
-        setPasscode('lib123');
-      }
-    }
+    autoSelectUserForPortal(portal);
   };
 
   // Sync email text field when selected profile dropdown changes
@@ -205,6 +222,10 @@ export default function LoginPage({
       setErrorText(`Please enter your ${activePortal === 'student' ? 'Admission Number or Email' : 'Staff ID or Email'}.`);
       return;
     }
+
+    // Invalidate stale local sessions before starting a new authentication request
+    localStorage.removeItem('zenti_session_token');
+    localStorage.removeItem('zenti_pending_password_change');
 
     setIsSubmitting(true);
 

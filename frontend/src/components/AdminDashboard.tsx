@@ -16,6 +16,7 @@ import LibraryHQ from './LibraryHQ';
 import { toast } from 'react-hot-toast';
 import SystemDiagnostics from './SystemDiagnostics';
 import StudentAdmissionDossierStation from './StudentAdmissionDossierStation';
+import StudentRecordsTable from './StudentRecordsTable';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   AreaChart, Area
@@ -108,6 +109,51 @@ export default function AdminDashboard({
   const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState<boolean>(true);
 
+  const totalStudents = students.length;
+  const totalFaculty = lecturers.length;
+  const attendanceValues = students.flatMap((student) => Object.values(student.attendance || {}));
+  const dailyAttendancePercent = attendanceValues.length
+    ? Math.round(attendanceValues.reduce((sum, value) => sum + value, 0) / attendanceValues.length)
+    : 0;
+  const totalInvoiceAmount = students.flatMap((student) => student.ledger).reduce((sum, invoice) => sum + invoice.amount, 0);
+  const totalPaidAmount = students
+    .flatMap((student) => student.ledger)
+    .filter((invoice) => invoice.status === 'paid')
+    .reduce((sum, invoice) => sum + invoice.amount, 0);
+  const feesCollectedPercent = totalInvoiceAmount > 0 ? Math.round((totalPaidAmount / totalInvoiceAmount) * 100) : 0;
+
+  const facultyAttendanceSummary = students.reduce(
+    (summary, student) => {
+      Object.entries(student.attendance || {}).forEach(([subjectCode, value]) => {
+        if (subjectCode.startsWith('CS-')) {
+          summary.cs.total += value;
+          summary.cs.count += 1;
+        } else if (subjectCode.startsWith('EE-')) {
+          summary.ee.total += value;
+          summary.ee.count += 1;
+        }
+      });
+      return summary;
+    },
+    {
+      cs: { total: 0, count: 0 },
+      ee: { total: 0, count: 0 },
+    }
+  );
+
+  const csAttendanceAverage = facultyAttendanceSummary.cs.count
+    ? Math.round(facultyAttendanceSummary.cs.total / facultyAttendanceSummary.cs.count)
+    : 0;
+  const eeAttendanceAverage = facultyAttendanceSummary.ee.count
+    ? Math.round(facultyAttendanceSummary.ee.total / facultyAttendanceSummary.ee.count)
+    : 0;
+
+  const attendanceChartData = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].map((day) => ({
+    name: day,
+    CS: csAttendanceAverage,
+    EE: eeAttendanceAverage,
+  }));
+
   useEffect(() => {
     const fetchRecentTransactions = async () => {
       try {
@@ -151,11 +197,7 @@ export default function AdminDashboard({
     approvedBy: string;
   }>>(() => {
     const saved = localStorage.getItem('zenti_vouchers');
-    return saved ? JSON.parse(saved) : [
-      { id: 'v-1', voucherNo: 'VOU-101', type: 'Debit', category: 'Utility Bills', description: 'Power Outage Generator Fuel purchase', amount: 12000, date: '2026-06-10', approvedBy: 'Grace Wanjiku (Accountant)' },
-      { id: 'v-2', voucherNo: 'VOU-102', type: 'Journal', category: 'Salaries', description: 'Accrued lecturer overtime hours settlement', amount: 45000, date: '2026-06-12', approvedBy: 'John Doe (Admin)' },
-      { id: 'v-3', voucherNo: 'VOU-103', type: 'Contra', category: 'General Administration', description: 'Transferred petty cash to main bank ledger', amount: 20000, date: '2026-06-15', approvedBy: 'Grace Wanjiku (Accountant)' }
-    ];
+    return saved ? JSON.parse(saved) : [];
   });
 
   useEffect(() => {
@@ -172,10 +214,7 @@ export default function AdminDashboard({
     voucherId?: string;
   }>>(() => {
     const saved = localStorage.getItem('zenti_imprests');
-    return saved ? JSON.parse(saved) : [
-      { id: 'imp-1', staffName: 'Dr. Jane Mugo', amount: 5000, purpose: 'Lab Chemical Supplies emergency procurement', status: 'approved', date: '2026-06-14' },
-      { id: 'imp-2', staffName: 'Prof. Nelson', amount: 15000, purpose: 'Travel allowance for national academic symposium', status: 'pending', date: '2026-06-16' }
-    ];
+    return saved ? JSON.parse(saved) : [];
   });
 
   useEffect(() => {
@@ -198,29 +237,7 @@ export default function AdminDashboard({
     }>;
   }>>(() => {
     const saved = localStorage.getItem('zenti_suppliers');
-    return saved ? JSON.parse(saved) : [
-      {
-        id: 'sup-1',
-        companyName: 'Apex Office Supplies Ltd',
-        contactPerson: 'Samuel Kamau',
-        status: 'Active',
-        balance: 32000,
-        purchaseOrders: [
-          { id: 'po-1', poNo: 'PO-9092', itemName: 'Premium Whiteboard Markers & Erasers', amount: 12000, status: 'paid', date: '2026-06-05' },
-          { id: 'po-2', poNo: 'PO-9097', itemName: 'A4 Printing Papers (50 Reams)', amount: 20000, status: 'approved', date: '2026-06-11' }
-        ]
-      },
-      {
-        id: 'sup-2',
-        companyName: 'ChemLabs East Africa',
-        contactPerson: 'Dr. Evelyn Atieno',
-        status: 'Active',
-        balance: 75000,
-        purchaseOrders: [
-          { id: 'po-3', poNo: 'PO-9110', itemName: 'Physics Lab Resistors, Ammeters & Voltmeters', amount: 75000, status: 'pending', date: '2026-06-15' }
-        ]
-      }
-    ];
+    return saved ? JSON.parse(saved) : [];
   });
 
   useEffect(() => {
@@ -230,11 +247,11 @@ export default function AdminDashboard({
   const [budgetPlan, setBudgetPlan] = useState<Record<string, number>>(() => {
     const saved = localStorage.getItem('zenti_budgets');
     return saved ? JSON.parse(saved) : {
-      'Operations & IT': 150000,
-      'Estates & Facilities': 100000,
-      'Admissions & Outreach': 150000,
-      'Academic Affairs': 600000,
-      'General Administration': 80005
+      'Operations & IT': 0,
+      'Estates & Facilities': 0,
+      'Admissions & Outreach': 0,
+      'Academic Affairs': 0,
+      'General Administration': 0
     };
   });
 
@@ -252,11 +269,7 @@ export default function AdminDashboard({
     matchedTxId?: string;
   }>>(() => {
     const saved = localStorage.getItem('zenti_bank_statements');
-    return saved ? JSON.parse(saved) : [
-      { id: 'bs-1', date: '2026-06-14', reference: 'MPESA-TX901-CS', details: 'FEE DEP BY ST-1002', amount: 45000, isMatched: false },
-      { id: 'bs-2', date: '2026-06-15', reference: 'BANK-TRF-66723', details: 'FEE PAY BY ST-1001', amount: 20000, isMatched: false },
-      { id: 'bs-3', date: '2026-06-16', reference: 'MPESA-TX982-ED', details: 'FEE RECON BY ST-1003', amount: 15400, isMatched: false }
-    ];
+    return saved ? JSON.parse(saved) : [];
   });
 
   useEffect(() => {
@@ -273,11 +286,7 @@ export default function AdminDashboard({
     status: 'Success' | 'Warning' | 'Error';
   }>>(() => {
     const saved = localStorage.getItem('zenti_audit_trails');
-    return saved ? JSON.parse(saved) : [
-      { id: 'aud-1', timestamp: '2026-06-17 08:30:12', user: 'Admin Grace', role: 'Accountant', action: 'RUN_RECONCILIATION', resource: 'Student Payments matched automatically (3 entries)', status: 'Success' },
-      { id: 'aud-2', timestamp: '2026-06-17 09:15:33', user: 'Admin Grace', role: 'Accountant', action: 'ALLOCATE_BUDGET', resource: 'Increased Academic Affairs budget ceiling', status: 'Success' },
-      { id: 'aud-3', timestamp: '2026-06-17 10:02:44', user: 'System Engine', role: 'Security', action: 'PORTAL_PRIVILEGE_UPGRADE', resource: 'Granted Restricted Accountant role to Lecturer ACC-404', status: 'Success' }
-    ];
+    return saved ? JSON.parse(saved) : [];
   });
 
   useEffect(() => {
@@ -365,6 +374,7 @@ export default function AdminDashboard({
   // Student Search / Records filter states
   const [studentSearch, setStudentSearch] = useState('');
   const [roleSearch, setRoleSearch] = useState('');
+  const [studentTableRefetchTrigger, setStudentTableRefetchTrigger] = useState(0);
 
   // Password reset requests administrative state
   const [resetRequests, setResetRequests] = useState<PasswordResetRequest[]>([]);
@@ -552,15 +562,17 @@ export default function AdminDashboard({
 
   const currentMonthExpensesTotal = expenses.reduce((sum, e) => sum + e.amount, 0);
 
-  // Line Chart Data for the last 6 months
-  const monthlyExpenditures = [
-    { name: 'Jan 2026', Expenditures: 105000 },
-    { name: 'Feb 2026', Expenditures: 142000 },
-    { name: 'Mar 2026', Expenditures: 115000 },
-    { name: 'Apr 2026', Expenditures: 198000 }, // Seasonal intake spending
-    { name: 'May 2026', Expenditures: 125000 },
-    { name: 'Jun 2026', Expenditures: currentMonthExpensesTotal }, // Dynamic
-  ];
+  // Line Chart Data derived directly from real database expenses
+  const months = ['Jan 2026', 'Feb 2026', 'Mar 2026', 'Apr 2026', 'May 2026', 'Jun 2026', 'Jul 2026'];
+  const monthlyExpenditures = months.map(m => {
+    const totalForMonth = expenses.filter(e => {
+      if (!e.date) return false;
+      const d = new Date(e.date);
+      const label = d.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+      return label === m;
+    }).reduce((sum, e) => sum + e.amount, 0);
+    return { name: m, Expenditures: totalForMonth };
+  });
 
   const handleExportDepartmentalReportCSV = () => {
     const headers = [
@@ -788,6 +800,7 @@ export default function AdminDashboard({
     setRegStudentAdmission('');
     setRegStudentCohort('2026 Intake');
     setRegStudentPasscode('');
+    setStudentTableRefetchTrigger(prev => prev + 1);
     triggerToast(`Student profile for ${regStudentName} enrolled successfully!`, 'success');
   };
 
@@ -1158,8 +1171,8 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Students</span>
                   <div className="flex items-center gap-2">
-                    <span className="text-2xl font-black text-slate-850 dark:text-white font-mono">{students.length || 1482}</span>
-                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400">+3.2%</span>
+                    <span className="text-2xl font-black text-slate-850 dark:text-white font-mono">{totalStudents}</span>
+                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400">Live</span>
                   </div>
                   <span className="text-[9px] text-slate-550 block">Active admissions this semester</span>
                 </div>
@@ -1173,8 +1186,8 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Faculty</span>
                   <div className="flex items-center gap-2">
-                    <span className="text-2xl font-black text-slate-850 dark:text-white font-mono">{lecturers.length || 64}</span>
-                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">Stable</span>
+                    <span className="text-2xl font-black text-slate-850 dark:text-white font-mono">{totalFaculty}</span>
+                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">Live</span>
                   </div>
                   <span className="text-[9px] text-slate-550 block">Registered lecturers & staff</span>
                 </div>
@@ -1188,8 +1201,8 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Daily Attendance %</span>
                   <div className="flex items-center gap-2">
-                    <span className="text-2xl font-black text-slate-855 dark:text-white font-mono">94.2%</span>
-                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400">▲ 0.8%</span>
+                    <span className="text-2xl font-black text-slate-855 dark:text-white font-mono">{dailyAttendancePercent}%</span>
+                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400">Live</span>
                   </div>
                   <span className="text-[9px] text-slate-555 block">Average system-wide scan today</span>
                 </div>
@@ -1203,8 +1216,8 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Fees Collected %</span>
                   <div className="flex items-center gap-2">
-                    <span className="text-2xl font-black text-slate-855 dark:text-white font-mono">87.5%</span>
-                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/20 dark:text-blue-400">Target: 90%</span>
+                    <span className="text-2xl font-black text-slate-855 dark:text-white font-mono">{feesCollectedPercent}%</span>
+                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/20 dark:text-blue-400">Live</span>
                   </div>
                   <span className="text-[9px] text-slate-555 block">Relative to outstanding ledger balance</span>
                 </div>
@@ -1687,113 +1700,12 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
               </form>
             </div>
 
-            {/* Registered Student Records Section */}
-            <div className="space-y-4 pt-6 border-t border-slate-150">
-              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                  <h3 className="text-xs uppercase font-bold text-slate-400 tracking-wider">Registered Student Records Database</h3>
-                  <p className="text-[11px] text-slate-500">Query student credentials and financial statement balances offline.</p>
-                </div>
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto">
-                  <input
-                    type="text"
-                    placeholder="Search students (name, adm, cohort)..."
-                    value={studentSearch}
-                    onChange={(e) => setStudentSearch(e.target.value)}
-                    className="bg-white border border-slate-200 rounded-xl py-1.5 px-3 text-xs text-slate-850 focus:outline-hidden focus:border-blue-500 w-full sm:w-64"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleExportStudentsCSV}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-9 text-xs px-3.5 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap transition-all hover:shadow-md"
-                  >
-                     <FileText className="w-3.5 h-3.5" />
-                     <span>Export to CSV</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="overflow-x-auto border border-slate-100 rounded-xl">
-                <table className="w-full text-left font-sans text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider text-[11px] border-b border-slate-100">
-                      <th className="py-3 px-4">Admission No</th>
-                      <th className="py-3 px-4">Full Name</th>
-                      <th className="py-3 px-4">Cohort</th>
-                      <th className="py-3 px-4">Account Status</th>
-                      <th className="py-3 px-4">Registered Units</th>
-                      <th className="py-3 px-4 text-right">Invoiced (KES)</th>
-                      <th className="py-3 px-4 text-right">Total Paid (KES)</th>
-                      <th className="py-3 px-4 text-right">Outstanding Debt</th>
-                      <th className="py-3 px-4 text-center">System Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredStudents.length === 0 ? (
-                      <tr>
-                        <td colSpan={9} className="py-6 px-4 text-center text-slate-450 italic">
-                          No registered student files found matching search parameters.
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredStudents.map((stud) => {
-                        const totalInvoiced = stud.ledger.reduce((sum, inv) => sum + inv.amount, 0);
-                        const totalPaid = stud.ledger.filter(i => i.status === 'paid').reduce((sum, inv) => sum + inv.amount, 0);
-                        const outstandingBal = totalInvoiced - totalPaid;
-                        return (
-                          <tr key={stud.id} className="hover:bg-slate-50/20">
-                            <td className="py-3 px-4 font-mono font-bold text-blue-700">{stud.admissionNo}</td>
-                            <td className="py-3 px-4 font-semibold text-slate-900">{stud.name}</td>
-                            <td className="py-3 px-4 text-slate-505 font-medium">{stud.cohort}</td>
-                            <td className="py-3 px-4">
-                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
-                                stud.accountStatus === 'Active'
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-250 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900'
-                                  : 'bg-amber-50 text-amber-700 border-amber-250 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-900'
-                              }`}>
-                                {stud.accountStatus || 'Pending Setup'}
-                              </span>
-                            </td>
-                            <td className="py-3 px-4">
-                              <span className="bg-slate-100 text-slate-705 border border-slate-200 px-2 py-0.5 rounded text-[10px] font-bold font-mono">
-                                {stud.enrolledUnits.length} Units ({stud.enrolledUnits.join(', ') || 'None'})
-                              </span>
-                            </td>
-                            <td className="py-3 px-4 text-right font-mono font-semibold text-slate-750">KES {totalInvoiced.toLocaleString()}</td>
-                            <td className="py-3 px-4 text-right font-mono font-bold text-emerald-600">KES {totalPaid.toLocaleString()}</td>
-                            <td className={`py-3 px-4 text-right font-mono font-black ${outstandingBal > 0 ? 'text-rose-650' : 'text-slate-400'}`}>KES {outstandingBal.toLocaleString()}</td>
-                            <td className="py-3 px-4 text-center">
-                              <div className="flex justify-center items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => handleResetStudentPassword(stud.id, stud.name)}
-                                  className="bg-indigo-50 hover:bg-indigo-100 text-indigo-650 hover:text-indigo-800 text-[9px] font-black uppercase tracking-wider py-1 px-2 rounded-lg border border-indigo-200 transition-colors cursor-pointer"
-                                  title="Generate temporary passcode"
-                                >
-                                  Reset Password
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (confirm(`Are you absolutely sure you want to dismiss the academic file for ${stud.name} (${stud.admissionNo}) from Zenti systems? This cannot be undone.`)) {
-                                      onDeleteStudent(stud.id);
-                                    }
-                                  }}
-                                  className="bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-750 text-[9px] font-black uppercase tracking-wider py-1 px-2 rounded-lg border border-rose-200 transition-colors cursor-pointer"
-                                  title="Dismiss active record"
-                                >
-                                  Purge Account
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            {/* Registered Student Records Section with Server-Side Pagination, Filters & Sorting */}
+            <StudentRecordsTable
+              onDeleteStudent={onDeleteStudent}
+              onUpdateStudent={onUpdateStudent}
+              refetchTrigger={studentTableRefetchTrigger}
+            />
 
           </div>
         )}

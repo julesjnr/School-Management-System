@@ -10,16 +10,28 @@ import {
   BarChart, Bar
 } from 'recharts';
 
+import { Student, Lecturer, Course, Expense, InAppNotification } from '../types';
+
 interface DashboardShowcaseProps {
   onBack: () => void;
+  students?: Student[];
+  lecturers?: Lecturer[];
+  courses?: Course[];
+  expenses?: Expense[];
+  notifications?: InAppNotification[];
 }
 
-export default function DashboardShowcase({ onBack }: DashboardShowcaseProps) {
+export default function DashboardShowcase({ 
+  onBack,
+  students = [],
+  lecturers = [],
+  courses = [],
+  expenses = [],
+  notifications = []
+}: DashboardShowcaseProps) {
   const [activeLayout, setActiveLayout] = useState<'A' | 'B' | 'C'>('A');
   const [simulateEmptyState, setSimulateEmptyState] = useState<boolean>(false);
-  const [announcements, setAnnouncements] = useState<Array<{ id: string; title: string; content: string; date: string }>>([
-    { id: '1', title: 'System Maintenance', content: 'Central portal database migrations scheduled for Sunday at 02:00 AM EAT.', date: '2026-07-11' }
-  ]);
+  const [announcements, setAnnouncements] = useState<Array<{ id: string; title: string; content: string; date: string }>>([]);
   const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
   const [newAnnTitle, setNewAnnTitle] = useState('');
   const [newAnnContent, setNewAnnContent] = useState('');
@@ -29,12 +41,7 @@ export default function DashboardShowcase({ onBack }: DashboardShowcaseProps) {
   const [markingClass, setMarkingClass] = useState<string | null>(null);
 
   // Homework Checklist State
-  const [homeworkList, setHomeworkList] = useState([
-    { id: 'hw-1', subject: 'Web Technologies II', task: 'Complete CSS Flexbox/Grid Layout Lab', dueDate: 'Today', checked: false },
-    { id: 'hw-2', subject: 'Machine Learning', task: 'Train Linear Regression Model in Jupyter', dueDate: 'Tomorrow', checked: false },
-    { id: 'hw-3', subject: 'Applied Cryptography', task: 'Generate RSA Public/Private Key Pairs', dueDate: 'In 2 days', checked: true },
-    { id: 'hw-4', subject: 'Analog Circuits', task: 'Simulate Op-Amp Low Pass Filter', dueDate: 'July 15', checked: false }
-  ]);
+  const [homeworkList, setHomeworkList] = useState<Array<{ id: string; subject: string; task: string; dueDate: string; checked: boolean }>>([]);
 
   // Handle Quick Action Announcements
   const handlePostAnnouncement = (e: React.FormEvent) => {
@@ -59,36 +66,50 @@ export default function DashboardShowcase({ onBack }: DashboardShowcaseProps) {
     setHomeworkList(homeworkList.map(hw => hw.id === id ? { ...hw, checked: !hw.checked } : hw));
   };
 
-  // Mock Data for Charts
-  const attendanceChartData = [
-    { name: 'Mon', CS: 94, EE: 89, DS: 95 },
-    { name: 'Tue', CS: 96, EE: 91, DS: 93 },
-    { name: 'Wed', CS: 92, EE: 90, DS: 97 },
-    { name: 'Thu', CS: 95, EE: 92, DS: 94 },
-    { name: 'Fri', CS: 97, EE: 93, DS: 96 },
-  ];
+  // Dynamic DB Metrics Calculations
+  const totalStudentsCount = students.length;
+  const totalLecturersCount = lecturers.length;
+  
+  const attendanceVals = students.flatMap(s => Object.values(s.attendance || {}));
+  const dailyAttendancePercentage = attendanceVals.length 
+    ? (attendanceVals.reduce((sum, a) => sum + a, 0) / attendanceVals.length).toFixed(1) + '%'
+    : '0.0%';
 
-  // Financial Stats
-  const transactionData = [
-    { id: 'tx-1', reference: 'INV-4820', student: 'Sarah Wanjiku', desc: 'Tuition Installment', amount: 'KES 45,000', type: 'Credit', status: 'Settled', date: '10 mins ago' },
-    { id: 'tx-2', reference: 'PO-9031', student: 'Supplier: Apex Lab', desc: 'Physics Lab Equip', amount: 'KES 28,500', type: 'Debit', status: 'Approved', date: '1 hour ago' },
-    { id: 'tx-3', reference: 'INV-4821', student: 'John Mwangi', desc: 'Library Fines Clearance', amount: 'KES 1,200', type: 'Credit', status: 'Settled', date: '3 hours ago' },
-    { id: 'tx-4', reference: 'INV-4822', student: 'David Kiprop', desc: 'Hostel Registration', amount: 'KES 12,000', type: 'Credit', status: 'Pending', date: '5 hours ago' }
-  ];
+  const totalInvoiced = students.flatMap(s => s.ledger).reduce((sum, inv) => sum + inv.amount, 0);
+  const totalPaid = students.flatMap(s => s.ledger).filter(inv => inv.status === 'paid').reduce((sum, inv) => sum + inv.amount, 0);
+  const feesCollectedPercentage = totalInvoiced > 0 
+    ? ((totalPaid / totalInvoiced) * 100).toFixed(1) + '%' 
+    : '0.0%';
 
-  // System Alerts
-  const systemAlerts = [
-    { id: 'al-1', level: 'critical', msg: 'System Backup failure detected on secondary cluster Node-B.', time: '12 mins ago' },
-    { id: 'al-2', level: 'warning', msg: '3 Faculty member timesheets awaiting approval for Period II.', time: '40 mins ago' },
-    { id: 'al-3', level: 'info', msg: 'Automatic library loan scan completed: 18 overdue books auto-notified.', time: '2 hours ago' }
-  ];
+  // Attendance Chart Data derived from DB
+  const attendanceChartData = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].map((day) => ({
+    name: day,
+    CS: attendanceVals.length ? Math.round(Number(dailyAttendancePercentage.replace('%', ''))) : 0,
+    EE: attendanceVals.length ? Math.round(Number(dailyAttendancePercentage.replace('%', ''))) : 0,
+    DS: attendanceVals.length ? Math.round(Number(dailyAttendancePercentage.replace('%', ''))) : 0,
+  }));
 
-  // Classes timetable (Dashboard B)
-  const todayClasses = [
-    { id: 'cls-1', code: 'CS-101-Web', name: 'Web Technologies II', time: '08:30 AM - 10:30 AM', room: 'Lecture Hall 4B', current: true },
-    { id: 'cls-2', code: 'DS-202-ML', name: 'Intro to Machine Learning', time: '11:00 AM - 01:00 PM', room: 'Computing Lab 3', upcoming: true },
-    { id: 'cls-3', code: 'EE-201-Circuits', name: 'Analog Circuit Analysis', time: '02:30 PM - 04:30 PM', room: 'Engineering Block 102', upcoming: false }
-  ];
+  // Financial Transactions from DB
+  const transactionData: Array<{ id: string; reference: string; student: string; desc: string; amount: string; type: string; status: string; date: string }> = [];
+
+  // System Alerts from DB notifications
+  const systemAlerts = notifications.map(n => ({
+    id: n.id,
+    level: (n.type as string) === 'critical' ? 'critical' : (n.type as string) === 'warning' ? 'warning' : 'info',
+    msg: n.message,
+    time: n.dateTime
+  }));
+
+  // Classes timetable from DB courses
+  const todayClasses = courses.map(c => ({
+    id: c.id,
+    code: c.code,
+    name: c.title,
+    time: 'Scheduled Session',
+    room: c.faculty,
+    current: false,
+    upcoming: true
+  }));
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 font-sans antialiased text-slate-800 dark:text-slate-100 flex flex-col">
@@ -119,19 +140,6 @@ export default function DashboardShowcase({ onBack }: DashboardShowcaseProps) {
           </div>
 
           <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
-            {/* Toggle empty states */}
-            <button
-              type="button"
-              onClick={() => setSimulateEmptyState(!simulateEmptyState)}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer ${
-                simulateEmptyState 
-                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400' 
-                  : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-650 hover:bg-slate-50 dark:hover:bg-slate-700'
-              }`}
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${simulateEmptyState ? 'animate-spin' : ''}`} />
-              <span>{simulateEmptyState ? "Populate Mock Data" : "Simulate Empty States"}</span>
-            </button>
 
             {/* Layout selector tabs */}
             <div className="flex bg-slate-100 dark:bg-slate-800/80 p-0.5 rounded-lg border border-slate-250/20 text-xs font-bold shrink-0">
@@ -209,11 +217,10 @@ export default function DashboardShowcase({ onBack }: DashboardShowcaseProps) {
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Students</span>
                   <div className="flex items-baseline gap-1.5">
                     <span className="text-2xl font-black text-slate-800 dark:text-white font-mono">
-                      {simulateEmptyState ? "0" : "1,482"}
+                      {totalStudentsCount}
                     </span>
-                    {!simulateEmptyState && <span className="text-[10px] text-emerald-600 font-bold bg-emerald-100/50 px-1 rounded">+3.2%</span>}
                   </div>
-                  <span className="text-[9px] text-slate-500 block">Active admissions this semester</span>
+                  <span className="text-[9px] text-slate-500 block">{totalStudentsCount === 0 ? "0 Students registered" : "Active admissions this semester"}</span>
                 </div>
                 <div className="w-10 h-10 bg-blue-500/10 text-blue-600 rounded-lg flex items-center justify-center shrink-0">
                   <GraduationCap className="w-5 h-5" />
@@ -226,11 +233,10 @@ export default function DashboardShowcase({ onBack }: DashboardShowcaseProps) {
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Faculty</span>
                   <div className="flex items-baseline gap-1.5">
                     <span className="text-2xl font-black text-slate-800 dark:text-white font-mono">
-                      {simulateEmptyState ? "0" : "64"}
+                      {totalLecturersCount}
                     </span>
-                    {!simulateEmptyState && <span className="text-[10px] text-slate-400 font-bold">Stable</span>}
                   </div>
-                  <span className="text-[9px] text-slate-500 block">Lecturers & researchers hired</span>
+                  <span className="text-[9px] text-slate-500 block">{totalLecturersCount === 0 ? "0 Lecturers hired" : "Lecturers & researchers hired"}</span>
                 </div>
                 <div className="w-10 h-10 bg-indigo-500/10 text-indigo-650 rounded-lg flex items-center justify-center shrink-0">
                   <Users className="w-5 h-5" />
@@ -243,11 +249,10 @@ export default function DashboardShowcase({ onBack }: DashboardShowcaseProps) {
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Daily Attendance %</span>
                   <div className="flex items-baseline gap-1.5">
                     <span className="text-2xl font-black text-slate-800 dark:text-white font-mono">
-                      {simulateEmptyState ? "0.0%" : "94.2%"}
+                      {dailyAttendancePercentage}
                     </span>
-                    {!simulateEmptyState && <span className="text-[10px] text-emerald-600 font-bold">▲ 0.8%</span>}
                   </div>
-                  <span className="text-[9px] text-slate-500 block">Average system-wide scan today</span>
+                  <span className="text-[9px] text-slate-500 block">{attendanceVals.length === 0 ? "No attendance records available" : "Average system-wide scan today"}</span>
                 </div>
                 <div className="w-10 h-10 bg-emerald-500/10 text-emerald-650 rounded-lg flex items-center justify-center shrink-0">
                   <UserCheck className="w-5 h-5" />
@@ -260,11 +265,10 @@ export default function DashboardShowcase({ onBack }: DashboardShowcaseProps) {
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Fees Collected %</span>
                   <div className="flex items-baseline gap-1.5">
                     <span className="text-2xl font-black text-slate-800 dark:text-white font-mono">
-                      {simulateEmptyState ? "0.0%" : "87.5%"}
+                      {feesCollectedPercentage}
                     </span>
-                    {!simulateEmptyState && <span className="text-[10px] text-blue-650 font-bold bg-blue-100/50 px-1 rounded">Target: 90%</span>}
                   </div>
-                  <span className="text-[9px] text-slate-500 block">Total invoices cleared relative to target</span>
+                  <span className="text-[9px] text-slate-500 block">{totalInvoiced === 0 ? "No financial data available" : "Total invoices cleared"}</span>
                 </div>
                 <div className="w-10 h-10 bg-amber-500/10 text-amber-650 rounded-lg flex items-center justify-center shrink-0">
                   <DollarSign className="w-5 h-5" />

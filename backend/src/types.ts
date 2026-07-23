@@ -21,6 +21,20 @@ export interface OfficeHourSlot {
   studentNotes?: string;
 }
 
+export interface UserAuthRecord {
+  id: number;
+  username: string;
+  email: string;
+  passwordHash: string;
+  role: 'student' | 'lecturer' | 'admin' | 'accountant' | 'librarian';
+  roleId?: string | null;
+  isActive: boolean;
+  mustChangePassword: boolean;
+  lastLogin?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Lecturer {
   id: string;
   name: string;
@@ -40,7 +54,6 @@ export interface Lecturer {
   isActive?: boolean;
   isAccountant?: boolean;
   isLibrarian?: boolean;
-  passcode?: string;
 }
 
 export interface Grade {
@@ -61,7 +74,6 @@ export interface Student {
   payments: Payment[];
   attendance?: Record<string, number>; // subjectCode -> Attendance percentage (e.g. 0-100)
   avatar?: string;
-  passcode?: string;
   accountStatus?: string;
 }
 

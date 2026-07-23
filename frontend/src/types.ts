@@ -63,6 +63,7 @@ export interface Student {
   avatar?: string;
   passcode?: string;
   accountStatus?: string;
+  createdAt?: string;
 }
 
 export interface Invoice {

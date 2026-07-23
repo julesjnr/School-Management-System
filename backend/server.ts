@@ -43,17 +43,20 @@ import {
   studentLedger,
   users,
 } from "./src/db/schema.ts";
-import { eq, notInArray, and, desc } from "drizzle-orm";
+import { eq, notInArray, and, or, desc, asc, count, ilike, inArray, sql } from "drizzle-orm";
 import { supabase } from "./src/db/supabaseClient.ts";
 import {
   hashPassword,
   verifyPassword,
-  verifyAndMigratePasscode,
   resolvePassword,
-  requiresPasswordChange,
   upsertUserAuthRecord,
   sanitizeProfile,
   issueAuthToken,
+  migrateAuthSchemaAndData,
+  authenticateUser,
+  changeUserPassword,
+  adminResetUserPassword,
+  findUserByIdentifier,
 } from "./src/auth.ts";
 
 // Import initial mock databases from src/data.ts to bootstrap our persistent store
@@ -144,8 +147,6 @@ export async function loadFullDatabaseState(): Promise<any> {
     isActive: l.isActive,
     isAccountant: l.isAccountant,
     isLibrarian: l.isLibrarian,
-    passcode: l.passcode ?? "",
-    mustChangePassword: l.mustChangePassword ?? false,
     subjects: lecturerSubjRows.filter(s => s.lecturerId === l.id).map(s => s.subjectCode),
     publications: lecturerPubRows.filter(p => p.lecturerId === l.id).map(p => p.publicationText),
     researchInterests: lecturerResRows.filter(r => r.lecturerId === l.id).map(r => r.interestText),
@@ -209,14 +210,7 @@ export async function loadFullDatabaseState(): Promise<any> {
 
     const matchedCachedStudent = oldStudents.find((cs: any) => cs.id === s.id);
     const cachedStatus = matchedCachedStudent?.accountStatus;
-    const cachedMustChange = matchedCachedStudent?.mustChangePassword;
-    
-    const isDefault = !s.passcode || s.passcode === "student123" || 
-      ((s.passcode.startsWith('$2b$') || s.passcode.startsWith('$2a$') || s.passcode.startsWith('$2y$')) && 
-       bcrypt.compareSync("student123", s.passcode));
-       
-    const accountStatus = cachedStatus || (isDefault ? "Pending Setup" : "Active");
-    const mustChangePassword = cachedMustChange ?? s.mustChangePassword ?? accountStatus === "Pending Setup";
+    const accountStatus = cachedStatus || "Active";
 
     return {
       id: s.id,
@@ -226,9 +220,7 @@ export async function loadFullDatabaseState(): Promise<any> {
       admissionNo: s.admissionNo,
       cohort: s.cohort,
       avatar: s.avatar ?? undefined,
-      passcode: s.passcode ?? undefined,
       accountStatus,
-      mustChangePassword,
       createdAt: s.createdAt ?? undefined,
       enrolledUnits,
       grades: studentGrades,
@@ -568,7 +560,6 @@ async function performDatabaseSync(dbState: any): Promise<void> {
           isActive: l.isActive !== false,
           isAccountant: l.isAccountant === true,
           isLibrarian: l.isLibrarian === true,
-          passcode: l.passcode || "lecturer123"
         };
         await tx.insert(lecturers).values(lecturerVal).onConflictDoUpdate({
           target: lecturers.id,
@@ -649,7 +640,6 @@ async function performDatabaseSync(dbState: any): Promise<void> {
           admissionNo: s.admissionNo,
           cohort: s.cohort,
           avatar: s.avatar || null,
-          passcode: s.passcode || "student123"
         };
         await tx.insert(students).values(studentVal).onConflictDoUpdate({
           target: students.id,
@@ -1134,7 +1124,21 @@ async function performDatabaseSync(dbState: any): Promise<void> {
         });
       }
     }
-    // });
+
+    // Persist system_state snapshot
+    await tx.insert(systemState)
+      .values({
+        id: 1,
+        data: dbState,
+      })
+      .onConflictDoUpdate({
+        target: systemState.id,
+        set: {
+          data: dbState,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+
     syncFailureCount = 0; // Reset on successful write
   } catch (err: any) {
     syncFailureCount++;
@@ -1193,97 +1197,37 @@ export async function saveFullDatabaseState(dbState: any): Promise<void> {
   }
 }
 
-// Helper to initialize database state from PostgreSQL
+// Helper to initialize database state directly from PostgreSQL
 async function initPostgresDB() {
   try {
     if (!process.env.SQL_HOST || !process.env.SQL_PASSWORD || !process.env.SQL_USER || !process.env.SQL_DB_NAME) {
       throw new Error("Missing database environment variables (SQL_HOST, SQL_PASSWORD, SQL_USER, or SQL_DB_NAME). Please configure your local .env file.");
     }
-        const existing = await db.select().from(systemState).where(eq(systemState.id, 1));
-    if (existing.length > 0) {
-      cachedDb = await loadFullDatabaseState();
-      console.log("Successfully loaded database state from PostgreSQL!");
-      
-      // Self-healing: If Postgres tables are empty but db_store.json contains mock data, bootstrap relational tables
-      if ((!cachedDb.students || cachedDb.students.length === 0) && fs.existsSync(DB_FILE)) {
-        console.log("[DB TUNER] PostgreSQL relational tables are empty. Bootstrapping/seeding from db_store.json...");
-        try {
-          const content = fs.readFileSync(DB_FILE, "utf-8");
-          const localDb = JSON.parse(content);
-          cachedDb = { ...localDb };
-          performDatabaseSync(cachedDb).catch(err => {
-            console.error("[DB TUNER] Failed to run self-healing bootstrap sync:", err);
-          });
-        } catch (e) {
-          console.error("[DB TUNER] Failed to read db_store.json for seeding:", e);
-        }
-      }
-    } else {
-      // Bootstrap from db_store.json or initialState
-      let dbState: any = null;
-      if (fs.existsSync(DB_FILE)) {
-        try {
-          const content = fs.readFileSync(DB_FILE, "utf-8");
-          dbState = JSON.parse(content);
-        } catch (e) {
-          console.error("Error reading db_store.json", e);
-        }
-      }
-      if (!dbState) {
-        dbState = {
-          courses: initialCourses,
-          lecturers: initialLecturers,
-          students: initialStudents,
-          expenses: initialExpenses,
-          inventory: initialInventory,
-          requisitions: initialRequisitions,
-          news: initialNews,
-          testimonies: initialTestimonies,
-          reviews: initialReviews,
-          books: initialBooks,
-          loans: initialLoans,
-          reservations: initialReservations,
-          readingLists: initialReadingLists,
-          bookReviews: initialBookReviews,
-          bookRequests: initialBookRequests,
-          examPapers: initialExamPapers,
-          teacherResources: initialTeacherResources,
-          libraryGateLogs: initialLibraryGateLogs,
-          notifications: initialNotifications,
-          passwordResetRequests: []
-        };
-      }
-      
-      dbState = sanitizeStateIds(dbState);
-      cachedDb = dbState;
-      await db.insert(systemState).values({
-        id: 1,
-        data: dbState,
-      });
-      await saveFullDatabaseState(dbState);
-      console.log("Successfully bootstrapped database state to PostgreSQL!");
-    }
+    cachedDb = await loadFullDatabaseState();
+    console.log("Successfully loaded database state from PostgreSQL!");
   } catch (err) {
-    console.error("Failed to initialize PostgreSQL DB state, falling back to JSON file:", err);
-    // Fallback: load from JSON file synchronously
+    console.error("Failed to initialize PostgreSQL DB state:", err);
     if (fs.existsSync(DB_FILE)) {
       try {
-        cachedDb = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
+        const content = fs.readFileSync(DB_FILE, "utf-8");
+        cachedDb = JSON.parse(content);
+        console.log("Fallback: Loaded database state from local db_store.json!");
       } catch (e) {
-        cachedDb = {};
+        console.error("Error reading db_store.json", e);
+        cachedDb = null;
       }
     } else {
-      cachedDb = {};
+      cachedDb = null;
     }
   }
 }
 
 // Helper to retrieve database state
 function getDatabase() {
-  if (cachedDb) {
+  if (cachedDb && typeof cachedDb === 'object' && Object.keys(cachedDb).length > 0) {
     return cachedDb;
   }
-  // Fallback if not initialized yet
+  // Fallback if not initialized yet or empty
   if (fs.existsSync(DB_FILE)) {
     try {
       const content = fs.readFileSync(DB_FILE, "utf-8");
@@ -1293,7 +1237,7 @@ function getDatabase() {
       console.error("Error reading db_store.json", e);
     }
   }
-  return {};
+  return cachedDb || {};
 }
 
 // Helper to hash plain-text passcodes in memory before writing to DB
@@ -1321,33 +1265,10 @@ function saveDatabase(dbState: any) {
   dbState = sanitizeStateIds(dbState);
   cachedDb = dbState;
   
-  // Persist asynchronously to Postgres systemState table
-  db.insert(systemState)
-    .values({
-      id: 1,
-      data: dbState,
-    })
-    .onConflictDoUpdate({
-      target: systemState.id,
-      set: {
-        data: dbState,
-        updatedAt: new Date().toISOString(),
-      },
-    })
-    .then(() => {
-      console.log("Successfully persisted updated state to PostgreSQL system_state.");
-    })
-    .catch((err) => {
-      console.error("Failed to persist updated state to PostgreSQL system_state:", err);
-    });
-
-  // Persist asynchronously to all relational database tables
+  // Persist asynchronously via throttled/debounced database sync
   saveFullDatabaseState(dbState)
-    .then(() => {
-      console.log("Successfully persisted updated state to PostgreSQL relational tables.");
-    })
     .catch((err) => {
-      console.error("Failed to persist updated state to PostgreSQL relational tables:", err);
+      console.error("Failed to persist updated state to PostgreSQL:", err);
     });
 
   // Keep db_store.json as a secondary local fallback
@@ -1688,7 +1609,28 @@ app.post("/api/supabase/sync", async (req, res) => {
   }
 });
 
-// Admin User Creation Endpoint - Configurable default password & mandatory password change on first login
+// Profile loader helper function
+async function getProfileForUser(role: string, roleId: string | null, email: string) {
+  const fullDb = getDatabase();
+  if (role === "student") {
+    const student = (fullDb.students || []).find((s: any) =>
+      s.id === roleId || s.admissionNo?.toLowerCase() === roleId?.toLowerCase() || s.email?.toLowerCase() === email.toLowerCase()
+    );
+    return sanitizeProfile(student);
+  }
+  if (["lecturer", "accountant", "librarian"].includes(role)) {
+    const lecturer = (fullDb.lecturers || []).find((l: any) =>
+      l.id === roleId || l.designatorCode?.toLowerCase() === roleId?.toLowerCase() || l.email?.toLowerCase() === email.toLowerCase()
+    );
+    return sanitizeProfile(lecturer);
+  }
+  if (role === "admin") {
+    return { name: "System Administrator", email: email || "admin@zenti.edu" };
+  }
+  return null;
+}
+
+// Admin User Creation Endpoint - Creates profile & corresponding record in users table with hashed password
 app.post("/api/admin/create-user", checkRBAC(["admin"]), async (req: any, res: any) => {
   try {
     const {
@@ -1738,14 +1680,11 @@ app.post("/api/admin/create-user", checkRBAC(["admin"]), async (req: any, res: a
             phone: phone ? phone.trim() : null,
             admissionNo: uid,
             cohort: cohort ? cohort.trim() : "2026 Intake",
-            passcode: passwordHash,
-            mustChangePassword: true,
             accountStatus: "Pending Setup",
           })
           .returning();
         createdRecord = student;
       } catch (dbErr) {
-        // Fallback to in-memory JSON store if DB unavailable
         const newStudent = {
           id: `stu-${Date.now()}`,
           name: name.trim(),
@@ -1753,8 +1692,6 @@ app.post("/api/admin/create-user", checkRBAC(["admin"]), async (req: any, res: a
           phone: phone || "+254 700 000000",
           admissionNo: uid,
           cohort: cohort || "2026 Intake",
-          passcode: passwordHash,
-          mustChangePassword: true,
           accountStatus: "Pending Setup",
           enrolledUnits: [],
           grades: {},
@@ -1781,8 +1718,6 @@ app.post("/api/admin/create-user", checkRBAC(["admin"]), async (req: any, res: a
             isActive: true,
             isAccountant: role === "accountant" || isAccountant === true,
             isLibrarian: role === "librarian" || isLibrarian === true,
-            passcode: passwordHash,
-            mustChangePassword: true,
           })
           .returning();
         createdRecord = lecturer;
@@ -1800,8 +1735,6 @@ app.post("/api/admin/create-user", checkRBAC(["admin"]), async (req: any, res: a
           isActive: true,
           isAccountant: role === "accountant" || isAccountant === true,
           isLibrarian: role === "librarian" || isLibrarian === true,
-          passcode: passwordHash,
-          mustChangePassword: true,
         };
         fullDb.lecturers = fullDb.lecturers || [];
         fullDb.lecturers.push(newLecturer);
@@ -1812,11 +1745,19 @@ app.post("/api/admin/create-user", checkRBAC(["admin"]), async (req: any, res: a
       createdRecord = { id: uid, name, email, role };
     }
 
-    // Explicitly update/insert into PostgreSQL users schema with mustChangePassword = true
+    // Automatically create/sync corresponding user record in users table
     try {
-      await upsertUserAuthRecord(uid, email.trim().toLowerCase(), role, passwordHash, mustChangePassword);
+      await upsertUserAuthRecord({
+        username: uid,
+        email: email.trim().toLowerCase(),
+        passwordHash,
+        role,
+        roleId: createdRecord?.id || uid,
+        isActive: true,
+        mustChangePassword,
+      });
     } catch (authErr) {
-      console.warn("Could not sync with PostgreSQL users table, recorded in primary database store.");
+      console.warn("Could not sync with users table:", authErr);
     }
 
     saveDatabase(fullDb);
@@ -1840,203 +1781,54 @@ app.post("/api/admin/create-user", checkRBAC(["admin"]), async (req: any, res: a
   }
 });
 
-// Unified Login Endpoint - Single endpoint that handles authorization for all roles (Admin, Student, Staff)
+// Unified Login Endpoint - Authenticates exclusively through the users table
 app.post("/api/auth/login", async (req: any, res: any) => {
-  const { role, userId, passcode, password } = req.body;
-  const inputPasscode = passcode || password;
-  if (!role || !userId) {
-    res.status(400).json({ success: false, error: "Missing required role or userId parameter." });
-    return;
-  }
+  try {
+    const { role, userId, passcode, password } = req.body;
+    const inputIdentifier = userId;
+    const inputPasscode = passcode || password;
 
-  if (typeof role !== 'string' || typeof userId !== 'string' || typeof inputPasscode !== 'string') {
-    res.status(400).json({ success: false, error: "Invalid parameter types." });
-    return;
-  }
-
-  const dbStore = getDatabase();
-
-  const sanitizeProfileObj = (profileObj: any) => {
-    if (!profileObj) return profileObj;
-    const { passcode: _, passwordHash: __, ...rest } = profileObj;
-    return rest;
-  };
-
-  const verifyPass = (input: string, stored: string) => {
-    if (!stored) return false;
-    const isBcrypt = stored.startsWith('$2b$') || stored.startsWith('$2a$') || stored.startsWith('$2y$');
-    if (isBcrypt) {
-      return bcrypt.compareSync(input, stored);
-    }
-    return input === stored;
-  };
-
-  // Helper to check mustChangePassword from PostgreSQL users table or profile
-  const checkMustChangePassword = async (uid: string, recordMustChange?: boolean, recordStatus?: string) => {
-    try {
-      const userAuthRecords = await db.select().from(users).where(eq(users.uid, uid)).limit(1);
-      if (userAuthRecords.length > 0) {
-        return userAuthRecords[0].mustChangePassword === true;
-      }
-    } catch (e) {
-      // ignore db check errors and fall back to record
-    }
-    return recordMustChange === true || recordStatus === "Pending Setup";
-  };
-
-  if (role === "admin") {
-    if (userId !== "admin" && userId.toLowerCase() !== "admin@zenti.edu") {
-      res.status(401).json({ success: false, error: "Invalid administrative username identification." });
+    if (!inputIdentifier || !inputPasscode) {
+      res.status(400).json({ success: false, error: "Missing required role, identity, or passcode parameter." });
       return;
     }
-    const adminPin = process.env.ADMIN_PASSCODE || "admin123";
-    const isMatch = verifyPass(inputPasscode, adminPin);
-    
-    if (isMatch) {
-      const mustChange = await checkMustChangePassword("admin", false);
-      if (mustChange) {
-        res.json({
-          success: true,
-          status: "REQUIRES_PASSWORD_CHANGE",
-          userId: "admin",
-          role: "admin",
-          email: "admin@zenti.edu",
-          message: "Password change is required on first login."
-        });
-        return;
-      }
-      const token = jwt.sign(
-        { userId: "admin", role: "admin", email: "admin@zenti.edu" },
-        JWT_SECRET,
-        { expiresIn: "24h" }
-      );
-      res.json({
-        success: true,
-        role: "admin",
-        userId: "admin",
-        token: token,
-        profile: { name: "System Administrator", email: "admin@zenti.edu" }
-      });
-    } else {
-      res.status(401).json({ success: false, error: "Invalid master administrative passcode security pin." });
-    }
-    return;
-  }
 
-  if (role === "accountant" || role === "librarian" || role === "lecturer") {
-    const lecturerRecord = (dbStore.lecturers || []).find((l: any) => {
-      const matchesId = l.id === userId || l.designatorCode?.toLowerCase() === userId.toLowerCase() || l.email?.toLowerCase() === userId.toLowerCase();
-      if (!matchesId) return false;
-      if (role === "accountant") return l.isAccountant;
-      if (role === "librarian") return l.isLibrarian || l.id === "l3";
-      return !l.isAccountant && !l.isLibrarian;
+    const result = await authenticateUser({
+      identifier: inputIdentifier,
+      passcode: inputPasscode,
+      roleHint: role,
+      jwtSecret: JWT_SECRET,
+      getProfileFn: getProfileForUser
     });
 
-    if (!lecturerRecord) {
-      res.status(401).json({ success: false, error: `Selected identity does not exist in ${role} registry.` });
+    if (!result.success) {
+      res.status(401).json({ success: false, error: result.error || "Authentication failed." });
       return;
     }
 
-    let defaultPin = "staff123";
-    if (role === "accountant") defaultPin = "acc123";
-    else if (role === "librarian") defaultPin = "lib123";
-
-    const expectedPin = lecturerRecord.passcode || defaultPin;
-    const isMatch = verifyPass(inputPasscode, expectedPin);
-
-    if (isMatch) {
-      if (!expectedPin.startsWith('$2b$') && !expectedPin.startsWith('$2a$') && !expectedPin.startsWith('$2y$')) {
-        lecturerRecord.passcode = bcrypt.hashSync(inputPasscode, 10);
-        saveDatabase(dbStore);
-      }
-
-      const uid = lecturerRecord.designatorCode || lecturerRecord.id;
-      const mustChange = await checkMustChangePassword(uid, lecturerRecord.mustChangePassword);
-
-      if (mustChange) {
-        res.json({
-          success: true,
-          status: "REQUIRES_PASSWORD_CHANGE",
-          userId: lecturerRecord.id,
-          role: role,
-          email: lecturerRecord.email,
-          message: "Password change is required on first login."
-        });
-        return;
-      }
-
-      const token = jwt.sign(
-        { userId: lecturerRecord.id, role, email: lecturerRecord.email },
-        JWT_SECRET,
-        { expiresIn: "24h" }
-      );
+    if (result.status === "REQUIRES_PASSWORD_CHANGE") {
       res.json({
         success: true,
-        role: role,
-        userId: lecturerRecord.id,
-        token: token,
-        profile: sanitizeProfileObj(lecturerRecord)
+        status: "REQUIRES_PASSWORD_CHANGE",
+        userId: result.userId,
+        role: result.role,
+        email: result.email,
+        message: result.message
       });
-    } else {
-      res.status(401).json({ success: false, error: `Invalid ${role} security authorization key.` });
-    }
-    return;
-  }
-
-  if (role === "student") {
-    const studentRecord = (dbStore.students || []).find((s: any) => 
-      s.id === userId || 
-      s.admissionNo?.toLowerCase() === userId.toLowerCase() || 
-      s.email?.toLowerCase() === userId.toLowerCase()
-    );
-    if (!studentRecord) {
-      res.status(401).json({ success: false, error: "Selected student profile does not exist in student registry." });
       return;
     }
 
-    const expectedPin = studentRecord.passcode || "student123";
-    const isMatch = verifyPass(inputPasscode, expectedPin);
-
-    if (isMatch) {
-      if (!expectedPin.startsWith('$2b$') && !expectedPin.startsWith('$2a$') && !expectedPin.startsWith('$2y$')) {
-        studentRecord.passcode = bcrypt.hashSync(inputPasscode, 10);
-        saveDatabase(dbStore);
-      }
-
-      const uid = studentRecord.admissionNo || studentRecord.id;
-      const mustChange = await checkMustChangePassword(uid, studentRecord.mustChangePassword, studentRecord.accountStatus);
-
-      if (mustChange) {
-        res.json({
-          success: true,
-          status: "REQUIRES_PASSWORD_CHANGE",
-          userId: studentRecord.id,
-          role: "student",
-          email: studentRecord.email,
-          message: "Password change is required on first login."
-        });
-        return;
-      }
-
-      const token = jwt.sign(
-        { userId: studentRecord.id, role: "student", email: studentRecord.email },
-        JWT_SECRET,
-        { expiresIn: "24h" }
-      );
-      res.json({
-        success: true,
-        role: "student",
-        userId: studentRecord.id,
-        token: token,
-        profile: sanitizeProfileObj(studentRecord)
-      });
-    } else {
-      res.status(401).json({ success: false, error: "Invalid student passcode credential." });
-    }
-    return;
+    res.json({
+      success: true,
+      role: result.role,
+      userId: result.userId,
+      token: result.token,
+      profile: result.profile
+    });
+  } catch (err: any) {
+    console.error("Login endpoint error:", err);
+    res.status(500).json({ success: false, error: err.message || "Authentication failed." });
   }
-
-  res.status(400).json({ success: false, error: "Requested user role context is invalid or unsupported." });
 });
 
 // Password Change Endpoint (/api/auth/change-password and /api/auth/change-passcode)
@@ -2045,271 +1837,109 @@ app.post(["/api/auth/change-password", "/api/auth/change-passcode"], async (req:
     const { role, userId, currentPasscode, currentPassword, newPasscode, newPassword } = req.body;
     const inputCurrent = currentPassword || currentPasscode;
     const inputNew = newPassword || newPasscode;
+    const identifier = userId || req.user?.userId;
 
-    if (!role || !userId || !inputCurrent || !inputNew) {
+    if (!identifier || !inputCurrent || !inputNew) {
       res.status(400).json({ success: false, error: "Missing required parameters for password update." });
       return;
     }
 
-    if (typeof inputNew !== 'string' || inputNew.length < 6) {
-      res.status(400).json({ success: false, error: "New password must be at least 6 characters long." });
+    const result = await changeUserPassword({
+      identifier,
+      roleHint: role,
+      currentPasscode: inputCurrent,
+      newPasscode: inputNew,
+      jwtSecret: JWT_SECRET,
+      getProfileFn: getProfileForUser
+    });
+
+    if (!result.success) {
+      res.status(401).json({ success: false, error: result.error });
       return;
     }
 
-    const hashedNew = bcrypt.hashSync(inputNew, 10);
-    const fullDb = getDatabase();
-
-    const verifyPass = (input: string, stored: string) => {
-      if (!stored) return false;
-      const isBcrypt = stored.startsWith('$2b$') || stored.startsWith('$2a$') || stored.startsWith('$2y$');
-      if (isBcrypt) {
-        return bcrypt.compareSync(input, stored);
-      }
-      return input === stored;
-    };
-
-    if (role === "student") {
-      const studentIdx = (fullDb.students || []).findIndex((s: any) => 
-        s.id === userId || s.admissionNo?.toLowerCase() === userId.toLowerCase() || s.email?.toLowerCase() === userId.toLowerCase()
-      );
-      if (studentIdx === -1) {
-        res.status(404).json({ success: false, error: "Student profile not found." });
-        return;
-      }
-      const student = fullDb.students[studentIdx];
-      const expected = student.passcode || "student123";
-
-      if (!verifyPass(inputCurrent, expected)) {
-        res.status(401).json({ success: false, error: "Incorrect current password." });
-        return;
-      }
-
-      // Update student in memory cache
-      fullDb.students[studentIdx].passcode = hashedNew;
-      fullDb.students[studentIdx].mustChangePassword = false;
-      fullDb.students[studentIdx].accountStatus = "Active";
-      saveDatabase(fullDb);
-
-      // Update PostgreSQL students table
-      try {
-        await db.update(students)
-          .set({ passcode: hashedNew, mustChangePassword: false, accountStatus: "Active" })
-          .where(eq(students.id, student.id));
-      } catch (e) {}
-
-      // Update PostgreSQL users table
-      const uidKey = student.admissionNo || student.id;
-      try {
-        await upsertUserAuthRecord(uidKey, student.email, "student", hashedNew, false);
-      } catch (e) {}
-
-      const token = jwt.sign(
-        { userId: student.id, role: "student", email: student.email },
-        JWT_SECRET,
-        { expiresIn: "24h" }
-      );
-
-      const sanitizeProfileObj = (profileObj: any) => {
-        if (!profileObj) return profileObj;
-        const { passcode: _, passwordHash: __, ...rest } = profileObj;
-        return rest;
-      };
-
-      res.json({
-        success: true,
-        message: "Password updated successfully.",
-        token,
-        role: "student",
-        userId: student.id,
-        profile: sanitizeProfileObj(fullDb.students[studentIdx])
-      });
-      return;
-    }
-
-    if (["lecturer", "accountant", "librarian"].includes(role)) {
-      const lecturerIdx = (fullDb.lecturers || []).findIndex((l: any) => 
-        l.id === userId || l.designatorCode?.toLowerCase() === userId.toLowerCase() || l.email?.toLowerCase() === userId.toLowerCase()
-      );
-      if (lecturerIdx === -1) {
-        res.status(404).json({ success: false, error: "Staff/Faculty identity not found." });
-        return;
-      }
-      const lecturer = fullDb.lecturers[lecturerIdx];
-      let expected = lecturer.passcode;
-      if (!expected) {
-        if (lecturer.isAccountant) expected = "acc123";
-        else if (lecturer.isLibrarian || lecturer.id === "l3") expected = "lib123";
-        else expected = "staff123";
-      }
-
-      if (!verifyPass(inputCurrent, expected)) {
-        res.status(401).json({ success: false, error: "Incorrect current password." });
-        return;
-      }
-
-      // Update lecturer in memory cache
-      fullDb.lecturers[lecturerIdx].passcode = hashedNew;
-      fullDb.lecturers[lecturerIdx].mustChangePassword = false;
-      saveDatabase(fullDb);
-
-      // Update PostgreSQL lecturers table
-      try {
-        await db.update(lecturers)
-          .set({ passcode: hashedNew, mustChangePassword: false })
-          .where(eq(lecturers.id, lecturer.id));
-      } catch (e) {}
-
-      // Update PostgreSQL users table
-      const uidKey = lecturer.designatorCode || lecturer.id;
-      try {
-        await upsertUserAuthRecord(uidKey, lecturer.email, role, hashedNew, false);
-      } catch (e) {}
-
-      const token = jwt.sign(
-        { userId: lecturer.id, role, email: lecturer.email },
-        JWT_SECRET,
-        { expiresIn: "24h" }
-      );
-
-      const sanitizeProfileObj = (profileObj: any) => {
-        if (!profileObj) return profileObj;
-        const { passcode: _, passwordHash: __, ...rest } = profileObj;
-        return rest;
-      };
-
-      res.json({
-        success: true,
-        message: "Password updated successfully.",
-        token,
-        role,
-        userId: lecturer.id,
-        profile: sanitizeProfileObj(fullDb.lecturers[lecturerIdx])
-      });
-      return;
-    }
-
-    if (role === "admin") {
-      const adminPin = process.env.ADMIN_PASSCODE || "admin123";
-      if (!verifyPass(inputCurrent, adminPin)) {
-        res.status(401).json({ success: false, error: "Incorrect current administrative passcode." });
-        return;
-      }
-
-      try {
-        await upsertUserAuthRecord("admin", "admin@zenti.edu", "admin", hashedNew, false);
-      } catch (e) {}
-
-      const token = jwt.sign(
-        { userId: "admin", role: "admin", email: "admin@zenti.edu" },
-        JWT_SECRET,
-        { expiresIn: "24h" }
-      );
-
-      res.json({
-        success: true,
-        message: "Password updated successfully.",
-        token,
-        role: "admin",
-        userId: "admin",
-        profile: { name: "System Administrator", email: "admin@zenti.edu" }
-      });
-      return;
-    }
-
-    res.status(400).json({ success: false, error: "Unsupported or invalid role context." });
+    res.json(result);
   } catch (err: any) {
-    console.error("Password change failed:", err);
+    console.error("Password change endpoint error:", err);
     res.status(500).json({ success: false, error: err.message || "Failed to update password." });
   }
 });
 
-// Admin Route: Protected Administrative System Statistics
-app.get("/api/admin/system-stats", checkRBAC(["admin", "accountant", "librarian"]), (req, res) => {
-  const db = getDatabase();
-  res.json({
-    systemOnline: true,
-    dbStoreSize: fs.existsSync(DB_FILE) ? fs.statSync(DB_FILE).size : 0,
-    metrics: {
-      totalCourses: (db.courses || []).length,
-      totalStudents: (db.students || []).length,
-      totalLecturers: (db.lecturers || []).length,
-      totalBooks: (db.books || []).length,
-    },
-    environment: process.env.NODE_ENV || "development",
-    lastBackup: new Date().toISOString()
-  });
+// Protected Administrative System Statistics Route
+app.get("/api/admin/system-stats", checkRBAC(["admin", "accountant", "librarian"]), async (req, res) => {
+  try {
+    const [cCount, sCount, lCount, bCount] = await Promise.all([
+      db.select({ value: count() }).from(courses),
+      db.select({ value: count() }).from(students),
+      db.select({ value: count() }).from(lecturers),
+      db.select({ value: count() }).from(books),
+    ]);
+    res.json({
+      systemOnline: true,
+      metrics: {
+        totalCourses: Number(cCount[0]?.value || 0),
+        totalStudents: Number(sCount[0]?.value || 0),
+        totalLecturers: Number(lCount[0]?.value || 0),
+        totalBooks: Number(bCount[0]?.value || 0),
+      },
+      environment: process.env.NODE_ENV || "development",
+      lastBackup: new Date().toISOString()
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to query system stats." });
+  }
 });
 
-// ==========================================
-// PASSWORD RESET REQUEST ENDPOINTS
-// ==========================================
-
 // Submit a password reset request
-app.post("/api/auth/reset-request", (req, res) => {
-  const { email, reason } = req.body;
-  if (!email) {
-    res.status(400).json({ success: false, error: "Email is required." });
-    return;
-  }
-
-  const db = getDatabase();
-  const searchEmail = email.trim().toLowerCase();
-
-  let foundUser: any = null;
-  let detectedRole: 'student' | 'lecturer' | 'accountant' | 'librarian' = 'student';
-
-  // Check Lecturers & Staff
-  const matchLec = (db.lecturers || []).find((l: any) => l.email.toLowerCase() === searchEmail);
-  if (matchLec) {
-    foundUser = matchLec;
-    if (matchLec.isAccountant) {
-      detectedRole = 'accountant';
-    } else if (matchLec.isLibrarian || matchLec.id === 'l3') {
-      detectedRole = 'librarian';
-    } else {
-      detectedRole = 'lecturer';
+app.post("/api/auth/reset-request", async (req: any, res: any) => {
+  try {
+    const { email, reason } = req.body;
+    if (!email) {
+      res.status(400).json({ success: false, error: "Email is required." });
+      return;
     }
-  } else {
-    // Check Students
-    const matchStud = (db.students || []).find((s: any) => s.email.toLowerCase() === searchEmail);
-    if (matchStud) {
-      foundUser = matchStud;
-      detectedRole = 'student';
+
+    const searchEmail = email.trim().toLowerCase();
+    const userAuth = await findUserByIdentifier(searchEmail);
+
+    if (!userAuth) {
+      res.status(404).json({ success: false, error: `No account registered with "${email}" could be located.` });
+      return;
     }
+
+    const dbStore = getDatabase();
+    const existingPending = (dbStore.passwordResetRequests || []).find(
+      (r: any) => r.email.toLowerCase() === searchEmail && r.status === 'pending'
+    );
+    if (existingPending) {
+      res.status(400).json({ 
+        success: false, 
+        error: "You already have a pending reset request under review by the Administrator." 
+      });
+      return;
+    }
+
+    const profileObj = await getProfileForUser(userAuth.role, userAuth.role_id, userAuth.email);
+
+    const newRequest = {
+      id: `req-${Date.now()}`,
+      userId: userAuth.role_id || userAuth.username || String(userAuth.id),
+      name: profileObj?.name || userAuth.username,
+      email: userAuth.email,
+      role: userAuth.role,
+      date: new Date().toLocaleString(),
+      reason: reason || "Forgotten password",
+      status: 'pending'
+    };
+
+    dbStore.passwordResetRequests = [newRequest, ...(dbStore.passwordResetRequests || [])];
+    saveDatabase(dbStore);
+
+    res.status(201).json({ success: true, message: "Reset request submitted to the Administrator.", request: newRequest });
+  } catch (err: any) {
+    console.error("Reset request submission error:", err);
+    res.status(500).json({ success: false, error: err.message });
   }
-
-  if (!foundUser) {
-    res.status(404).json({ success: false, error: `No account registered with "${email}" could be located.` });
-    return;
-  }
-
-  // Prevent multiple pending requests for the same user
-  const existingPending = (db.passwordResetRequests || []).find(
-    (r: any) => r.email.toLowerCase() === searchEmail && r.status === 'pending'
-  );
-  if (existingPending) {
-    res.status(400).json({ 
-      success: false, 
-      error: "You already have a pending reset request under review by the Administrator." 
-    });
-    return;
-  }
-
-  const newRequest = {
-    id: `req-${Date.now()}`,
-    userId: foundUser.id,
-    name: foundUser.name,
-    email: foundUser.email,
-    role: detectedRole,
-    date: new Date().toLocaleString(),
-    reason: reason || "Forgotten password",
-    status: 'pending'
-  };
-
-  db.passwordResetRequests = [newRequest, ...(db.passwordResetRequests || [])];
-  saveDatabase(db);
-
-  res.status(201).json({ success: true, message: "Reset request submitted to the Administrator.", request: newRequest });
 });
 
 // Check status of password reset requests for a given email
@@ -2319,8 +1949,8 @@ app.get("/api/auth/reset-requests", (req, res) => {
     res.status(400).json({ success: false, error: "Missing email parameter" });
     return;
   }
-  const db = getDatabase();
-  const list = (db.passwordResetRequests || []).filter(
+  const dbStore = getDatabase();
+  const list = (dbStore.passwordResetRequests || []).filter(
     (r: any) => r.email.toLowerCase() === (email as string).trim().toLowerCase()
   );
   res.json({ success: true, requests: list });
@@ -2328,68 +1958,54 @@ app.get("/api/auth/reset-requests", (req, res) => {
 
 // Admin Route: Get all password reset requests
 app.get("/api/admin/reset-requests", checkRBAC(["admin"]), (req, res) => {
-  const db = getDatabase();
-  res.json({ success: true, requests: db.passwordResetRequests || [] });
+  const dbStore = getDatabase();
+  res.json({ success: true, requests: dbStore.passwordResetRequests || [] });
 });
 
 // Admin Route: Take action on a password reset request
-app.post("/api/admin/reset-requests/:id/action", checkRBAC(["admin"]), (req, res) => {
-  const { id } = req.params;
-  const { action, feedback, passcode } = req.body; // action: 'approve' | 'reject', passcode: custom passcode set by admin
-  if (!action || !["approve", "reject"].includes(action)) {
-    res.status(400).json({ success: false, error: "Invalid action. Must be 'approve' or 'reject'." });
-    return;
-  }
-
-  const db = getDatabase();
-  const reqIdx = (db.passwordResetRequests || []).findIndex((r: any) => r.id === id);
-  if (reqIdx === -1) {
-    res.status(404).json({ success: false, error: "Password reset request not found." });
-    return;
-  }
-
-  const resetReq = db.passwordResetRequests[reqIdx];
-  if (resetReq.status !== 'pending') {
-    res.status(400).json({ success: false, error: "Request has already been processed." });
-    return;
-  }
-
-  if (action === "approve") {
-    const finalPasscode = passcode || Math.floor(1000 + Math.random() * 9000).toString();
-    
-    // Update the corresponding user's passcode in the database
-    let userFound = false;
-    if (resetReq.role === "student") {
-      const studentIdx = (db.students || []).findIndex((s: any) => s.id === resetReq.userId);
-      if (studentIdx !== -1) {
-        db.students[studentIdx].passcode = finalPasscode;
-        db.students[studentIdx].accountStatus = "Pending Setup";
-        userFound = true;
-      }
-    } else {
-      // lecturer, accountant, librarian
-      const lecturerIdx = (db.lecturers || []).findIndex((l: any) => l.id === resetReq.userId);
-      if (lecturerIdx !== -1) {
-        db.lecturers[lecturerIdx].passcode = finalPasscode;
-        userFound = true;
-      }
-    }
-
-    if (!userFound) {
-      res.status(404).json({ success: false, error: "Corresponding user account not found in database." });
+app.post("/api/admin/reset-requests/:id/action", checkRBAC(["admin"]), async (req: any, res: any) => {
+  try {
+    const { id } = req.params;
+    const { action, feedback, passcode } = req.body;
+    if (!action || !["approve", "reject"].includes(action)) {
+      res.status(400).json({ success: false, error: "Invalid action. Must be 'approve' or 'reject'." });
       return;
     }
 
-    db.passwordResetRequests[reqIdx].status = 'resolved';
-    db.passwordResetRequests[reqIdx].temporaryPasscode = finalPasscode;
-    db.passwordResetRequests[reqIdx].adminFeedback = feedback || "Approved and passcode updated.";
-  } else {
-    db.passwordResetRequests[reqIdx].status = 'rejected';
-    db.passwordResetRequests[reqIdx].adminFeedback = feedback || "Request declined by Administrator.";
-  }
+    const dbStore = getDatabase();
+    const reqIdx = (dbStore.passwordResetRequests || []).findIndex((r: any) => r.id === id);
+    if (reqIdx === -1) {
+      res.status(404).json({ success: false, error: "Password reset request not found." });
+      return;
+    }
 
-  saveDatabase(db);
-  res.json({ success: true, request: db.passwordResetRequests[reqIdx] });
+    const resetReq = dbStore.passwordResetRequests[reqIdx];
+    if (resetReq.status !== 'pending') {
+      res.status(400).json({ success: false, error: "Request has already been processed." });
+      return;
+    }
+
+    if (action === "approve") {
+      const resetRes = await adminResetUserPassword(resetReq.userId || resetReq.email, passcode);
+      if (!resetRes.success) {
+        res.status(404).json({ success: false, error: resetRes.error || "Corresponding user account not found in database." });
+        return;
+      }
+
+      dbStore.passwordResetRequests[reqIdx].status = 'resolved';
+      dbStore.passwordResetRequests[reqIdx].temporaryPasscode = resetRes.temporaryPasscode;
+      dbStore.passwordResetRequests[reqIdx].adminFeedback = feedback || "Approved and passcode updated.";
+    } else {
+      dbStore.passwordResetRequests[reqIdx].status = 'rejected';
+      dbStore.passwordResetRequests[reqIdx].adminFeedback = feedback || "Request declined by Administrator.";
+    }
+
+    saveDatabase(dbStore);
+    res.json({ success: true, request: dbStore.passwordResetRequests[reqIdx] });
+  } catch (err: any) {
+    console.error("Action on reset request error:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // 2. Fetch Full Database State
@@ -2418,7 +2034,7 @@ app.get("/api/data", async (req, res) => {
     res.json(sanitizeStateForClient(dbState));
   } catch (error) {
     console.error("Failed to load full database state:", error);
-    res.json(sanitizeStateForClient(getDatabase()));
+    res.status(500).json({ error: "Failed to load full database state" });
   }
 });
 
@@ -2648,9 +2264,9 @@ app.post("/api/lecturers", async (req, res) => {
 
     const isGenerated = !lecturerData.passcode;
     const rawPasscode = lecturerData.passcode || crypto.randomBytes(6).toString('hex');
-    const hashedPasscode = rawPasscode.startsWith('$2b$') || rawPasscode.startsWith('$2a$') || rawPasscode.startsWith('$2y$')
+    const hashedPasscode = (rawPasscode.startsWith('$2b$') || rawPasscode.startsWith('$2a$') || rawPasscode.startsWith('$2y$'))
       ? rawPasscode
-      : bcrypt.hashSync(rawPasscode, 10);
+      : hashPassword(rawPasscode);
 
     const [lecturer] = await db
       .insert(lecturers)
@@ -2668,24 +2284,26 @@ app.post("/api/lecturers", async (req, res) => {
         isActive: lecturerData.isActive ?? true,
         isAccountant: lecturerData.isAccountant ?? false,
         isLibrarian: lecturerData.isLibrarian ?? false,
-        passcode: hashedPasscode,
-        mustChangePassword: true,
       })
       .returning();
 
     const role = lecturerData.isAccountant ? "accountant" : lecturerData.isLibrarian ? "librarian" : "lecturer";
     const uid = lecturerData.designatorCode || lecturer.id;
     try {
-      await upsertUserAuthRecord(uid, lecturerData.email, role, hashedPasscode, true);
+      await upsertUserAuthRecord({
+        username: uid,
+        email: lecturerData.email,
+        passwordHash: hashedPasscode,
+        role,
+        roleId: lecturer.id,
+        isActive: true,
+        mustChangePassword: true,
+      });
     } catch (e) {}
 
     // Sync database cache
     const fullDb = await loadFullDatabaseState();
     saveDatabase(fullDb);
-
-    if (lecturer) {
-      delete (lecturer as any).passcode;
-    }
 
     res.status(201).json({
       ...lecturer,
@@ -2721,13 +2339,7 @@ app.get("/api/transactions", async (req, res) => {
     res.json(result);
   } catch (err: any) {
     console.error("Failed to fetch transactions:", err);
-    // Dynamic fallback to local JSON file database
-    const dbVal = getDatabase();
-    const mockTx = dbVal.transactions || [];
-    const sorted = [...mockTx]
-      .sort((a: any, b: any) => new Date(b.created_at || b.createdAt || 0).getTime() - new Date(a.created_at || a.createdAt || 0).getTime())
-      .slice(0, 5);
-    res.json(sorted);
+    res.status(500).json({ error: "Failed to fetch transactions" });
   }
 });
 
@@ -2801,37 +2413,7 @@ app.get("/api/finance/students", async (req, res) => {
     res.json(result);
   } catch (err: any) {
     console.error("Failed to fetch finance students from PostgreSQL:", err);
-    // JSON file fallback
-    try {
-      const dbVal = getDatabase();
-      const localStudents = dbVal.students || [];
-      const localLedger = dbVal.student_ledger || [];
-
-      const result = localStudents.map((s: any) => {
-        const studentEntries = localLedger.filter((entry: any) => entry.student_id === s.id || entry.studentId === s.id);
-        const debits = studentEntries
-          .filter((entry: any) => entry.entry_type === 'DEBIT' || entry.entryType === 'DEBIT')
-          .reduce((sum: number, entry: any) => sum + Number(entry.amount), 0);
-        const credits = studentEntries
-          .filter((entry: any) => entry.entry_type === 'CREDIT' || entry.entryType === 'CREDIT')
-          .reduce((sum: number, entry: any) => sum + Number(entry.amount), 0);
-
-        const outstandingBalance = debits - credits;
-        const status = outstandingBalance > 0 ? "Outstanding" : "Cleared";
-
-        return {
-          id: s.id,
-          name: s.name,
-          admissionNo: s.admissionNo || s.admission_no,
-          cohort: s.cohort,
-          outstandingBalance,
-          status
-        };
-      });
-      res.json(result);
-    } catch (fallbackErr: any) {
-      res.status(500).json({ error: fallbackErr.message });
-    }
+    res.status(500).json({ error: "Failed to fetch finance students" });
   }
 });
 
@@ -3166,22 +2748,306 @@ app.post("/api/finance/reconcile", async (req, res) => {
   }
 });
 
-// 6. REST Resource: Students
+// 6. REST Resource: Students with Server-Side Pagination, Filtering, Sorting, and Search
 app.get("/api/students", async (req, res) => {
   try {
-    const fullDb = await loadFullDatabaseState();
-    const studentsWithoutCredentials = (fullDb.students || []).map((s: any) => {
-      const { passcode, ...studentWithoutPasscode } = s;
-      return studentWithoutPasscode;
+    const pageParam = parseInt(req.query.page as string, 10);
+    const limitParam = parseInt(req.query.limit as string, 10);
+    const searchParam = ((req.query.search as string) || "").trim();
+    const cohortParam = ((req.query.cohort as string) || "").trim();
+    const statusParam = ((req.query.accountStatus as string) || "").trim();
+    const unitsParam = ((req.query.registeredUnits as string) || (req.query.units as string) || "").trim();
+    const sortByParam = ((req.query.sortBy as string) || "").trim();
+    const sortOrderParam = ((req.query.sortOrder as string) || "asc").toLowerCase() === "desc" ? "desc" : "asc";
+    const isAllParam = req.query.all === "true";
+
+    const page = !isNaN(pageParam) && pageParam > 0 ? pageParam : 1;
+    const limit = !isNaN(limitParam) && limitParam > 0 ? Math.min(limitParam, 200) : 25;
+    const offset = (page - 1) * limit;
+
+    // Build SQL conditions
+    const conditions = [];
+
+    if (searchParam) {
+      const searchPattern = `%${searchParam}%`;
+      conditions.push(
+        or(
+          ilike(students.name, searchPattern),
+          ilike(students.admissionNo, searchPattern),
+          ilike(students.email, searchPattern),
+          ilike(students.cohort, searchPattern)
+        )
+      );
+    }
+
+    if (cohortParam && cohortParam !== "all" && cohortParam !== "All Cohorts") {
+      conditions.push(eq(students.cohort, cohortParam));
+    }
+
+    if (statusParam && statusParam !== "all" && statusParam !== "All Statuses") {
+      conditions.push(eq(students.accountStatus, statusParam));
+    }
+
+    if (unitsParam && unitsParam !== "all" && unitsParam !== "All Units") {
+      const enrolledCountSubquery = sql<number>`(SELECT COUNT(*)::int FROM student_enrollments WHERE student_id = ${students.id})`;
+      if (unitsParam === "0" || unitsParam === "none" || unitsParam === "no_units") {
+        conditions.push(sql`${enrolledCountSubquery} = 0`);
+      } else if (unitsParam === "1") {
+        conditions.push(sql`${enrolledCountSubquery} = 1`);
+      } else if (unitsParam === "2") {
+        conditions.push(sql`${enrolledCountSubquery} = 2`);
+      } else if (unitsParam === "3+" || unitsParam === "3_plus" || unitsParam === "3") {
+        conditions.push(sql`${enrolledCountSubquery} >= 3`);
+      } else if (unitsParam === "has_units") {
+        conditions.push(sql`${enrolledCountSubquery} > 0`);
+      } else if (!isNaN(parseInt(unitsParam, 10))) {
+        conditions.push(sql`${enrolledCountSubquery} = ${parseInt(unitsParam, 10)}`);
+      }
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    // Sorting Clause
+    let orderByClause;
+    const unitCountSubquery = sql<number>`(SELECT COUNT(*)::int FROM student_enrollments WHERE student_id = ${students.id})`;
+    switch (sortByParam) {
+      case "name":
+      case "fullName":
+      case "studentName":
+        orderByClause = sortOrderParam === "desc" ? desc(students.name) : asc(students.name);
+        break;
+      case "cohort":
+        orderByClause = sortOrderParam === "desc" ? desc(students.cohort) : asc(students.cohort);
+        break;
+      case "accountStatus":
+      case "status":
+        orderByClause = sortOrderParam === "desc" ? desc(students.accountStatus) : asc(students.accountStatus);
+        break;
+      case "createdAt":
+      case "dateRegistered":
+      case "registrationDate":
+      case "date":
+        orderByClause = sortOrderParam === "desc" ? desc(students.createdAt) : asc(students.createdAt);
+        break;
+      case "registeredUnits":
+      case "enrolledUnits":
+      case "units":
+        orderByClause = sortOrderParam === "desc" ? desc(unitCountSubquery) : asc(unitCountSubquery);
+        break;
+      case "admissionNo":
+      default:
+        orderByClause = sortOrderParam === "desc" ? desc(students.admissionNo) : asc(students.admissionNo);
+        break;
+    }
+
+    // 1. Total matching count query
+    const countRes = await db.select({ total: count() }).from(students).where(whereClause);
+    const totalRecords = Number(countRes[0]?.total || 0);
+    const totalPages = totalRecords > 0 ? Math.ceil(totalRecords / limit) : 1;
+
+    // 2. Paginated student records query
+    const studentRows = isAllParam 
+      ? await db.select().from(students).where(whereClause).orderBy(orderByClause)
+      : await db.select().from(students).where(whereClause).orderBy(orderByClause).limit(limit).offset(offset);
+
+    const pageStudentIds = studentRows.map((s) => s.id);
+
+    let enrollmentRows: any[] = [];
+    let gradeRows: any[] = [];
+    let invoiceRows: any[] = [];
+    let paymentRows: any[] = [];
+    let attendanceRows: any[] = [];
+
+    if (pageStudentIds.length > 0) {
+      enrollmentRows = await db.select().from(studentEnrollments).where(inArray(studentEnrollments.studentId, pageStudentIds));
+      gradeRows = await db.select().from(grades).where(inArray(grades.studentId, pageStudentIds));
+      invoiceRows = await db.select().from(invoices).where(inArray(invoices.studentId, pageStudentIds));
+      paymentRows = await db.select().from(payments).where(inArray(payments.studentId, pageStudentIds));
+      attendanceRows = await db.select().from(studentAttendance).where(inArray(studentAttendance.studentId, pageStudentIds));
+    }
+
+    const studentList = studentRows.map((s) => {
+      const enrolledUnits = enrollmentRows.filter((e) => e.studentId === s.id).map((e) => e.courseCode);
+
+      const studentGradesMap: Record<string, { cat: number; exam: number }> = {};
+      gradeRows
+        .filter((g) => g.studentId === s.id)
+        .forEach((g) => {
+          studentGradesMap[g.subjectCode] = {
+            cat: g.catScore ? Number(g.catScore) : 0,
+            exam: g.examScore ? Number(g.examScore) : 0,
+          };
+        });
+
+      const ledgerList = invoiceRows
+        .filter((i) => i.studentId === s.id)
+        .map((i) => ({
+          id: i.id,
+          invoiceNo: i.invoiceNo,
+          description: i.description,
+          amount: Number(i.amount),
+          date: i.date,
+          status: i.status as "unpaid" | "paid",
+        }));
+
+      const paymentsList = paymentRows
+        .filter((p) => p.studentId === s.id)
+        .map((p) => ({
+          id: p.id,
+          amount: Number(p.amount),
+          invoiceId: p.invoiceId ?? "",
+          studentId: p.studentId,
+          paymentMethod: p.paymentMethod as "M-Pesa" | "Bank Transfer" | "Card",
+          transactionId: p.transactionId,
+          transactionRef: p.transactionId,
+          date: p.date,
+          status: p.status,
+        }));
+
+      const attendanceMap: Record<string, number> = {};
+      attendanceRows
+        .filter((a) => a.studentId === s.id)
+        .forEach((a) => {
+          attendanceMap[a.subjectCode] = Number(a.attendanceRate);
+        });
+
+      return {
+        id: s.id,
+        name: s.name,
+        email: s.email,
+        phone: s.phone,
+        admissionNo: s.admissionNo,
+        cohort: s.cohort,
+        avatar: s.avatar ?? "",
+        accountStatus: s.accountStatus,
+        createdAt: s.createdAt,
+        enrolledUnits,
+        grades: studentGradesMap,
+        ledger: ledgerList,
+        payments: paymentsList,
+        attendance: attendanceMap,
+      };
     });
-    res.json(studentsWithoutCredentials);
+
+    if (isAllParam) {
+      res.json(studentList);
+      return;
+    }
+
+    res.json({
+      students: studentList,
+      page,
+      limit,
+      totalRecords,
+      totalPages,
+    });
   } catch (err: any) {
-    console.error("Failed to fetch students:", err);
-    const cachedStudents = (getDatabase().students || []).map((s: any) => {
-      const { passcode, ...studentWithoutPasscode } = s;
-      return studentWithoutPasscode;
+    console.error("Failed to fetch paginated students from PostgreSQL:", err);
+    // Fallback using cached database memory store
+    const fullDb = getDatabase();
+    let allStudents = fullDb.students || [];
+
+    const searchParam = ((req.query.search as string) || "").toLowerCase().trim();
+    const cohortParam = ((req.query.cohort as string) || "").trim();
+    const statusParam = ((req.query.accountStatus as string) || "").trim();
+    const unitsParam = ((req.query.registeredUnits as string) || (req.query.units as string) || "").trim();
+    const sortByParam = ((req.query.sortBy as string) || "").trim();
+    const sortOrderParam = ((req.query.sortOrder as string) || "asc").toLowerCase() === "desc" ? "desc" : "asc";
+
+    if (searchParam) {
+      allStudents = allStudents.filter(
+        (s: any) =>
+          s.name?.toLowerCase().includes(searchParam) ||
+          s.admissionNo?.toLowerCase().includes(searchParam) ||
+          s.email?.toLowerCase().includes(searchParam) ||
+          s.cohort?.toLowerCase().includes(searchParam)
+      );
+    }
+
+    if (cohortParam && cohortParam !== "all" && cohortParam !== "All Cohorts") {
+      allStudents = allStudents.filter((s: any) => s.cohort === cohortParam);
+    }
+
+    if (statusParam && statusParam !== "all" && statusParam !== "All Statuses") {
+      allStudents = allStudents.filter((s: any) => s.accountStatus === statusParam);
+    }
+
+    if (unitsParam && unitsParam !== "all" && unitsParam !== "All Units") {
+      if (unitsParam === "0" || unitsParam === "none" || unitsParam === "no_units") {
+        allStudents = allStudents.filter((s: any) => (s.enrolledUnits?.length || 0) === 0);
+      } else if (unitsParam === "1") {
+        allStudents = allStudents.filter((s: any) => (s.enrolledUnits?.length || 0) === 1);
+      } else if (unitsParam === "2") {
+        allStudents = allStudents.filter((s: any) => (s.enrolledUnits?.length || 0) === 2);
+      } else if (unitsParam === "3+" || unitsParam === "3_plus" || unitsParam === "3") {
+        allStudents = allStudents.filter((s: any) => (s.enrolledUnits?.length || 0) >= 3);
+      } else if (unitsParam === "has_units") {
+        allStudents = allStudents.filter((s: any) => (s.enrolledUnits?.length || 0) > 0);
+      }
+    }
+
+    allStudents.sort((a: any, b: any) => {
+      let valA: any = "";
+      let valB: any = "";
+
+      switch (sortByParam) {
+        case "name":
+        case "fullName":
+          valA = a.name || "";
+          valB = b.name || "";
+          break;
+        case "cohort":
+          valA = a.cohort || "";
+          valB = b.cohort || "";
+          break;
+        case "accountStatus":
+          valA = a.accountStatus || "";
+          valB = b.accountStatus || "";
+          break;
+        case "registeredUnits":
+        case "enrolledUnits":
+          valA = a.enrolledUnits?.length || 0;
+          valB = b.enrolledUnits?.length || 0;
+          break;
+        case "createdAt":
+          valA = a.createdAt || "";
+          valB = b.createdAt || "";
+          break;
+        case "admissionNo":
+        default:
+          valA = a.admissionNo || "";
+          valB = b.admissionNo || "";
+          break;
+      }
+
+      if (valA < valB) return sortOrderParam === "desc" ? 1 : -1;
+      if (valA > valB) return sortOrderParam === "desc" ? -1 : 1;
+      return 0;
     });
-    res.json(cachedStudents);
+
+    const pageParam = parseInt(req.query.page as string, 10);
+    const limitParam = parseInt(req.query.limit as string, 10);
+    const page = !isNaN(pageParam) && pageParam > 0 ? pageParam : 1;
+    const limit = !isNaN(limitParam) && limitParam > 0 ? Math.min(limitParam, 200) : 25;
+
+    const totalRecords = allStudents.length;
+    const totalPages = totalRecords > 0 ? Math.ceil(totalRecords / limit) : 1;
+    const offset = (page - 1) * limit;
+
+    const sliced = allStudents.slice(offset, offset + limit);
+
+    if (req.query.all === "true") {
+      res.json(allStudents);
+      return;
+    }
+
+    res.json({
+      students: sliced,
+      page,
+      limit,
+      totalRecords,
+      totalPages,
+    });
   }
 });
 
@@ -3214,8 +3080,6 @@ app.post("/api/students", async (req, res) => {
           admissionNo: studentData.admissionNo,
           cohort: studentData.cohort,
           avatar: studentData.avatar ?? null,
-          passcode: hashedPasscode,
-          mustChangePassword: true,
           accountStatus: "Pending Setup",
         })
         .returning();
@@ -3225,16 +3089,20 @@ app.post("/api/students", async (req, res) => {
 
     const uid = studentData.admissionNo || result.id;
     try {
-      await upsertUserAuthRecord(uid, studentData.email, "student", hashedPasscode, true);
+      await upsertUserAuthRecord({
+        username: uid,
+        email: studentData.email,
+        passwordHash: hashedPasscode,
+        role: "student",
+        roleId: result.id,
+        isActive: true,
+        mustChangePassword: true,
+      });
     } catch (e) {}
 
     // Sync database cache
     const fullDb = await loadFullDatabaseState();
     saveDatabase(fullDb);
-
-    if (result) {
-      delete (result as any).passcode;
-    }
 
     res.status(201).json(result);
   } catch (error: any) {
@@ -3276,11 +3144,11 @@ app.delete(["/api/admin/users/:id", "/api/admin/users/[id]", "/api/students/:id"
       console.warn("Notice: PostgreSQL lecturers table purge warning:", err);
     }
 
-    // 3. Delete from PostgreSQL users table by integer id, uid, or email
+    // 3. Delete from PostgreSQL users table by integer id, username, roleId, or email
     const numId = parseInt(targetId, 10);
     const userWhereClause = !isNaN(numId)
-      ? or(eq(users.id, numId), eq(users.uid, targetId), eq(users.email, targetId.toLowerCase()))
-      : or(eq(users.uid, targetId), eq(users.email, targetId.toLowerCase()));
+      ? or(eq(users.id, numId), eq(users.username, targetId), eq(users.roleId, targetId), eq(users.email, targetId.toLowerCase()))
+      : or(eq(users.username, targetId), eq(users.roleId, targetId), eq(users.email, targetId.toLowerCase()));
 
     try {
       const deletedUsers = await db.delete(users).where(userWhereClause).returning();
@@ -3827,8 +3695,10 @@ app.post("/api/gate-logs", async (req, res) => {
 // ==========================================
 
 async function startServer() {
-  // Initialize the PostgreSQL database state
+  // Initialize the PostgreSQL database state (or fallback store if offline)
   await initPostgresDB();
+  const dbStateForAuth = getDatabase();
+  await migrateAuthSchemaAndData(dbStateForAuth);
 
   if (process.env.NODE_ENV !== "production") {
     console.log("Backend API server running in development mode (port " + PORT + ")");
@@ -3850,8 +3720,15 @@ async function startServer() {
   }
 
   if (!process.env.VERCEL) {
-    app.listen(PORT, "0.0.0.0", () => {
+    const serverInstance = app.listen(PORT, "0.0.0.0", () => {
       console.log(`Server is running on port ${PORT}`);
+    });
+    serverInstance.on("error", (err: any) => {
+      if (err.code === "EADDRINUSE") {
+        console.error(`Port ${PORT} is already in use by another process (EADDRINUSE).`);
+      } else {
+        console.error("Server listener error:", err);
+      }
     });
   }
 }

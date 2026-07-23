@@ -139,11 +139,7 @@ export default function FinanceSuite({
   // Vouchers
   const [vouchers, setVouchers] = useState<Voucher[]>(() => {
     const saved = localStorage.getItem('zenti_vouchers');
-    return saved ? JSON.parse(saved) : [
-      { id: 'v-1', voucherNo: 'VOU-101', type: 'Debit', category: 'Utility Bills', description: 'Settled internet fiber bill for Computing Block', amount: 35000, date: '2026-06-10', approvedBy: 'Grace Wanjiku (Accountant)', status: 'Approved' },
-      { id: 'v-2', voucherNo: 'VOU-102', type: 'Credit', category: 'General Administration', description: 'Interest accumulated on fixed asset capital fund', amount: 8400, date: '2026-06-12', approvedBy: 'Grace Wanjiku (Accountant)', status: 'Approved' },
-      { id: 'v-3', voucherNo: 'VOU-103', type: 'Contra', category: 'General Administration', description: 'Transferred petty cash to main bank ledger', amount: 20000, date: '2026-06-15', approvedBy: 'Grace Wanjiku (Accountant)', status: 'Approved' }
-    ];
+    return saved ? JSON.parse(saved) : [];
   });
 
   useEffect(() => {
@@ -194,10 +190,7 @@ export default function FinanceSuite({
   // Imprests
   const [imprests, setImprests] = useState<Imprest[]>(() => {
     const saved = localStorage.getItem('zenti_imprests');
-    return saved ? JSON.parse(saved) : [
-      { id: 'imp-1', staffName: 'Dr. Jane Mugo', amount: 5000, purpose: 'Lab Chemical Supplies emergency procurement', status: 'approved', date: '2026-06-14' },
-      { id: 'imp-2', staffName: 'Prof. Nelson', amount: 15000, purpose: 'Travel allowance for national academic symposium', status: 'pending', date: '2026-06-16' }
-    ];
+    return saved ? JSON.parse(saved) : [];
   });
 
   useEffect(() => {
@@ -207,29 +200,7 @@ export default function FinanceSuite({
   // Suppliers
   const [suppliers, setSuppliers] = useState<Supplier[]>(() => {
     const saved = localStorage.getItem('zenti_suppliers');
-    return saved ? JSON.parse(saved) : [
-      {
-        id: 'sup-1',
-        companyName: 'Apex Office Supplies Ltd',
-        contactPerson: 'Samuel Kamau',
-        status: 'Active',
-        balance: 32000,
-        purchaseOrders: [
-          { id: 'po-1', poNo: 'PO-9092', itemName: 'Premium Whiteboard Markers & Erasers', amount: 12000, status: 'paid', date: '2026-06-05' },
-          { id: 'po-2', poNo: 'PO-9097', itemName: 'A4 Printing Papers (50 Reams)', amount: 20000, status: 'approved', date: '2026-06-11' }
-        ]
-      },
-      {
-        id: 'sup-2',
-        companyName: 'ChemLabs East Africa',
-        contactPerson: 'Dr. Evelyn Atieno',
-        status: 'Active',
-        balance: 75000,
-        purchaseOrders: [
-          { id: 'po-3', poNo: 'PO-9110', itemName: 'Physics Lab Resistors, Ammeters & Voltmeters', amount: 75000, status: 'pending', date: '2026-06-15' }
-        ]
-      }
-    ];
+    return saved ? JSON.parse(saved) : [];
   });
 
   useEffect(() => {
@@ -239,12 +210,7 @@ export default function FinanceSuite({
   // Bank statements for manual/automatic bank reconciliations
   const [bankStatements, setBankStatements] = useState<BankStatement[]>(() => {
     const saved = localStorage.getItem('zenti_bank_statements');
-    return saved ? JSON.parse(saved) : [
-      { id: 'bs-1', date: '2026-06-14', reference: 'MPESA-TX901-CS', details: 'FEE DEP BY ST-1002', amount: 45000, isMatched: false },
-      { id: 'bs-2', date: '2026-06-15', reference: 'BANK-TRF-66723', details: 'FEE PAY BY ST-1001', amount: 20000, isMatched: false },
-      { id: 'bs-3', date: '2026-06-16', reference: 'MPESA-TX982-ED', details: 'FEE RECON BY ST-1003', amount: 15400, isMatched: false },
-      { id: 'bs-4', date: '2026-06-17', reference: 'BANK-DEP-77341', details: 'SCHOLARSHIP CO-FUND DEPOSIT', amount: 120000, isMatched: false }
-    ];
+    return saved ? JSON.parse(saved) : [];
   });
 
   useEffect(() => {
@@ -254,11 +220,7 @@ export default function FinanceSuite({
   // Audit Trails
   const [audits, setAudits] = useState<AuditLog[]>(() => {
     const saved = localStorage.getItem('zenti_audit_trails');
-    return saved ? JSON.parse(saved) : [
-      { id: 'aud-1', timestamp: '2026-06-17 08:30:12', user: 'Grace Wanjiku', role: 'Accountant', action: 'RUN_RECONCILIATION', resource: 'Matched student statement records', status: 'Success' },
-      { id: 'aud-2', timestamp: '2026-06-17 09:15:33', user: 'Grace Wanjiku', role: 'Accountant', action: 'ALLOCATE_BUDGET', resource: 'Increased Academic Affairs budget ceiling limit', status: 'Success' },
-      { id: 'aud-3', timestamp: '2026-06-17 10:02:44', user: 'System Engine', role: 'Security', action: 'PORTAL_PRIVILEGE_UPGRADE', resource: 'Granted Accountant role to ACC-404 Wanjiku', status: 'Success' }
-    ];
+    return saved ? JSON.parse(saved) : [];
   });
 
   useEffect(() => {
