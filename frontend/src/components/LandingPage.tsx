@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNotification } from './notifications';
 import { 
   Mail, Phone, Twitter, Send, GraduationCap, 
   Menu, School, Award, Users, BookOpen, Clock, 
@@ -31,6 +32,7 @@ export default function LandingPage({
   onSelectCourse,
   onReturnToDashboard
 }: LandingPageProps) {
+  const { showInfo } = useNotification();
   const [newsletterEmail, setNewsletterEmail] = useState('');
   const [newsletterSubscribed, setNewsletterSubscribed] = useState(false);
 
@@ -815,7 +817,7 @@ export default function LandingPage({
 
                 <div className="p-4 pt-0 border-t border-slate-50 mt-4">
                   <button 
-                    onClick={() => alert(`"${post.title}"\n\nFull Bulletin Content:\n${post.content}`)}
+                    onClick={() => showInfo(post.title, post.content)}
                     className="text-xs text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1 group/btn"
                   >
                     <span>Read Full Notice</span>

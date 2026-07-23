@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNotification } from './notifications';
 import { 
   Cpu, Database, Activity, RefreshCw, AlertTriangle, CheckCircle, Flame, 
   Trash, Zap, Server, HardDrive, Wifi, ShieldCheck, Play, Pause, Mail, Send, Eye
@@ -38,6 +39,7 @@ export default function SystemDiagnostics({
   mockEmails = [], 
   onTriggerOverdueScan 
 }: SystemDiagnosticsProps) {
+  const { showSuccess } = useNotification();
   // Real-time metrics history
   const [history, setHistory] = useState<MetricPoint[]>([]);
   const [isLive, setIsLive] = useState(true);
@@ -988,7 +990,7 @@ export default function SystemDiagnostics({
                 type="button"
                 onClick={() => {
                   const sent = onTriggerOverdueScan();
-                  alert(`Scan Complete: Dispatched ${sent} due/overdue library books email alerts!`);
+                  showSuccess("Scanner Completed", `Dispatched ${sent} due/overdue library books email alerts!`);
                 }}
                 className="bg-indigo-650 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg border border-indigo-700 shadow-xs cursor-pointer flex items-center gap-1"
                 title="Scan database and trigger notifications for overdue books"

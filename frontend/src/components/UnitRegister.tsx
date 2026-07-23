@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNotification } from './notifications';
 import { BookOpen, Plus, Sparkles, Trash2, Loader2, RefreshCw, AlertCircle } from 'lucide-react';
 import { Course } from '../types';
 
@@ -38,6 +39,7 @@ export const UnitRegister: React.FC<UnitRegisterProps> = ({
   onDeregisterUnit,
   subjectMap = {},
 }) => {
+  const { showError, showConfirm } = useNotification();
   // Initialized with empty array state instead of hardcoded mock array defaults
   const [registeredUnits, setRegisteredUnits] = useState<EnrolledUnit[]>([]);
   const [selectedUnitCode, setSelectedUnitCode] = useState<string>('');
@@ -102,7 +104,7 @@ export const UnitRegister: React.FC<UnitRegisterProps> = ({
       await fetchRegisteredUnits();
     } catch (err: any) {
       console.error("Error registering module:", err);
-      alert(err.message || "Could not register unit module");
+      showError("Module Registration Error", err.message || "Could not register unit module");
     } finally {
       setIsSubmitting(false);
     }
@@ -110,7 +112,13 @@ export const UnitRegister: React.FC<UnitRegisterProps> = ({
 
   // Handle module deregistration DELETE action
   const handleDeregisterUnit = async (code: string) => {
-    if (!confirm(`Are you absolutely sure you want to drop unit: ${code}?\nThis will clear any uploaded grades associated with it.`)) {
+    const confirmed = await showConfirm({
+      title: 'Drop Unit Module',
+      message: `Are you absolutely sure you want to drop unit: ${code}?\nThis will clear any uploaded grades associated with it.`,
+      confirmText: 'Drop Unit',
+      variant: 'danger'
+    });
+    if (!confirmed) {
       return;
     }
 

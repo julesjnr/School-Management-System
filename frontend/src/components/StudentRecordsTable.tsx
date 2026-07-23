@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useNotification } from './notifications';
 import { Student } from '../types';
 import { 
   FileText, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, 
@@ -17,6 +18,7 @@ export default function StudentRecordsTable({
   onUpdateStudent,
   refetchTrigger = 0
 }: StudentRecordsTableProps) {
+  const { showConfirm } = useNotification();
   // State for paginated data
   const [students, setStudents] = useState<Student[]>([]);
   const [page, setPage] = useState<number>(1);
@@ -193,7 +195,13 @@ export default function StudentRecordsTable({
 
   // Purge Student Account Action
   const handlePurgeAccount = async (studentId: string, studentName: string, admissionNo: string) => {
-    if (!confirm(`Are you absolutely sure you want to dismiss the academic file for ${studentName} (${admissionNo}) from Zenti systems? This cannot be undone.`)) {
+    const confirmed = await showConfirm({
+      title: 'Dismiss Academic File',
+      message: `Are you absolutely sure you want to dismiss the academic file for ${studentName} (${admissionNo}) from Zenti systems? This cannot be undone.`,
+      confirmText: 'Dismiss Student Record',
+      variant: 'danger'
+    });
+    if (!confirmed) {
       return;
     }
 

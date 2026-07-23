@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNotification } from './notifications';
 import { 
   Book, Loan, Reservation, Student, Lecturer, BookRequest, LibraryGateLog 
 } from '../types';
@@ -39,6 +40,7 @@ export default function LibraryHQ({
   onUpdateBookRequestStatus = () => {},
   onTriggerGateLog = () => {}
 }: LibraryHQProps) {
+  const { showToast, showError, showWarning, showInfo, showPrompt } = useNotification();
   // Navigation internal views
   const [activeSubTab, setActiveSubTab] = useState<'catalog' | 'circulation' | 'reservations' | 'proposals' | 'livegatelogs'>('catalog');
 
@@ -128,7 +130,7 @@ export default function LibraryHQ({
   const handleCreateBook = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newBook.title || !newBook.author || !newBook.isbn) {
-      alert('Please fill in title, author, and ISBN.');
+      showWarning("Incomplete Book Details", 'Please fill in title, author, and ISBN.');
       return;
     }
     const libCode = newBook.libraryCode || `LIB-${newBook.category.substring(0, 2).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
@@ -137,7 +139,7 @@ export default function LibraryHQ({
       libraryCode: libCode,
       copiesAvailable: newBook.type === 'E-Book' ? 999 : newBook.copiesTotal
     });
-    alert(`Success: Registered book "${newBook.title}" under Code: ${libCode}`);
+    showToast(`Registered book "${newBook.title}" under Code: ${libCode}`, 'success');
     setShowAddForm(false);
     setNewBook({
       title: '',
@@ -170,7 +172,7 @@ export default function LibraryHQ({
     e.preventDefault();
     const { bookId, patronId, loanDays } = checkoutData;
     if (!bookId || !patronId) {
-      alert('Please select both a Book and a Borrower.');
+      showWarning("Checkout Error", 'Please select both a Book and a Borrower.');
       return;
     }
 
@@ -182,7 +184,7 @@ export default function LibraryHQ({
     const lecturerPatron = lecturers.find(l => l.id === patronId || l.designatorCode === patronId);
 
     if (!studentPatron && !lecturerPatron) {
-      alert('Error: Borrower Admission No / Staff ID code cannot be found in the current school roster.');
+      showError("Borrower Not Found", 'Borrower Admission No / Staff ID code cannot be found in the current school roster.');
       return;
     }
 
@@ -195,7 +197,7 @@ export default function LibraryHQ({
     const activePatronLoansCount = loans.filter(l => l.patronId === patronIdResolved && (l.status === 'borrowed' || l.status === 'overdue')).length;
     const cap = studentPatron ? 3 : 6;
     if (activePatronLoansCount >= cap) {
-      alert(`Policy Limit Block: Patron ${patronName} has reached their borrowing allowance limit cap containing ${activePatronLoansCount}/${cap} books. Please check in existing returns first.`);
+      showWarning("Borrowing Limit Reached", `Patron ${patronName} has reached their borrowing allowance limit cap containing ${activePatronLoansCount}/${cap} books. Please check in existing returns first.`);
       return;
     }
 
@@ -203,7 +205,7 @@ export default function LibraryHQ({
     if (studentPatron) {
       const outstandingFines = studentPatron.ledger.filter(inv => inv.status === 'unpaid' && inv.description.toLowerCase().includes('library')).length;
       if (outstandingFines > 0) {
-        alert(`Financial Block: Student ${patronName} has active unpaid library leviable fines inside their billing ledger. Outstanding balances must be cleared to resume book borrowing.`);
+        showWarning("Unpaid Library Fines", `Student ${patronName} has active unpaid library leviable fines inside their billing ledger. Outstanding balances must be cleared to resume book borrowing.`);
         return;
       }
     }
@@ -792,7 +794,7 @@ export default function LibraryHQ({
                     type="button"
                     onClick={() => {
                       if (selectedBookBarcode.type === 'E-Book') {
-                        alert('Digital assets are accessible directly in the student portal on catalog search.');
+                        showInfo("Digital Resource", 'Digital assets are accessible directly in the student portal on catalog search.');
                         return;
                       }
                       handleLaunchCheckout(selectedBookBarcode.id);
@@ -808,8 +810,13 @@ export default function LibraryHQ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      const newTitle = prompt('Update Book Title:', selectedBookBarcode.title);
+                    onClick={async () => {
+                      const newTitle = await showPrompt({
+                        title: 'Update Book Title',
+                        message: 'Enter updated book title:',
+                        defaultValue: selectedBookBarcode.title,
+                        required: true
+                      });
                       if (newTitle) {
                         onUpdateBook(selectedBookBarcode.id, { title: newTitle });
                       }
@@ -973,7 +980,7 @@ export default function LibraryHQ({
                               if (book && book.copiesAvailable > 0) {
                                 onCheckoutBook(book.id, res.patronId, res.patronName, 'student', 14);
                               } else {
-                                alert('Error: Book copies are still unavailable to lease.');
+                                showError("Book Copies Unavailable", 'All physical copies of this book are currently on loan.');
                               }
                             }}
                             className="bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-[9.5px] px-2.5 py-1 rounded"
@@ -1242,12 +1249,15 @@ export default function LibraryHQ({
                           <div className="flex gap-1.5 justify-end">
                             <button
                               type="button"
-                              onClick={() => {
-                                const fb = prompt('Add procurement feedback comments for this book:', 'Approved. Adding 5 copies to inventory.');
+                              onClick={async () => {
+                                const fb = await showPrompt({
+                                  title: 'Procurement Approval Feedback',
+                                  message: 'Add procurement feedback comments for this book:',
+                                  defaultValue: 'Approved. Adding 5 copies to inventory.',
+                                  required: true
+                                });
                                 if (fb !== null) {
-                                  // Call approved status
                                   onUpdateBookRequestStatus(req.id, 'approved', fb);
-                                  // Instantly register this book in catalogue for full functional integration
                                   onAddBook({
                                     title: req.title,
                                     author: req.author,
@@ -1264,7 +1274,7 @@ export default function LibraryHQ({
                                     eUrl_aid: '',
                                     libraryCode: `LIB-CS-${Math.floor(100 + Math.random() * 900)}`
                                   });
-                                  alert(`Success: Approved suggestion, added "${req.title}" with 5 copies to library catalogue.`);
+                                  showToast(`Approved suggestion, added "${req.title}" with 5 copies to library catalogue.`, 'success');
                                 }
                               }}
                               className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[9px] uppercase tracking-wide px-2.5 py-1.5 rounded-lg cursor-pointer"
@@ -1273,8 +1283,13 @@ export default function LibraryHQ({
                             </button>
                             <button
                               type="button"
-                              onClick={() => {
-                                const fb = prompt('Enter rejection feedback reason details:', 'Budget caps reached for current syllabus semester.');
+                              onClick={async () => {
+                                const fb = await showPrompt({
+                                  title: 'Rejection Reason Details',
+                                  message: 'Enter rejection feedback reason details:',
+                                  defaultValue: 'Budget caps reached for current syllabus semester.',
+                                  required: true
+                                });
                                 if (fb !== null) {
                                   onUpdateBookRequestStatus(req.id, 'rejected', fb);
                                 }

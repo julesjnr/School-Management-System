@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNotification } from './notifications';
 import { 
   Student, Book, Loan, Reservation, LMSReadingList, BookReview, BookRequest, ExamPaper, LibraryGateLog 
 } from '../types';
@@ -48,6 +49,7 @@ export default function StudentLibraryView({
   onCheckoutBook,
   onReturnBook
 }: StudentLibraryViewProps) {
+  const { showToast, showWarning } = useNotification();
   
   const [subTab, setSubTab] = useState<LibrarySubTab>('catalog');
   
@@ -114,7 +116,7 @@ export default function StudentLibraryView({
   const handleReviewSubmit = (e: React.FormEvent, bookId: string) => {
     e.preventDefault();
     if (!newReviewComment.trim()) {
-      alert('Please enter a short critique or review comment first.');
+      showWarning("Review Required", 'Please enter a short critique or review comment first.');
       return;
     }
     onAddBookReview({
@@ -125,7 +127,7 @@ export default function StudentLibraryView({
       comment: newReviewComment.trim()
     });
     setNewReviewComment('');
-    alert('Thank you! Your peer rating has been logged instantly.');
+    showToast('Thank you! Your peer rating has been logged instantly.', 'success');
   };
 
   // RFID Self-Checkout simulations
@@ -136,7 +138,7 @@ export default function StudentLibraryView({
 
   const handleRFIDCheckoutExecute = () => {
     if (!rfidSelectedBookId) {
-      alert('Please select a book catalog item to line up on scanner.');
+      showWarning("Scanner Selection Error", 'Please select a book catalog item to line up on scanner.');
       return;
     }
     const book = books.find(b => b.id === rfidSelectedBookId);
@@ -237,14 +239,14 @@ export default function StudentLibraryView({
       return ep;
     }));
     // Open simulating trigger
-    alert(`Downloading KCSE / Syllabus Exam paper source from our high-speed cache. (Downloads logged: local copy successfully decrypted)`);
+    showToast('Downloading KCSE / Syllabus Exam paper source from our high-speed cache.', 'info');
   };
 
   // Purchase suggestions propose
   const handleProcurementSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!reqTitle.trim() || !reqAuthor.trim()) {
-      alert('Please fill out the Title and Author of the procurement book.');
+      showWarning("Procurement Form Error", 'Please fill out the Title and Author of the procurement book.');
       return;
     }
     onAddBookRequest({

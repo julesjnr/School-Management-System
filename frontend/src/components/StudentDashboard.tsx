@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNotification } from './notifications';
 import { 
   User, Award, FileText, CreditCard, BookOpen, 
   CheckCircle2, AlertCircle, Sparkles, Send, Download, 
@@ -98,6 +99,7 @@ export default function StudentDashboard({
   onReturnBook,
   onLogout
 }: StudentDashboardProps) {
+  const { showToast, showWarning, showConfirm } = useNotification();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'grades' | 'financials' | 'materials' | 'units' | 'officeHours' | 'library'>('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
@@ -3079,7 +3081,7 @@ export default function StudentDashboard({
 
                     <button
                       type="button"
-                      onClick={() => alert(`Starting simulated download process for file: "${m.file}" (${m.size})`)}
+                      onClick={() => showToast(`Starting simulated download process for file: "${m.file}" (${m.size})`, 'info')}
                       className="bg-slate-100 hover:bg-slate-200 text-slate-650 p-2 rounded-lg transition-colors cursor-pointer"
                       title="Download Resource Guide"
                     >
@@ -3190,8 +3192,14 @@ export default function StudentDashboard({
                         <div className="flex justify-end gap-2 pt-1 border-t border-emerald-100/50">
                           <button
                             type="button"
-                            onClick={() => {
-                              if (confirm('Are you sure you want to cancel this office hour slot reservation?')) {
+                            onClick={async () => {
+                              const confirmed = await showConfirm({
+                                title: 'Cancel Office Hour Reservation',
+                                message: 'Are you sure you want to cancel this office hour slot reservation?',
+                                confirmText: 'Cancel Reservation',
+                                variant: 'warning'
+                              });
+                              if (confirmed) {
                                 onCancelOfficeHour?.(lecturer.id, slot.id);
                               }
                             }}
@@ -3409,7 +3417,7 @@ export default function StudentDashboard({
                                             type="button"
                                             onClick={() => {
                                               if (!bookingNotes.trim()) {
-                                                alert('Please describe your consultation topic or question.');
+                                                showWarning("Consultation Notes Required", 'Please describe your consultation topic or question.');
                                                 return;
                                               }
                                               onBookOfficeHour?.(selectedLecturer.id, s.id, {

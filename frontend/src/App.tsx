@@ -24,7 +24,10 @@ import Forbidden403 from './components/Forbidden403';
 import DashboardShowcase from './components/DashboardShowcase';
 import SessionTimeout from './components/SessionTimeout';
 
+import { useNotification } from './components/notifications';
+
 export default function App() {
+  const { showToast, showError, showSuccess, showRegistrationModal } = useNotification();
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     return localStorage.getItem('zenti_theme') === 'dark';
   });
@@ -511,7 +514,7 @@ Zenti Library Services`;
     setCourses((prev) => [...prev, course]);
   } catch (err) {
     console.error(err);
-    alert("Failed to create course.");
+    showError("Course Creation Error", "Failed to create course.");
   }
 };
 
@@ -592,7 +595,7 @@ Zenti Library Services`;
     );
   } catch (err) {
     console.error(err);
-    alert("Failed to record payment.");
+    showError("Payment Error", "Failed to record payment.");
   }
 };
 
@@ -703,7 +706,7 @@ Zenti Library Services`;
     if (!book) return;
 
     if (book.copiesAvailable <= 0 && book.type === 'Physical Book') {
-      alert('Error: All physical copies of this book are currently loaned out.');
+      showError('Book Checkout Blocked', 'All physical copies of this book are currently loaned out.');
       return;
     }
 
@@ -735,7 +738,7 @@ Zenti Library Services`;
         : res
     ));
 
-    alert(`Success: checked out "${book.title}" to ${patronName}. Due on ${dueStr}.`);
+    showToast(`Checked out "${book.title}" to ${patronName}. Due on ${dueStr}.`, 'success');
   };
 
   const handleReturnBook = (loanId: string, returnStatus: 'returned' | 'damaged' | 'lost', damageFee: number = 0) => {
@@ -810,9 +813,9 @@ Zenti Library Services`;
         }
         return s;
       }));
-      alert(`Processed return. Charged KES ${totalFeesCharge.toLocaleString()} to student's billing ledger for ${returnStatus}.`);
+      showToast(`Processed return. Charged KES ${totalFeesCharge.toLocaleString()} to student's billing ledger for ${returnStatus}.`, 'info');
     } else {
-      alert(`Success: Checked in "${loan.bookTitle}" successfully.`);
+      showToast(`Checked in "${loan.bookTitle}" successfully.`, 'success');
     }
   };
 
@@ -832,12 +835,12 @@ Zenti Library Services`;
     };
 
     setReservations(prev => [newRes, ...prev]);
-    alert(`Success: Placed reservation queue hold for "${book.title}".`);
+    showToast(`Placed reservation queue hold for "${book.title}".`, 'success');
   };
 
   const handleCancelReservation = (resId: string) => {
     setReservations(prev => prev.map(r => r.id === resId ? { ...r, status: 'cancelled' as const } : r));
-    alert('Reservation cancelled successfully.');
+    showToast('Reservation cancelled successfully.', 'info');
   };
 
   // Advanced Kiosk Self-Service, Review, and Procurement Automation Handlers
@@ -957,7 +960,7 @@ Zenti Library Services`;
       }
     });
 
-    alert('LMS Reading list synchronized for this classroom course syllabus!');
+    showToast('LMS Reading list synchronized for this classroom course syllabus!', 'success');
   };
 
   // 10. NEW LECTURER REGISTRAR PROFILE
@@ -982,11 +985,18 @@ Zenti Library Services`;
     setLecturers((prev) => [...prev, lecturer]);
 
     if (lecturer.temporaryPasscode) {
-      alert(`Staff registered successfully!\n\nSecure Temporary Passcode: ${lecturer.temporaryPasscode}\n\nIMPORTANT: Copy this passcode and provide it to the staff member now. It is stored securely (hashed) and cannot be retrieved again.`);
+      showRegistrationModal({
+        name: lecturer.name,
+        idOrAdmissionNo: lecturer.staffId || lecturer.id,
+        temporaryPasscode: lecturer.temporaryPasscode,
+        role: lecturer.department || 'Faculty Staff',
+        department: lecturer.department || 'Academic Faculty',
+        email: lecturer.email
+      });
     }
   } catch (err) {
     console.error(err);
-    alert("Failed to register lecturer.");
+    showError("Registration Failure", "Failed to register lecturer.");
   }
 };
 
@@ -1026,7 +1036,7 @@ Zenti Library Services`;
     );
   } catch (err) {
     console.error(err);
-    alert("Failed to register unit.");
+    showError("Enrollment Error", "Failed to register unit.");
   }
 };
 
@@ -1275,7 +1285,7 @@ Zenti Library Services`;
       }
     } catch (err) {
       console.error("Failed to delete student from database:", err);
-      alert("Failed to delete student from the database. Re-fetching state...");
+      showError("Database Error", "Failed to delete student from the database. Re-fetching state...");
       fetch("/api/data")
         .then((res) => {
           if (!res.ok) throw new Error("HTTP error " + res.status);

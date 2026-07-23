@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNotification } from './notifications';
 import { 
   Users, Award, Calendar, BookOpen, Clock, 
   CheckCircle2, Save, FileSpreadsheet, Plus, 
@@ -72,6 +73,7 @@ export default function LecturerDashboard({
   onSaveAttendance,
   onLogout
 }: LecturerDashboardProps) {
+  const { showToast, showWarning, showConfirm } = useNotification();
   const [activeTab, setActiveTab] = useState<'workstation' | 'grading' | 'schedule' | 'attendance' | 'profile' | 'books'>('workstation');
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
@@ -201,11 +203,11 @@ export default function LecturerDashboard({
     const examVal = input?.exam !== undefined && input.exam !== '' ? parseInt(input.exam) : currentGrade.exam;
 
     if (isNaN(catVal) || catVal < 0 || catVal > 30) {
-      alert('Continuous Assessment Test (CAT) must be a numeric score between 0 and 30.');
+      showWarning("CAT Score Error", 'Continuous Assessment Test (CAT) must be a numeric score between 0 and 30.');
       return;
     }
     if (isNaN(examVal) || examVal < 0 || examVal > 70) {
-      alert('Final Exam score must be a numeric score between 0 and 70.');
+      showWarning("Exam Score Error", 'Final Exam score must be a numeric score between 0 and 70.');
       return;
     }
 
@@ -219,7 +221,7 @@ export default function LecturerDashboard({
     });
 
     // Notify user with elegant alert alternative
-    alert(`Successfully synchronized grade for ${student.name} under module ${selectedSubject}.\nCAT: ${catVal}/30, Final: ${examVal}/70`);
+    showToast(`Successfully synchronized grade for ${student.name} under module ${selectedSubject}. (CAT: ${catVal}/30, Final: ${examVal}/70)`, 'success');
   };
 
   const handleChangePasscodeSubmit = async (e: React.FormEvent) => {
@@ -264,7 +266,7 @@ export default function LecturerDashboard({
     e.preventDefault();
     const hrsVal = parseFloat(logSessionHours);
     if (isNaN(hrsVal) || hrsVal <= 0 || hrsVal > 12) {
-      alert('Please log a realistic lesson duration between 0.5 and 12 hours.');
+      showWarning("Lesson Duration Error", 'Please log a realistic lesson duration between 0.5 and 12 hours.');
       return;
     }
 
@@ -1320,7 +1322,7 @@ subjects.forEach(subj => {
                           </div>
 
                           <div className="text-[10px] bg-slate-50 border border-slate-100 p-3 rounded-xl text-slate-550 leading-relaxed font-sans">
-                            <strong>Interpretation Guide:</strong> The <span className="text-blue-600 font-bold">Class Curve</span> represents actual student score distribution, calculated dynamically using current continuous marks. The <span className="text-slate-600 font-bold">Standard Normal Curve</span> simulates an ideal academic cohort performance with an average score of 65% and spread of ±12%. Comparing these curves highlights cohort grade skewness and identifies potential Grade Inflation or Remedial Intervention gaps.
+                            <strong>Interpretation Guide:</strong> The <span className="text-blue-600 font-bold">Class Curve</span> represents actual student score distribution, calculated dynamically using continuous marks. The <span className="text-slate-600 font-bold">Standard Normal Curve</span> simulates an ideal academic cohort performance with an average score of 65% and spread of ±12%. Comparing these curves highlights cohort grade skewness and identifies potential Grade Inflation or Remedial Intervention gaps.
                           </div>
                         </div>
                       );
@@ -1544,7 +1546,7 @@ subjects.forEach(subj => {
                             const finalTime = newSlotTime === 'custom' ? customSlotTime : newSlotTime;
 
                             if (!finalDay.trim() || !finalTime.trim()) {
-                              alert('Please provide valid day and time information.');
+                              showWarning("Slot Info Required", 'Please provide valid day and time information.');
                               return;
                             }
 
@@ -1621,8 +1623,14 @@ subjects.forEach(subj => {
                                   <div className="flex justify-end gap-1.5 pt-1.5 border-t border-slate-50">
                                     <button
                                       type="button"
-                                      onClick={() => {
-                                        if (confirm('Cancel this student appointment and return this slot to available?')) {
+                                      onClick={async () => {
+                                        const confirmed = await showConfirm({
+                                          title: 'Cancel Appointment',
+                                          message: 'Cancel this student appointment and return this slot to available?',
+                                          confirmText: 'Cancel Booking',
+                                          variant: 'warning'
+                                        });
+                                        if (confirmed) {
                                           onCancelOfficeHour?.(lecturer.id, s.id, false);
                                         }
                                       }}
@@ -1665,11 +1673,17 @@ subjects.forEach(subj => {
                                   
                                   <button
                                     type="button"
-                                    onClick={() => {
-                                      if (confirm('Delete this available slot completely?')) {
-                                        onCancelOfficeHour?.(lecturer.id, s.id, true);
-                                      }
-                                    }}
+                                    onClick={async () => {
+                                       const confirmed = await showConfirm({
+                                         title: 'Delete Office Hour Slot',
+                                         message: 'Delete this available slot completely?',
+                                         confirmText: 'Delete Slot',
+                                         variant: 'danger'
+                                       });
+                                       if (confirmed) {
+                                         onCancelOfficeHour?.(lecturer.id, s.id, true);
+                                       }
+                                     }}
                                     className="p-1 hover:bg-red-105 text-red-650 hover:text-red-700 rounded-md transition-all cursor-pointer"
                                     title="Delete custom slot"
                                   >
@@ -2270,7 +2284,7 @@ subjects.forEach(subj => {
                                       ];
                                       const selectedUrl = dummyUrls[Math.floor(Math.random() * dummyUrls.length)];
                                       setEditedAvatar(selectedUrl);
-                                      alert("File uploaded successfully into Faculty CDN storage!");
+                                      showToast("File uploaded successfully into Faculty CDN storage!", "success");
                                     }
                                   }}
                                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"

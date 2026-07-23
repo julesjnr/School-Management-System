@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNotification } from './notifications';
 import { 
   Course, Lecturer, Student, Expense, StockItem, Requisition, Payment, Invoice,
   Book, Loan, Reservation, BookRequest, LibraryGateLog, PasswordResetRequest, MockEmail
@@ -173,6 +174,7 @@ export default function AdminDashboard({
   }, []);
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
+  const { showToast, showError, showSuccess, showWarning, showInfo, showRegistrationModal } = useNotification();
 
   const triggerToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
     if (type === 'success') {
@@ -359,16 +361,16 @@ export default function AdminDashboard({
             return copy;
           });
 
-          alert(`Reset request successfully ${action === 'approve' ? 'approved' : 'rejected'}.`);
+          showToast(`Reset request successfully ${action === 'approve' ? 'approved' : 'rejected'}.`, 'success');
           fetchResetRequests();
         } else {
-          alert(data.error || 'Failed to process request');
+          showError("Request Error", data.error || 'Failed to process request');
         }
       } else {
-        alert('Server returned an error.');
+        showError("Server Error", 'Server returned an error.');
       }
     } catch (err) {
-      alert('Failed to connect to administrative server.');
+      showError("Connection Failure", 'Failed to connect to administrative server.');
     }
   };
 
@@ -731,7 +733,7 @@ export default function AdminDashboard({
     e.preventDefault();
     const parsedFees = parseInt(newFees);
     if (!newTitle || !newCode || isNaN(parsedFees)) {
-      alert('Syllabus title, duration fees, and degree code are strictly required.');
+      showWarning("Missing Required Fields", 'Syllabus title, duration fees, and degree code are strictly required.');
       return;
     }
     onAddCourse({
@@ -767,7 +769,7 @@ export default function AdminDashboard({
     e.preventDefault();
     const amountVal = parseFloat(expenseAmount);
     if (!expenseDesc || isNaN(amountVal)) {
-      alert('Operational description and expenditure amount are required.');
+      showWarning("Incomplete Entry", 'Operational description and expenditure amount are required.');
       return;
     }
     onAddExpense({
@@ -778,7 +780,7 @@ export default function AdminDashboard({
     });
     setExpenseDesc('');
     setExpenseAmount('');
-    alert('College utility expense logged successfully into digital ledger.');
+    showToast('College utility expense logged successfully into digital ledger.', 'success');
   };
 
   const handleAddStudentSubmit = (e: React.FormEvent) => {
@@ -802,7 +804,14 @@ export default function AdminDashboard({
     setRegStudentCohort('2026 Intake');
     setRegStudentPasscode('');
     setStudentTableRefetchTrigger(prev => prev + 1);
-    triggerToast(`Student profile for ${regStudentName} enrolled successfully!`, 'success');
+    showRegistrationModal({
+      name: regStudentName,
+      idOrAdmissionNo: regStudentAdmission || 'STU-REG',
+      temporaryPasscode: regStudentPasscode || 'student123',
+      role: 'Student',
+      department: regStudentCohort,
+      email: regStudentEmail
+    });
   };
 
   const handleAddLecturer = (e: React.FormEvent) => {
@@ -835,7 +844,14 @@ export default function AdminDashboard({
     setStaffIsLibrarian(false);
     setStaffPasscode('');
     setAutoGeneratePasscode(true);
-    triggerToast('Faculty registrar profile compiled successfully.', 'success');
+    showRegistrationModal({
+      name: staffName,
+      idOrAdmissionNo: staffDesignation || 'STF-REG',
+      temporaryPasscode: autoGeneratePasscode ? 'auto-passcode' : (staffPasscode || 'staff123'),
+      role: staffIsAccountant ? 'Finance / Accountant' : 'Lecturer / Faculty',
+      department: 'Academic Staff',
+      email: staffEmail
+    });
   };
 
   const handleAddStockSubmit = (e: React.FormEvent) => {
@@ -843,7 +859,7 @@ export default function AdminDashboard({
     const qtyVal = parseInt(newQuantity);
     const threshVal = parseInt(newItemThresh);
     if (!newItemName || isNaN(qtyVal) || isNaN(threshVal)) {
-      alert('Please fill outstanding computer or stock attributes.');
+      showWarning("Stock Entry Error", 'Please fill outstanding computer or stock attributes.');
       return;
     }
     onAddStockItem({
@@ -856,12 +872,12 @@ export default function AdminDashboard({
     setNewItemName('');
     setNewQuantity('');
     setNewItemLoc('');
-    alert('Asset successfully logged into college inventory.');
+    showToast('Asset successfully logged into college inventory.', 'success');
   };
 
   const handleAutoReconciliationRun = () => {
     if (unreconciledPayments.length === 0) {
-      alert('No outstanding unreconciled student statements flagged.');
+      showInfo("Auto-Reconciliation", 'No outstanding unreconciled student statements flagged.');
       return;
     }
     
@@ -870,7 +886,7 @@ export default function AdminDashboard({
     copyList.forEach(p => {
       onReconcilePayment(p.id);
     });
-alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billing statement IDs. Fees receipts reconciled.`);
+    showSuccess("Auto-Reconciliation Engine", `Matched ${copyList.length} billing statement IDs. Fees receipts reconciled.`);
   };
 
   return (
@@ -1859,7 +1875,7 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
                           <div className="flex gap-2 pt-1 border-t border-slate-50">
                             <button
                               type="button"
-                              onClick={() => { onProcessRequisition(req.id, 'approved'); alert('Requisition certified. Inventory dispatched.'); }}
+                              onClick={() => { onProcessRequisition(req.id, 'approved'); showToast('Requisition certified. Inventory dispatched.', 'success'); }}
                               className="bg-emerald-50 hover:bg-emerald-100 text-emerald-850 hover:text-emerald-900 px-3 py-1.5 rounded-lg flex items-center gap-1 font-bold text-[10px] cursor-pointer"
                             >
                               <Check className="w-3.5 h-3.5" />
@@ -1868,7 +1884,7 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
 
                             <button
                               type="button"
-                              onClick={() => { onProcessRequisition(req.id, 'rejected'); alert('Procurement query rejected.'); }}
+                              onClick={() => { onProcessRequisition(req.id, 'rejected'); showToast('Procurement query rejected.', 'info'); }}
                               className="bg-red-50 hover:bg-red-105 text-red-650 hover:text-red-900 px-3 py-1.5 rounded-lg flex items-center gap-1 font-bold text-[10px] cursor-pointer border"
                             >
                               <X className="w-3.5 h-3.5" />
@@ -1994,7 +2010,7 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
                         type="button"
                         onClick={() => {
                           navigator.clipboard.writeText(secureUrl);
-                          alert(`Copied secure portal link for ${item.label} to clipboard:\n${secureUrl}`);
+                          showToast(`Copied secure portal link for ${item.label} to clipboard!`, 'success');
                         }}
                         className="w-full inline-flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-950/80 text-indigo-700 dark:text-indigo-400 font-extrabold py-2 px-3 rounded-xl text-[10.5px] cursor-pointer transition-colors"
                       >
@@ -2157,7 +2173,7 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
                   const targetPasscode = autoGenerateAccPasscode ? '' : (e.currentTarget.elements.namedItem('acc-passcode') as HTMLInputElement).value;
 
                   if (!targetName || !targetEmail || !targetCode || isNaN(targetRate)) {
-                    alert('Please provide complete accountant data.');
+                    showWarning("Missing Data", 'Please provide complete accountant data.');
                     return;
                   }
 
@@ -2176,7 +2192,14 @@ alert(`Auto-Reconciliation Engine successful:\nMatched ${copyList.length} billin
                   setAutoGenerateAccPasscode(true);
 
                   e.currentTarget.reset();
-                  alert(`Accountant ${targetName} registered with designator code ${targetCode}.`);
+                  showRegistrationModal({
+                    name: targetName,
+                    idOrAdmissionNo: targetCode,
+                    temporaryPasscode: targetPasscode || 'accPass123',
+                    role: 'Finance / Accountant',
+                    department: 'Finance Department',
+                    email: targetEmail
+                  });
                 }} className="space-y-3.5">
                   <div className="grid grid-cols-2 gap-2.5">
                     <div className="space-y-1">

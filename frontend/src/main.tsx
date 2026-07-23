@@ -3,6 +3,7 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 import { Toaster } from 'react-hot-toast';
+import { NotificationProvider } from './components/notifications';
 
 // Global Fetch Interceptor to attach JWT token and bypass ngrok warning
 const originalFetch = window.fetch;
@@ -51,7 +52,9 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <NotificationProvider>
+      <App />
+    </NotificationProvider>
     <Toaster position="top-right" toastOptions={{ duration: 3500 }} />
   </StrictMode>,
 );

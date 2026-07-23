@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNotification } from './notifications';
 import { Student, Lecturer, Expense, Invoice, Payment } from '../types';
 import { 
   DollarSign, FileText, Plus, CheckCircle2, AlertCircle, Trash2, ArrowRight, Save, Check, X,
@@ -89,9 +90,10 @@ export default function FinanceSuite({
   onAddExpense,
   onUpdateStudent,
   onReconcilePayment,
-  isAccountantView = true,
-  currentUserId = ''
+  isAccountantView = false,
+  currentUserId
 }: FinanceSuiteProps) {
+  const { showToast, showError, showSuccess, showWarning, showInfo, showConfirm } = useNotification();
   // Navigation sub-tabs
   const [subTab, setSubTab] = useState<'revenue' | 'vouchers' | 'budgets' | 'payroll' | 'audit'>('revenue');
 
@@ -184,7 +186,7 @@ export default function FinanceSuite({
       }
       return v;
     }));
-    alert('Voucher approved successfully and ledger balances synchronized.');
+    showToast('Voucher approved successfully and ledger balances synchronized.', 'success');
   };
 
   // Imprests
@@ -378,7 +380,7 @@ export default function FinanceSuite({
   e.preventDefault();
 
   if (!billingStudentId || !billingAmount || isNaN(Number(billingAmount))) {
-    alert("Please select a student and input a valid bill amount.");
+    showWarning("Billing Error", "Please select a student and input a valid bill amount.");
     return;
   }
 
@@ -421,10 +423,10 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
     setBillingAmount("");
     setBillingDescription("");
 
-    alert(`Invoice ${invoice.invoiceNo} created successfully.`);
+    showToast(`Invoice ${invoice.invoiceNo} created successfully.`, 'success');
   } catch (err) {
     console.error(err);
-    alert("Failed to create invoice.");
+    showError("Invoice Creation Error", "Failed to create invoice.");
   }
 };
 
@@ -432,7 +434,7 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
   const handleApplyWaiver = (e: React.FormEvent) => {
     e.preventDefault();
     if (!waiverStudentId || !waiverAmount || isNaN(Number(waiverAmount))) {
-      alert('Must select student and specify a correct discount credit.');
+      showWarning("Waiver Error", 'Must select student and specify a correct discount credit.');
       return;
     }
     const student = students.find(s => s.id === waiverStudentId);
@@ -458,15 +460,15 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
     
     setWaiverAmount('');
     setWaiverDescription('');
-    alert(`Account Ledger Credited: Successfully issued KES ${discountValue.toLocaleString()} in credit aid for ${student.name}.`);
+    showSuccess("Credit Aid Granted", `Account Ledger Credited: Successfully issued KES ${discountValue.toLocaleString()} in credit aid for ${student.name}.`);
   };
 
   // Add Operational Expense
-  const handleAddExpenseSubmit = (e: React.FormEvent) => {
+  const handleAddExpenseSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const parsedAmount = Number(expenseAmount);
     if (!expenseDesc || isNaN(parsedAmount) || parsedAmount <= 0) {
-      alert('Ensure Description and operational cost are properly logged.');
+      showWarning("Expense Logging Error", 'Ensure Description and operational cost are properly logged.');
       return;
     }
 
@@ -475,7 +477,12 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
     const currentCeiling = budgets[targetDept] || 0;
 
     if (currentSpent + parsedAmount > currentCeiling) {
-      const confirmSpend = window.confirm(`WARNING: Adding this expense of KES ${parsedAmount.toLocaleString()} will OVERFLOW the ${targetDept} approved budget limit of KES ${currentCeiling.toLocaleString()}.\n\nDo you want to authorize this bypass?`);
+      const confirmSpend = await showConfirm({
+        title: 'Budget Limit Overflow Warning',
+        message: `Adding this expense of KES ${parsedAmount.toLocaleString()} will OVERFLOW the ${targetDept} approved budget limit of KES ${currentCeiling.toLocaleString()}.\n\nDo you want to authorize this bypass?`,
+        confirmText: 'Authorize Bypass',
+        variant: 'warning'
+      });
       if (!confirmSpend) {
         logAudit('EXPENSE_DENIED', `Blocked expense overflow of KES ${parsedAmount.toLocaleString()} on ${targetDept}`, 'Warning');
         return;
@@ -492,14 +499,14 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
     logAudit('LOG_EXPENSE', `Logged Operational cost of KES ${parsedAmount.toLocaleString()} for ${expenseDesc}`);
     setExpenseDesc('');
     setExpenseAmount('');
-    alert('Operational College Expense logged and allocated successfully.');
+    showToast('Operational College Expense logged and allocated successfully.', 'success');
   };
 
   // Submit Multi-Entry Journal Voucher
   const handleAddVoucher = (e: React.FormEvent) => {
     e.preventDefault();
     if (!vouDesc || !vouAmount || isNaN(Number(vouAmount))) {
-      alert('Please fill out descriptions and voucher costs accurately.');
+      showWarning("Voucher Form Error", 'Please fill out descriptions and voucher costs accurately.');
       return;
     }
     const val = Number(vouAmount);
@@ -531,15 +538,14 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
 
     if (isHighValue) {
       logAudit('CREATE_VOUCHER_PENDING', `Created High-Value ${vouType} Voucher ${newVou.voucherNo} of KES ${val.toLocaleString()} awaiting Admin authorization`, 'Warning');
-      alert(`Voucher ${newVou.voucherNo} logged. Since the amount exceeds KES 50,000, it has been submitted for Admin Dual-Authorization.`);
+      showInfo("Admin Dual-Authorization", `Voucher ${newVou.voucherNo} logged. Since the amount exceeds KES 50,000, it has been submitted for Admin Dual-Authorization.`);
     } else {
       logAudit('CREATE_VOUCHER', `Created ${vouType} Voucher ${newVou.voucherNo} for KES ${val.toLocaleString()} (${catLabel(vouCategory)})`);
-      alert(`Success: Multi-entry Journal Voucher ${newVou.voucherNo} finalized and cross-balanced.`);
+      showToast(`Success: Multi-entry Journal Voucher ${newVou.voucherNo} finalized and cross-balanced.`, 'success');
     }
     setVouDesc('');
     setVouAmount('');
     setVouPayee('');
-    alert(`Success: Multi-entry Journal Voucher ${newVou.voucherNo} finalized and cross-balanced.`);
   };
 
   const catLabel = (c: string) => c;
@@ -548,7 +554,7 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
   const handleRequestImprest = (e: React.FormEvent) => {
     e.preventDefault();
     if (!impStaff || !impAmount || isNaN(Number(impAmount))) {
-      alert('Provide Staff identifier and valid petty amount.');
+      showWarning("Imprest Request Error", 'Provide Staff identifier and valid petty amount.');
       return;
     }
     const val = Number(impAmount);
@@ -565,7 +571,7 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
     setImpStaff('');
     setImpAmount('');
     setImpPurpose('');
-    alert('Petty cash dispatch proposal logged.');
+    showToast('Petty cash dispatch proposal logged.', 'success');
   };
 
   const handleUpdateImprestStatus = (id: string, newStatus: 'approved' | 'rejected' | 'surrendered') => {
@@ -620,13 +626,13 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
     logAudit('ADD_SUPPLIER', `Registered partner supplier: ${newSupName}`);
     setNewSupName('');
     setNewSupContact('');
-    alert(`Registered supplier ${newSup.companyName} successfully.`);
+    showToast(`Registered supplier ${newSup.companyName} successfully.`, 'success');
   };
 
   const handleRaisePO = (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeSupplierId || !poItem || !poAmt || isNaN(Number(poAmt))) {
-      alert('Select direct partner supplier and correct balance value.');
+      showWarning("Purchase Order Error", 'Select direct partner supplier and correct balance value.');
       return;
     }
     const val = Number(poAmt);
@@ -653,7 +659,7 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
     logAudit('CREATE_PO', `Raised Purchase Order ${newPO.poNo} (KES ${val.toLocaleString()}) for ${poItem}`);
     setPoItem('');
     setPoAmt('');
-    alert(`Successfully registered Purchase order ${newPO.poNo} and credited supplier ledger.`);
+    showToast(`Successfully registered Purchase order ${newPO.poNo} and credited supplier ledger.`, 'success');
   };
 
   const handleApprovePO = (supId: string, poId: string) => {
@@ -729,7 +735,7 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
   const handleUpdateBudgetCeiling = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editBudgetLimit || isNaN(Number(editBudgetLimit))) {
-      alert('Provide authorized ceiling numerical value.');
+      showWarning("Budget Form Error", 'Provide authorized ceiling numerical value.');
       return;
     }
     const val = Number(editBudgetLimit);
@@ -739,7 +745,7 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
     }));
     logAudit('REALLOCATE_BUDGET', `Adjusted ${editBudgetDept} budget ceiling to KES ${val.toLocaleString()}`);
     setEditBudgetLimit('');
-    alert(`Successfully configured direct budget ceiling guidelines.`);
+    showToast(`Successfully configured direct budget ceiling guidelines.`, 'success');
   };
 
   // Bank statement manual matching logic
@@ -783,7 +789,7 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
     });
 
     logAudit('BANK_STATEMENT_MATCH', `Manually reconciled Statement Ref ${statement.reference} for Student ${student.name} KES ${statement.amount.toLocaleString()}`, 'Success');
-    alert(`Successfully matched bank deposit! Student ${student.name}'s invoice marked PAID and payment record logged.`);
+    showSuccess("Bank Deposit Matched", `Successfully matched bank deposit! Student ${student.name}'s invoice marked PAID and payment record logged.`);
   };
 
   // Run automated bulk reconciliation matching
@@ -805,13 +811,13 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
     });
 
     if (matchCount === 0) {
-      alert('Double matching executed. No new automatic statement patterns matched exact financial values.');
+      showInfo("Auto-Reconciliation", 'Double matching executed. No new automatic statement patterns matched exact financial values.');
       return;
     }
 
     setBankStatements(updatedStatements);
     logAudit('RUN_AUTO_RECON', `Bulk matched ${matchCount} payments against live bank statement streams automatically.`, 'Success');
-    alert(`Auto-Reconciliation complete. Successfully linked and matched ${matchCount} outstanding financial deposits.`);
+    showSuccess("Auto-Reconciliation Complete", `Successfully linked and matched ${matchCount} outstanding financial deposits.`);
   };
 
   // --- CSV EXPORT CAPABILITY ---
@@ -1139,7 +1145,7 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
               </p>
               <button
                 type="button"
-                onClick={activePermissions.canReconcile ? handleRunAutoReconciliation : () => alert("Permission Denied: Your accountant role does not have authorization to reconcile payments.")}
+                onClick={activePermissions.canReconcile ? handleRunAutoReconciliation : () => showError("Permission Denied", "Your accountant role does not have authorization to reconcile payments.")}
                 disabled={!activePermissions.canReconcile}
                 className={`w-full font-bold py-2 rounded-lg cursor-pointer flex items-center justify-center gap-2 transition-transform ${
                   activePermissions.canReconcile 
@@ -1859,7 +1865,7 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
                               onClick={() => {
                                 const el = document.getElementById(`select-match-${bs.id}`) as HTMLSelectElement;
                                 if (!el || !el.value) {
-                                  alert('Please specify student invoice matching target.');
+                                  showWarning("Match Selection Required", 'Please specify student invoice matching target.');
                                   return;
                                 }
                                 const [sId, invId] = el.value.split('|');

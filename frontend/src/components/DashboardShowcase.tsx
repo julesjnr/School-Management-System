@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNotification } from './notifications';
 import { 
   GraduationCap, Users, CheckCircle2, AlertCircle, DollarSign, Calendar, 
   Clock, ArrowRight, ChevronRight, Plus, X, Bell, CreditCard, TrendingUp, 
@@ -29,6 +30,7 @@ export default function DashboardShowcase({
   expenses = [],
   notifications = []
 }: DashboardShowcaseProps) {
+  const { showToast, showInfo } = useNotification();
   const [activeLayout, setActiveLayout] = useState<'A' | 'B' | 'C'>('A');
   const [simulateEmptyState, setSimulateEmptyState] = useState<boolean>(false);
   const [announcements, setAnnouncements] = useState<Array<{ id: string; title: string; content: string; date: string }>>([]);
@@ -537,7 +539,7 @@ export default function DashboardShowcase({
                 </button>
                 <button
                   type="button"
-                  onClick={() => alert('Gradebook selected. Navigation triggers Tab 1 (Grading Suite).')}
+                  onClick={() => showInfo('Grading Suite', 'Gradebook selected. Navigation triggers Tab 1 (Grading Suite).')}
                   className="flex-1 sm:flex-none px-4 py-2.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs hover:shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer border border-indigo-500/25 active:scale-98"
                 >
                   <FileSpreadsheet className="w-4 h-4 text-indigo-200" />
@@ -688,7 +690,7 @@ export default function DashboardShowcase({
                                   Register Attendance
                                 </button>
                                 <button 
-                                  onClick={() => alert(`Opening virtual whiteboard for ${cls.code}`)}
+                                  onClick={() => showToast(`Opening virtual whiteboard for ${cls.code}`, 'info')}
                                   className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors cursor-pointer"
                                   title="Open Class Whiteboard"
                                 >
@@ -697,7 +699,7 @@ export default function DashboardShowcase({
                               </>
                             ) : (
                               <button 
-                                onClick={() => alert(`Pre-viewing material dossiers for ${cls.code}`)}
+                                onClick={() => showToast(`Pre-viewing material dossiers for ${cls.code}`, 'info')}
                                 className="w-full sm:w-auto px-3 py-2 rounded-lg font-semibold border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-650 text-[11px] transition-colors cursor-pointer text-center"
                               >
                                 View Materials
@@ -990,7 +992,7 @@ export default function DashboardShowcase({
                 <div className="space-y-2">
                   <button 
                     disabled={simulateEmptyState}
-                    onClick={() => alert('Initiating secure portal checkout M-Pesa API push...')}
+                    onClick={() => showToast('Initiating secure portal checkout M-Pesa API push...', 'info')}
                     className="w-full py-2 bg-slate-800 hover:bg-slate-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed text-white font-extrabold rounded-lg text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs hover:shadow-xs transition-all active:scale-98"
                   >
                     <CreditCard className="w-3.5 h-3.5" />

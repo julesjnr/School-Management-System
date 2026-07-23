@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNotification } from './notifications';
 import { Lecturer, Book, LMSReadingList, TeacherResource, BookRequest } from '../types';
 import { BookOpen, Save, Cpu, Calendar, Plus, Send, CheckCircle2, AlertCircle, ShoppingBag, Grid } from 'lucide-react';
 
@@ -27,6 +28,7 @@ export default function LecturerBooksView({
   onReleaseTeacherResource,
   onAddBookRequest
 }: LecturerBooksViewProps) {
+  const { showToast, showWarning } = useNotification();
   
   const [activeSubTab, setActiveSubTab] = useState<LecturerBookTab>('readinglist');
   
@@ -58,17 +60,17 @@ export default function LecturerBooksView({
   const handleSaveReadingList = (e: React.FormEvent) => {
     e.preventDefault();
     if (!lecSubject) {
-      alert('Please select a syllabus course.');
+      showWarning("Course Selection Error", 'Please select a syllabus course.');
       return;
     }
     onUpdateReadingList(lecSubject, lecturer.id, selectedBookIds, notes);
-    alert(`Success: Syllabus assigned reading list for course [${lecSubject}] updated physically across all enrolled student portals.`);
+    showToast(`Syllabus assigned reading list for course [${lecSubject}] updated across all enrolled student portals.`, 'success');
   };
 
   const handleProcurementSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!pTitle.trim() || !pAuthor.trim()) {
-      alert('Please fill out the title and editor of the book.');
+      showWarning("Incomplete Book Request", 'Please fill out the title and editor of the book.');
       return;
     }
     onAddBookRequest({
