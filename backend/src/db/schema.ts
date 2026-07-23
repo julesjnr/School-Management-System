@@ -565,4 +565,141 @@ export const studentLedger = pgTable("student_ledger", {
 	check("student_ledger_amount_check", sql`amount >= (0)::numeric`),
 ]);
 
+// HR & Payroll Relational Tables
+export const departments = pgTable("departments", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	code: varchar({ length: 30 }).notNull(),
+	name: varchar({ length: 255 }).notNull(),
+	headOfDepartmentId: uuid("head_of_department_id"),
+}, (table) => [
+	unique("departments_code_key").on(table.code),
+]);
+
+export const academicRanks = pgTable("academic_ranks", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	code: varchar({ length: 50 }).notNull(),
+	title: varchar({ length: 100 }).notNull(),
+	defaultHourlyRate: numeric("default_hourly_rate", { precision: 10, scale: 2 }).notNull(),
+}, (table) => [
+	unique("academic_ranks_code_key").on(table.code),
+]);
+
+export const employmentTypes = pgTable("employment_types", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	code: varchar({ length: 50 }).notNull(),
+	name: varchar({ length: 100 }).notNull(),
+}, (table) => [
+	unique("employment_types_code_key").on(table.code),
+]);
+
+export const employmentStatuses = pgTable("employment_statuses", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	code: varchar({ length: 50 }).notNull(),
+	name: varchar({ length: 100 }).notNull(),
+}, (table) => [
+	unique("employment_statuses_code_key").on(table.code),
+]);
+
+export const banks = pgTable("banks", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	code: varchar({ length: 50 }).notNull(),
+	name: varchar({ length: 100 }).notNull(),
+	swiftCode: varchar("swift_code", { length: 50 }),
+}, (table) => [
+	unique("banks_code_key").on(table.code),
+]);
+
+export const roles = pgTable("roles", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	code: varchar({ length: 50 }).notNull(),
+	name: varchar({ length: 100 }).notNull(),
+	description: text(),
+}, (table) => [
+	unique("roles_code_key").on(table.code),
+]);
+
+export const userRoles = pgTable("user_roles", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	lecturerId: uuid("lecturer_id").notNull(),
+	roleId: uuid("role_id"),
+	roleCode: varchar("role_code", { length: 50 }).notNull(),
+}, (table) => [
+	foreignKey({
+		columns: [table.lecturerId],
+		foreignColumns: [lecturers.id],
+		name: "user_roles_lecturer_id_fkey"
+	}).onDelete("cascade"),
+]);
+
+export const payrollPeriods = pgTable("payroll_periods", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	month: varchar({ length: 30 }).notNull(),
+	year: integer().notNull(),
+	status: varchar({ length: 50 }).default('Draft').notNull(),
+	totalGross: numeric("total_gross", { precision: 12, scale: 2 }).default('0.00').notNull(),
+	totalDeductions: numeric("total_deductions", { precision: 12, scale: 2 }).default('0.00').notNull(),
+	totalNet: numeric("total_net", { precision: 12, scale: 2 }).default('0.00').notNull(),
+	staffCount: integer("staff_count").default(0).notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+});
+
+export const payrollTransactions = pgTable("payroll_transactions", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	periodId: uuid("period_id"),
+	lecturerId: uuid("lecturer_id").notNull(),
+	staffNumber: varchar("staff_number", { length: 50 }).notNull(),
+	lecturerName: varchar("lecturer_name", { length: 255 }).notNull(),
+	department: varchar({ length: 255 }).notNull(),
+	academicRank: varchar("academic_rank", { length: 100 }).notNull(),
+	hoursWorked: numeric("hours_worked", { precision: 8, scale: 2 }).default('0.00').notNull(),
+	hourlyRate: numeric("hourly_rate", { precision: 10, scale: 2 }).default('0.00').notNull(),
+	overtimeHours: numeric("overtime_hours", { precision: 8, scale: 2 }).default('0.00').notNull(),
+	basePay: numeric("base_pay", { precision: 12, scale: 2 }).default('0.00').notNull(),
+	overtimePay: numeric("overtime_pay", { precision: 12, scale: 2 }).default('0.00').notNull(),
+	houseAllowance: numeric("house_allowance", { precision: 12, scale: 2 }).default('0.00').notNull(),
+	transportAllowance: numeric("transport_allowance", { precision: 12, scale: 2 }).default('0.00').notNull(),
+	responsibilityAllowance: numeric("responsibility_allowance", { precision: 12, scale: 2 }).default('0.00').notNull(),
+	otherAllowances: numeric("other_allowances", { precision: 12, scale: 2 }).default('0.00').notNull(),
+	grossPay: numeric("gross_pay", { precision: 12, scale: 2 }).default('0.00').notNull(),
+	payeTax: numeric("paye_tax", { precision: 12, scale: 2 }).default('0.00').notNull(),
+	shifDeduction: numeric("shif_deduction", { precision: 12, scale: 2 }).default('0.00').notNull(),
+	nssfDeduction: numeric("nssf_deduction", { precision: 12, scale: 2 }).default('0.00').notNull(),
+	otherDeductions: numeric("other_deductions", { precision: 12, scale: 2 }).default('0.00').notNull(),
+	totalDeductions: numeric("total_deductions", { precision: 12, scale: 2 }).default('0.00').notNull(),
+	netSalary: numeric("net_salary", { precision: 12, scale: 2 }).default('0.00').notNull(),
+	payrollStatus: varchar("payroll_status", { length: 50 }).default('Approved').notNull(),
+	paymentStatus: varchar("payment_status", { length: 50 }).default('Pending').notNull(),
+	month: varchar({ length: 30 }).notNull(),
+	year: integer().notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("idx_payroll_tx_lecturer").using("btree", table.lecturerId.asc().nullsLast().op("uuid_ops")),
+	index("idx_payroll_tx_period").using("btree", table.month.asc().nullsLast().op("text_ops"), table.year.asc().nullsLast().op("int4_ops")),
+]);
+
+export const allowances = pgTable("allowances", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	name: varchar({ length: 100 }).notNull(),
+	code: varchar({ length: 50 }).notNull(),
+	defaultAmount: numeric("default_amount", { precision: 12, scale: 2 }).default('0.00').notNull(),
+	isTaxable: boolean("is_taxable").default(true).notNull(),
+});
+
+export const deductions = pgTable("deductions", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	name: varchar({ length: 100 }).notNull(),
+	code: varchar({ length: 50 }).notNull(),
+	type: varchar({ length: 50 }).notNull(), // 'statutory' | 'custom'
+});
+
+export const taxRates = pgTable("tax_rates", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	taxType: varchar("tax_type", { length: 50 }).notNull(), // 'PAYE' | 'SHIF' | 'NSSF'
+	bracketName: varchar("bracket_name", { length: 100 }).notNull(),
+	minAmount: numeric("min_amount", { precision: 12, scale: 2 }).default('0.00').notNull(),
+	maxAmount: numeric("max_amount", { precision: 12, scale: 2 }),
+	ratePercentage: numeric("rate_percentage", { precision: 5, scale: 2 }).notNull(),
+});
+
+
 

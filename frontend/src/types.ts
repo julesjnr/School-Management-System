@@ -21,15 +21,89 @@ export interface OfficeHourSlot {
   studentNotes?: string;
 }
 
+export interface BankingInfo {
+  bankName: string;
+  branch: string;
+  accountName: string;
+  accountNumber: string;
+  swiftCode?: string;
+  mobileMoney?: string;
+}
+
+export interface PerformanceReview {
+  id: string;
+  reviewerName: string;
+  reviewDate: string;
+  rating: number; // 1-5
+  comments: string;
+  goalsForNextPeriod?: string;
+}
+
+export interface StaffDocument {
+  id: string;
+  title: string;
+  category: 'Contract' | 'Identification' | 'Academic Certificate' | 'Tax Document' | 'Other';
+  uploadDate: string;
+  fileUrl: string;
+  fileSize?: string;
+}
+
+export interface LeaveRecord {
+  id: string;
+  leaveType: 'Annual Leave' | 'Sick Leave' | 'Maternity/Paternity' | 'Sabbatical' | 'Unpaid Leave';
+  startDate: string;
+  endDate: string;
+  daysCount: number;
+  status: 'Approved' | 'Pending' | 'Rejected';
+  reason?: string;
+}
+
+export interface Department {
+  id: string;
+  code: string;
+  name: string;
+  headOfDepartmentId?: string;
+}
+
+export interface AcademicRank {
+  id: string;
+  code: string;
+  title: string;
+  defaultHourlyRate: number;
+}
+
+export interface Role {
+  id: string;
+  code: string;
+  name: string;
+  description?: string;
+}
+
 export interface Lecturer {
   id: string;
+  staffNumber?: string; // Auto-generated e.g. "STF-2026-001"
   name: string;
   email: string;
   phone: string;
+  nationalId?: string;
+  gender?: 'Male' | 'Female' | 'Other' | 'Prefer not to say';
+  dob?: string;
+  department?: string;
+  departmentId?: string;
+  academicRank?: string;
+  academicRankId?: string;
+  employmentType?: 'Permanent' | 'Contract' | 'Part-Time' | 'Adjunct' | 'Visiting Lecturer' | 'Temporary';
+  employmentDate?: string;
+  contractStartDate?: string;
+  contractEndDate?: string;
+  employmentStatus?: 'Active' | 'Suspended' | 'On Leave' | 'Retired' | 'Resigned';
   subjects: string[]; // Subject codes/names assigned
   hourlyRate: number;
+  isRateOverridden?: boolean;
   loggedHours: number;
-  bankDetails: string;
+  overtimeHours?: number;
+  bankingInfo?: BankingInfo;
+  bankDetails?: string; // Legacy string fallback
   contractLength: string; // e.g., "2 Years", "Permanent"
   designatorCode: string; // e.g., "LEC-402"
   bio?: string;
@@ -37,10 +111,57 @@ export interface Lecturer {
   publications?: string[];
   researchInterests?: string[];
   officeHours?: OfficeHourSlot[];
+  roles?: string[]; // RBAC system roles e.g. ['Lecturer', 'Head of Department']
+  performanceReviews?: PerformanceReview[];
+  documents?: StaffDocument[];
+  leaveHistory?: LeaveRecord[];
   isActive?: boolean;
   isAccountant?: boolean;
   isLibrarian?: boolean;
   passcode?: string;
+}
+
+export interface PayrollRecord {
+  id: string;
+  periodId?: string;
+  lecturerId: string;
+  staffNumber?: string;
+  name?: string;
+  department?: string;
+  academicRank?: string;
+  month: string;
+  year: number;
+  hoursWorked: number;
+  hourlyRate: number;
+  overtimeHours: number;
+  basePay: number;
+  overtimePay: number;
+  houseAllowance: number;
+  transportAllowance: number;
+  responsibilityAllowance: number;
+  otherAllowances?: number;
+  grossPay: number;
+  payeTax: number;
+  shifDeduction: number;
+  nssfDeduction: number;
+  otherDeductions: number;
+  totalDeductions: number;
+  netSalary: number;
+  payrollStatus: 'Draft' | 'Pending' | 'Approved' | 'Rejected';
+  paymentStatus: 'Unpaid' | 'Pending' | 'Disbursed' | 'Paid';
+  disbursedAt?: string;
+}
+
+export interface PayrollPeriod {
+  id: string;
+  month: string;
+  year: number;
+  status: 'Draft' | 'Processing' | 'Approved' | 'Disbursed';
+  totalGross: number;
+  totalDeductions: number;
+  totalNet: number;
+  staffCount: number;
+  createdAt: string;
 }
 
 export interface Grade {
