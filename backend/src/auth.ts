@@ -227,18 +227,21 @@ export async function migrateAuthSchemaAndData(inMemoryDb?: any): Promise<void> 
       END $$;
     `);
 
-    // 3. Migrate Master Admin User
-    const adminPass = process.env.ADMIN_PASSCODE || 'admin123';
-    const adminHash = hashPassword(adminPass);
-    await upsertUserAuthRecord({
-      username: 'admin',
-      email: 'admin@zenti.edu',
-      passwordHash: adminHash,
-      role: 'admin',
-      roleId: 'admin',
-      isActive: true,
-      mustChangePassword: false,
-    });
+    // 3. Migrate Master Admin User (skip if already migrated, to avoid overwriting a changed password)
+    const existingAdmin = await findUserByIdentifier('admin');
+    if (!existingAdmin) {
+      const adminPass = process.env.ADMIN_PASSCODE || 'admin123';
+      const adminHash = hashPassword(adminPass);
+      await upsertUserAuthRecord({
+        username: 'admin',
+        email: 'admin@zenti.edu',
+        passwordHash: adminHash,
+        role: 'admin',
+        roleId: 'admin',
+        isActive: true,
+        mustChangePassword: false,
+      });
+    }
 
     // 4. Migrate Students from Database / Memory Store
     let studentList: any[] = [];
@@ -249,10 +252,15 @@ export async function migrateAuthSchemaAndData(inMemoryDb?: any): Promise<void> 
     }
 
     for (const st of studentList) {
+      const username = st.admissionNo || st.id;
+      // Skip students that already have a users record; re-migrating would overwrite
+      // any password they've since set via the change-password flow.
+      const existingStudentUser = await findUserByIdentifier(username) || (st.email ? await findUserByIdentifier(st.email) : null);
+      if (existingStudentUser) continue;
+
       const rawPass = st.passcode || 'student123';
       const passHash = isBcryptHash(rawPass) ? rawPass : hashPassword(rawPass);
       const mustChange = st.mustChangePassword !== false;
-      const username = st.admissionNo || st.id;
       await upsertUserAuthRecord({
         username,
         email: st.email,
@@ -283,10 +291,15 @@ export async function migrateAuthSchemaAndData(inMemoryDb?: any): Promise<void> 
         defaultPin = 'lib123';
       }
 
+      const username = lec.designatorCode || lec.id;
+      // Skip staff that already have a users record; re-migrating would overwrite
+      // any password they've since set via the change-password flow.
+      const existingStaffUser = await findUserByIdentifier(username) || (lec.email ? await findUserByIdentifier(lec.email) : null);
+      if (existingStaffUser) continue;
+
       const rawPass = lec.passcode || defaultPin;
       const passHash = isBcryptHash(rawPass) ? rawPass : hashPassword(rawPass);
       const mustChange = lec.mustChangePassword !== false;
-      const username = lec.designatorCode || lec.id;
       await upsertUserAuthRecord({
         username,
         email: lec.email,
