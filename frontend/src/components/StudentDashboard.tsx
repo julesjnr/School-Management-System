@@ -3042,7 +3042,7 @@ export default function StudentDashboard({
               {/* Form Body */}
               <div className="p-6 space-y-4">
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  You can change your portal passcode below. The default passcode assigned to your student profile is <code className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-mono font-bold text-slate-800 dark:text-slate-200">student123</code> unless it has been previously modified.
+                  You can change your portal password below. Use your current password to authorize the update.
                 </p>
 
                 {passcodeError && (

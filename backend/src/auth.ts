@@ -19,27 +19,27 @@ export function hashPassword(plain: string): string {
 
 export function verifyPassword(input: string, stored: string): boolean {
   if (!stored || !input) return false;
-  if (isBcryptHash(stored)) {
-    return bcrypt.compareSync(input, stored);
+  // Only accept bcrypt hashes stored in PostgreSQL — no plaintext fallback auth.
+  if (!isBcryptHash(stored)) {
+    return false;
   }
-  return input === stored;
+  return bcrypt.compareSync(input, stored);
 }
 
 export function getDefaultPasswordForRole(role: string): string {
-  switch (role) {
-    case 'student':
-      return process.env.DEFAULT_STUDENT_PASSWORD || 'student123';
-    case 'accountant':
-      return process.env.DEFAULT_ACCOUNTANT_PASSWORD || 'acc123';
-    case 'librarian':
-      return process.env.DEFAULT_LIBRARIAN_PASSWORD || 'lib123';
-    case 'lecturer':
-      return process.env.DEFAULT_LECTURER_PASSWORD || 'staff123';
-    case 'admin':
-      return process.env.ADMIN_PASSCODE || 'admin123';
-    default:
-      return crypto.randomBytes(6).toString('hex');
+  const envKeyByRole: Record<string, string | undefined> = {
+    student: process.env.DEFAULT_STUDENT_PASSWORD,
+    accountant: process.env.DEFAULT_ACCOUNTANT_PASSWORD,
+    librarian: process.env.DEFAULT_LIBRARIAN_PASSWORD,
+    lecturer: process.env.DEFAULT_LECTURER_PASSWORD,
+    admin: process.env.ADMIN_PASSCODE || process.env.DEFAULT_ADMIN_PASSWORD,
+  };
+  const fromEnv = envKeyByRole[role];
+  if (fromEnv && fromEnv.trim()) {
+    return fromEnv.trim();
   }
+  // Never fall back to well-known demo passwords — generate a one-time secret.
+  return crypto.randomBytes(12).toString('base64url');
 }
 
 export function resolvePassword(rawPassword: string | undefined, role: string): {
@@ -234,7 +234,7 @@ export async function migrateAuthSchemaAndData(inMemoryDb?: any): Promise<void> 
     // 3. Migrate Master Admin User (skip if already migrated, to avoid overwriting a changed password)
     const existingAdmin = await findUserByIdentifier('admin');
     if (!existingAdmin) {
-      const adminPass = process.env.ADMIN_PASSCODE || 'admin123';
+      const adminPass = getDefaultPasswordForRole('admin');
       const adminHash = hashPassword(adminPass);
       await upsertUserAuthRecord({
         username: 'admin',
@@ -243,8 +243,13 @@ export async function migrateAuthSchemaAndData(inMemoryDb?: any): Promise<void> 
         role: 'admin',
         roleId: 'admin',
         isActive: true,
-        mustChangePassword: false,
+        mustChangePassword: !process.env.ADMIN_PASSCODE && !process.env.DEFAULT_ADMIN_PASSWORD,
       });
+      if (!process.env.ADMIN_PASSCODE && !process.env.DEFAULT_ADMIN_PASSWORD) {
+        console.warn(
+          '[auth] Admin account created with a generated password. Set ADMIN_PASSCODE (or DEFAULT_ADMIN_PASSWORD) and reset the admin user, or complete first-login password change.'
+        );
+      }
     }
 
     // 4. Migrate Students from Database / Memory Store
@@ -262,7 +267,7 @@ export async function migrateAuthSchemaAndData(inMemoryDb?: any): Promise<void> 
       const existingStudentUser = await findUserByIdentifier(username) || (st.email ? await findUserByIdentifier(st.email) : null);
       if (existingStudentUser) continue;
 
-      const rawPass = st.passcode || 'student123';
+      const { plain: rawPass } = resolvePassword(st.passcode, 'student');
       const passHash = isBcryptHash(rawPass) ? rawPass : hashPassword(rawPass);
       const mustChange = st.mustChangePassword !== false;
       await upsertUserAuthRecord({
@@ -286,13 +291,10 @@ export async function migrateAuthSchemaAndData(inMemoryDb?: any): Promise<void> 
 
     for (const lec of lecturerList) {
       let role = 'lecturer';
-      let defaultPin = 'staff123';
       if (lec.isAccountant) {
         role = 'accountant';
-        defaultPin = 'acc123';
       } else if (lec.isLibrarian || lec.id === 'l3') {
         role = 'librarian';
-        defaultPin = 'lib123';
       }
 
       const username = lec.designatorCode || lec.id;
@@ -301,7 +303,7 @@ export async function migrateAuthSchemaAndData(inMemoryDb?: any): Promise<void> 
       const existingStaffUser = await findUserByIdentifier(username) || (lec.email ? await findUserByIdentifier(lec.email) : null);
       if (existingStaffUser) continue;
 
-      const rawPass = lec.passcode || defaultPin;
+      const { plain: rawPass } = resolvePassword(lec.passcode, role);
       const passHash = isBcryptHash(rawPass) ? rawPass : hashPassword(rawPass);
       const mustChange = lec.mustChangePassword !== false;
       await upsertUserAuthRecord({
@@ -351,7 +353,7 @@ export async function authenticateUser(params: {
   const user = await findUserByIdentifier(identifier, roleHint);
 
   if (!user) {
-    return { success: false, error: "Invalid login credentials. User account not found." };
+    return { success: false, error: "Invalid username or password." };
   }
 
   // Check if active
@@ -359,10 +361,10 @@ export async function authenticateUser(params: {
     return { success: false, error: "Account has been deactivated. Please contact System Administrator." };
   }
 
-  // Verify password using bcrypt
+  // Verify password using bcrypt against PostgreSQL users.password_hash
   const isMatch = verifyPassword(passcode, user.password_hash);
   if (!isMatch) {
-    return { success: false, error: "Invalid password key." };
+    return { success: false, error: "Invalid username or password." };
   }
 
   // Update last_login timestamp

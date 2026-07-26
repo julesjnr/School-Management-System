@@ -1976,7 +1976,11 @@ app.post("/api/auth/login", async (req: any, res: any) => {
     });
 
     if (!result.success) {
-      res.status(401).json({ success: false, error: result.error || "Authentication failed." });
+      if (result.error && /deactivated/i.test(result.error)) {
+        res.status(403).json({ success: false, error: result.error });
+        return;
+      }
+      res.status(401).json({ success: false, error: "Invalid username or password." });
       return;
     }
 
@@ -3274,7 +3278,7 @@ app.post("/api/students", async (req, res) => {
       });
     }
     
-    const rawPass = studentData.passcode || "student123";
+    const { plain: rawPass } = resolvePassword(studentData.passcode, "student");
     const hashedPasscode = (rawPass.startsWith('$2b$') || rawPass.startsWith('$2a$') || rawPass.startsWith('$2y$'))
       ? rawPass
       : hashPassword(rawPass);

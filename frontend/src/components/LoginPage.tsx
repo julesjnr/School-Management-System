@@ -1,8 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import {
   ShieldCheck, User, Users, GraduationCap, ArrowRight, X,
-  Library, LockKeyhole, Landmark, ChevronRight, HelpCircle,
-  BookOpen, Calculator, Sparkles, KeyRound, School
+  LockKeyhole, Landmark, ChevronRight, BookOpen, KeyRound, School
 } from 'lucide-react';
 import { Student, Lecturer, UserRole } from '../types';
 import PasswordRecoveryModal from './PasswordRecoveryModal';
@@ -41,78 +40,40 @@ interface RolePortalConfig {
   features: string[];
 }
 
-export default function LoginPage({ 
-  students, 
-  lecturers, 
-  onLogin, 
+const GENERIC_AUTH_ERROR = 'Invalid username or password.';
+
+export default function LoginPage({
+  students,
+  lecturers,
+  onLogin,
   onClose,
   infoMessage
 }: LoginPageProps) {
-  const rememberedLogin = useRef(getRememberedLogin()).current;
+  const rememberedLogin = getRememberedLogin();
 
   const [activePortal, setActivePortal] = useState<ExtendedRole>(
     () => (rememberedLogin?.role as ExtendedRole) || 'student'
   );
-  const [selectedUser, setSelectedUser] = useState<string>(() => rememberedLogin?.identifier || '');
+  // Never pre-fill demo credentials. Remember-me may restore a prior identifier only.
+  const [selectedUser, setSelectedUser] = useState<string>(
+    () => (rememberedLogin?.role ? rememberedLogin.identifier : '') || ''
+  );
   const [passcode, setPasscode] = useState<string>('');
   const [rememberMe, setRememberMe] = useState<boolean>(() => !!rememberedLogin);
   const [errorText, setErrorText] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isRecoveryMode, setIsRecoveryMode] = useState<boolean>(false);
 
-  // Once the user types, demo prefills must never overwrite their input. The roster props
-  // are replaced on every /api/data refresh, so the prefill effect below re-runs often.
-  const hasTypedIdentifier = useRef<boolean>(!!rememberedLogin);
-  const hasTypedPasscode = useRef<boolean>(false);
-
-  const defaultPasscodes: Record<ExtendedRole, string> = {
-    student: 'student123',
-    lecturer: 'lecturer123',
-    accountant: 'acc123',
-    librarian: 'lib123',
-    admin: 'admin123'
-  };
-
-  /**
-   * The demo login identifier for a portal: an admission number, staff designator code or
-   * email. Never `Student.id` / `Lecturer.id` - those are database UUIDs, not credentials.
-   */
-  const defaultIdentifierForPortal = (portal: ExtendedRole): string => {
-    if (portal === 'admin') return 'admin';
-
-    if (portal === 'student') {
-      const profile = students[0];
-      return profile ? pickLoginIdentifier(profile.admissionNo, profile.email) : '';
-    }
-
-    const staffProfile =
-      portal === 'accountant' ? lecturers.find(l => l.isAccountant) :
-      portal === 'librarian' ? lecturers.find(l => l.isLibrarian) :
-      lecturers.find(l => !l.isAccountant && !l.isLibrarian);
-    const profile = staffProfile || lecturers[0];
-    return profile ? pickLoginIdentifier(profile.designatorCode, profile.email) : '';
-  };
-
-  // Prefill the demo credentials, but only while both fields are still untouched.
-  useEffect(() => {
-    if (!hasTypedIdentifier.current) {
-      const fallbackIdentifier = defaultIdentifierForPortal(activePortal);
-      if (fallbackIdentifier) setSelectedUser(fallbackIdentifier);
-    }
-    if (!hasTypedPasscode.current) {
-      // A returning user has their own password, so don't suggest the role default.
-      setPasscode(rememberedLogin ? '' : defaultPasscodes[activePortal]);
-    }
-  }, [students, lecturers, activePortal]);
-
   const handlePortalSwitch = (portal: ExtendedRole) => {
-    // Switching portal is an explicit reset, so demo prefills apply again.
-    hasTypedIdentifier.current = false;
-    hasTypedPasscode.current = false;
     setActivePortal(portal);
     setErrorText('');
-    setSelectedUser(defaultIdentifierForPortal(portal));
-    setPasscode(rememberedLogin ? '' : defaultPasscodes[portal]);
+    setPasscode('');
+    // Keep remembered identifier only when switching back to the same remembered role
+    if (rememberedLogin && rememberedLogin.role === portal) {
+      setSelectedUser(rememberedLogin.identifier);
+    } else {
+      setSelectedUser('');
+    }
   };
 
   const portalConfigs: Record<ExtendedRole, RolePortalConfig> = {
@@ -225,32 +186,34 @@ export default function LoginPage({
 
   const currentConfig = portalConfigs[activePortal];
 
+  const identifierLabel =
+    activePortal === 'student'
+      ? 'Admission Number / Email'
+      : activePortal === 'admin'
+        ? 'Admin Username / Email'
+        : 'Staff Code / Email';
+
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorText('');
 
-    if (activePortal !== 'admin' && !selectedUser.trim()) {
-      setErrorText(`Please enter your ${activePortal === 'student' ? 'Admission Number or Email' : 'Staff ID or Email'}.`);
+    const submittedIdentifier = selectedUser.trim();
+    if (!submittedIdentifier || !passcode) {
+      setErrorText(GENERIC_AUTH_ERROR);
       return;
     }
 
-    const submittedIdentifier = activePortal === 'admin' ? 'admin' : selectedUser.trim();
-
-    // Invalidate stale local sessions before starting a new authentication request
     localStorage.removeItem('zenti_session_token');
     clearPendingPasswordChange();
-
     setIsSubmitting(true);
 
     fetch('/api/auth/login', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         role: activePortal,
         userId: submittedIdentifier,
-        passcode: passcode,
+        passcode,
       }),
     })
       .then(async (res) => {
@@ -258,59 +221,75 @@ export default function LoginPage({
         let data: any;
         try {
           data = JSON.parse(text);
-        } catch (e) {
-          throw new Error(text || `Server error (Status ${res.status})`);
+        } catch {
+          throw new Error('Unable to reach authentication service.');
         }
         if (!res.ok) {
-          throw new Error(data.error || `Authentication failed (Status ${res.status})`);
+          // Never surface field-specific auth failures to the client.
+          if (res.status === 401 || res.status === 403) {
+            throw new Error(GENERIC_AUTH_ERROR);
+          }
+          throw new Error(data.error || 'Unable to reach authentication service.');
         }
         return data;
       })
       .then((data) => {
-        if (data.success) {
-          // The identifier the account is actually keyed on: the server's `username`
-          // (admission number / staff code), falling back to what was typed. `data.userId`
-          // is the profile UUID and must never be used as a login identifier.
-          const canonicalIdentifier = pickLoginIdentifier(data.username, submittedIdentifier, data.email);
+        if (!data.success) {
+          setErrorText(GENERIC_AUTH_ERROR);
+          return;
+        }
 
-          if (rememberMe) {
-            rememberLogin(canonicalIdentifier, data.role || activePortal);
-          } else {
-            forgetRememberedLogin();
-          }
+        const canonicalIdentifier = pickLoginIdentifier(
+          data.username,
+          submittedIdentifier,
+          data.email
+        );
 
-          if (data.status === 'REQUIRES_PASSWORD_CHANGE') {
-            setPendingPasswordChange({
-              identifier: canonicalIdentifier,
-              userId: data.userId,
-              role: data.role,
-              email: data.email
-            });
-            window.history.pushState({}, '', '/change-password');
-            window.dispatchEvent(new Event('popstate'));
-            return;
-          }
-
-          localStorage.setItem('zenti_session_token', data.token);
-
-          if (data.role === 'lecturer' && data.profile?.isAccountant) {
-            onLogin('accountant', data.userId);
-          } else {
-            onLogin(data.role, data.userId);
-          }
+        if (rememberMe) {
+          rememberLogin(canonicalIdentifier, data.role || activePortal);
         } else {
-          setErrorText(data.error || 'Identity authentication failed.');
+          forgetRememberedLogin();
+        }
+
+        if (data.status === 'REQUIRES_PASSWORD_CHANGE') {
+          setPendingPasswordChange({
+            identifier: canonicalIdentifier,
+            userId: data.userId,
+            role: data.role,
+            email: data.email
+          });
+          window.history.pushState({}, '', '/change-password');
+          window.dispatchEvent(new Event('popstate'));
+          return;
+        }
+
+        localStorage.setItem('zenti_session_token', data.token);
+
+        if (data.role === 'lecturer' && data.profile?.isAccountant) {
+          onLogin('accountant', data.userId);
+        } else if (data.role === 'lecturer' && data.profile?.isLibrarian) {
+          onLogin('librarian', data.userId);
+        } else {
+          onLogin(data.role, data.userId);
         }
       })
       .catch((err) => {
-        setErrorText(err.message || 'Unable to establish secure gateway connection.');
+        const message = err?.message || '';
+        if (
+          message === GENERIC_AUTH_ERROR ||
+          /invalid|credential|password|username|not found|authentication failed/i.test(message)
+        ) {
+          setErrorText(GENERIC_AUTH_ERROR);
+        } else {
+          setErrorText(message || 'Unable to reach authentication service.');
+        }
       })
       .finally(() => {
         setIsSubmitting(false);
       });
   };
 
-  const getRoleIcon = (roleId: ExtendedRole, size: string = "w-5 h-5") => {
+  const getRoleIcon = (roleId: ExtendedRole, size: string = 'w-5 h-5') => {
     switch (roleId) {
       case 'student': return <GraduationCap className={size} />;
       case 'lecturer': return <Users className={size} />;
@@ -337,11 +316,9 @@ export default function LoginPage({
 
   return (
     <div className="min-h-screen w-full flex flex-col md:flex-row bg-white dark:bg-slate-900 transition-colors duration-300">
-      
-      {/* 1. LEFT SIDE - Thematic brand visual graphic/color block */}
+
       <div className={`w-full md:w-[45%] lg:w-[40%] bg-gradient-to-br ${currentConfig.gradient} text-white p-10 md:p-14 flex flex-col justify-between relative overflow-hidden shrink-0`}>
-        
-        {/* Decorative background grids */}
+
         <div className="absolute inset-0 opacity-10 font-mono text-[9px] select-none pointer-events-none leading-relaxed overflow-hidden">
           {Array.from({ length: 40 }).map((_, i) => (
             <div key={i} className="whitespace-nowrap tracking-widest leading-none py-0.5">
@@ -351,7 +328,6 @@ export default function LoginPage({
         </div>
 
         <div className="relative z-10 space-y-12">
-          {/* Brand Logo & School Header */}
           <div className="flex items-center gap-3 cursor-pointer" onClick={onClose}>
             <div className="w-11 h-11 bg-white text-blue-600 rounded-xl flex items-center justify-center font-black shadow-lg">
               <School className="w-6 h-6" />
@@ -362,10 +338,9 @@ export default function LoginPage({
             </div>
           </div>
 
-          {/* Presentation Headline */}
           <div className="space-y-4 pt-6">
             <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/15 backdrop-blur-xs border border-white/10 text-[9.5px] font-black tracking-widest uppercase rounded-full">
-              {getRoleIcon(activePortal, "w-3 h-3 text-amber-300")}
+              {getRoleIcon(activePortal, 'w-3 h-3 text-amber-300')}
               <span>{currentConfig.tagline}</span>
             </div>
             <h2 className="text-3xl lg:text-4xl font-black font-display tracking-tight leading-tight">
@@ -376,7 +351,6 @@ export default function LoginPage({
             </p>
           </div>
 
-          {/* Authorized Scope List */}
           <div className="space-y-3.5 pt-4 border-t border-white/10">
             <span className="text-[10px] uppercase font-mono tracking-widest text-white/60 font-bold block">Authorized Gateway Scope</span>
             <ul className="space-y-2">
@@ -390,7 +364,6 @@ export default function LoginPage({
           </div>
         </div>
 
-        {/* Secure SSL confirmation footer */}
         <div className="relative z-10 pt-10 border-t border-white/5 flex items-center justify-between text-xs text-white/65 font-mono">
           <div className="flex items-center gap-1.5">
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
@@ -400,14 +373,11 @@ export default function LoginPage({
         </div>
       </div>
 
-
-      {/* 2. RIGHT SIDE - Switchable Portals & Login Form */}
       <div className="flex-1 p-8 md:p-14 lg:p-20 flex flex-col justify-between bg-slate-50 dark:bg-slate-900/40 relative min-h-screen md:min-h-0">
-        
-        {/* Top bar with back to homepage button */}
+
         <div className="flex justify-between items-center mb-8 shrink-0">
-          <button 
-            type="button" 
+          <button
+            type="button"
             onClick={onClose}
             className="flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
             title="Cancel and return to homepage"
@@ -415,21 +385,19 @@ export default function LoginPage({
             <X className="w-4 h-4" />
             <span>Return to Homepage</span>
           </button>
-          
+
           <span className="text-[10px] bg-slate-200/60 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">
             Portal V1.2.0
           </span>
         </div>
 
         <div className="max-w-md w-full mx-auto space-y-8 flex-1 flex flex-col justify-center">
-          
-          {/* Switchboard header */}
+
           <div className="space-y-2 text-center md:text-left">
             <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest font-mono">Choose Portal Access</h4>
             <h2 className="text-2xl font-black text-slate-800 dark:text-slate-100 tracking-tight">Select your gateway role</h2>
           </div>
 
-          {/* Role Portal Selector switchboard grid */}
           <div className="grid grid-cols-5 gap-2" id="login-role-switchboard">
             {(Object.keys(portalConfigs) as ExtendedRole[]).map((roleId) => {
               const isActive = activePortal === roleId;
@@ -447,7 +415,7 @@ export default function LoginPage({
                   title={config.name}
                 >
                   <div className={`p-1.5 rounded-xl ${isActive ? `bg-${config.themeColor}-50 dark:bg-${config.themeColor}-950/20 text-${config.themeColor}-650` : 'text-slate-400'}`}>
-                    {getRoleIcon(roleId, "w-4 h-4")}
+                    {getRoleIcon(roleId, 'w-4 h-4')}
                   </div>
                   <span className="text-[10px] tracking-tight leading-none capitalize font-bold">{roleId}</span>
                 </button>
@@ -457,10 +425,8 @@ export default function LoginPage({
 
           <div className="h-px bg-slate-200 dark:bg-slate-800" />
 
-          {/* Core Login Form */}
-          <form onSubmit={handleFormSubmit} className="space-y-5">
-            
-            {/* Session expired notifications */}
+          <form onSubmit={handleFormSubmit} className="space-y-5" autoComplete="on">
+
             {infoMessage && (
               <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 text-xs px-4 py-3 rounded-xl border border-blue-100 dark:border-blue-950/30 font-medium animate-fadeIn">
                 <span className="w-2 h-2 rounded-full bg-blue-550 shrink-0 animate-ping"></span>
@@ -468,7 +434,6 @@ export default function LoginPage({
               </div>
             )}
 
-            {/* Error notifications */}
             {errorText && (
               <div className="flex items-center gap-2 bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 text-xs px-4 py-3 rounded-xl border border-rose-100 dark:border-rose-950/30 font-medium">
                 <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0 animate-ping"></span>
@@ -476,50 +441,45 @@ export default function LoginPage({
               </div>
             )}
 
-            {/* Manual Blind Input Selection */}
-            {activePortal !== 'admin' && (
-              <div className="space-y-1.5">
-                <label htmlFor="login-identifier-input" className="block text-xs font-bold text-slate-550 dark:text-slate-400 uppercase tracking-wider">
-                  {activePortal === 'student' ? 'Admission Number / Email' : 'Staff Code / Email'}:
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500">
-                    <User className="w-4 h-4" />
-                  </span>
-                  <input
-                    id="login-identifier-input"
-                    type="text"
-                    required
-                    value={selectedUser}
-                    onChange={(e) => {
-                      hasTypedIdentifier.current = true;
-                      setSelectedUser(e.target.value);
-                      setErrorText('');
-                    }}
-                    placeholder={activePortal === 'student' ? 'e.g. ADM001 or email' : 'e.g. STF-2026-001 or email'}
-                    className="w-full bg-white dark:bg-slate-850 dark:text-slate-100 border border-slate-200 dark:border-slate-800 rounded-xl pl-10 pr-3 py-3 text-xs text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 shadow-2xs font-medium"
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Password input */}
             <div className="space-y-1.5">
-              <div className="flex justify-between items-center">
-                <label htmlFor="login-password-field" className="block text-xs font-bold text-slate-550 dark:text-slate-400 uppercase tracking-wider">
-                  Portal Passcode
-                </label>
-                {!rememberedLogin && (
-                  <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase font-medium">Auto-prefilled for demo</span>
-                )}
+              <label htmlFor="login-identifier-input" className="block text-xs font-bold text-slate-550 dark:text-slate-400 uppercase tracking-wider">
+                {identifierLabel}
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500">
+                  <User className="w-4 h-4" />
+                </span>
+                <input
+                  id="login-identifier-input"
+                  type="text"
+                  name="username"
+                  autoComplete="username"
+                  required
+                  value={selectedUser}
+                  onChange={(e) => {
+                    setSelectedUser(e.target.value);
+                    setErrorText('');
+                  }}
+                  className="w-full bg-white dark:bg-slate-850 dark:text-slate-100 border border-slate-200 dark:border-slate-800 rounded-xl pl-10 pr-3 py-3 text-xs text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 shadow-2xs font-medium"
+                />
               </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="login-password-field" className="block text-xs font-bold text-slate-550 dark:text-slate-400 uppercase tracking-wider">
+                Password
+              </label>
               <div className="relative">
                 <input
                   id="login-password-field"
                   type="password"
+                  name="password"
+                  autoComplete="current-password"
                   value={passcode}
-                  onChange={(e) => { hasTypedPasscode.current = true; setPasscode(e.target.value); setErrorText(''); }}
-                  placeholder="Enter passcode"
+                  onChange={(e) => {
+                    setPasscode(e.target.value);
+                    setErrorText('');
+                  }}
                   className="w-full bg-white dark:bg-slate-850 dark:text-slate-100 border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-xs text-slate-850 focus:outline-hidden focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 font-mono shadow-2xs"
                   required
                 />
@@ -527,18 +487,17 @@ export default function LoginPage({
               </div>
             </div>
 
-            {/* Remember me & Forgot Password Row */}
             <div className="flex items-center justify-between text-xs pt-1">
               <label className="flex items-center gap-2 text-slate-550 dark:text-slate-450 cursor-pointer select-none">
-                <input 
-                  type="checkbox" 
-                  checked={rememberMe} 
-                  onChange={(e) => setRememberMe(e.target.checked)} 
-                  className="rounded-sm border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500/10" 
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="rounded-sm border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500/10"
                 />
                 <span className="font-semibold">Remember Me</span>
               </label>
-              
+
               <button
                 type="button"
                 onClick={() => setIsRecoveryMode(true)}
@@ -548,21 +507,18 @@ export default function LoginPage({
               </button>
             </div>
 
-
-            {/* Sign In primary button */}
             <button
               type="submit"
               disabled={isSubmitting}
               className={`w-full mt-2 text-white font-black py-3 px-6 rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all duration-155 cursor-pointer text-center shadow-lg hover:shadow-xl ${currentConfig.buttonBg} ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              <span>{isSubmitting ? 'Signing In...' : `Sign In`}</span>
+              <span>{isSubmitting ? 'Signing In...' : 'Sign In'}</span>
               <ArrowRight className={`w-4 h-4 ${isSubmitting ? 'animate-ping' : ''}`} />
             </button>
 
           </form>
         </div>
 
-        {/* Footer info */}
         <div className="text-[10px] text-slate-400 dark:text-slate-500 font-mono uppercase tracking-widest text-center mt-8 pt-4 border-t border-slate-200 dark:border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-2 shrink-0">
           <span>ZENTI UNIVERSITY SYSTEMS</span>
           <div className="flex items-center gap-1.5">

@@ -411,7 +411,7 @@ export default function PasswordRecoveryModal({
                       rows={3}
                       value={reason}
                       onChange={(e) => setReason(e.target.value)}
-                      placeholder="e.g. I lost my passcode book, or I am unable to authenticate with staff123. Please reset to default."
+                      placeholder="Describe why you need a password reset"
                       className="w-full bg-slate-50 dark:bg-slate-850 dark:text-slate-100 border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-xs text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-blue-100 focus:border-blue-500 font-sans"
                     />
                   </div>

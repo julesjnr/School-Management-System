@@ -779,25 +779,30 @@ export default function AdminDashboard({
       triggerToast('Please fill out all student profile credentials.', 'error');
       return;
     }
+    if (!regStudentPasscode.trim()) {
+      showWarning('Passcode required', 'Enter a temporary passcode for the new student account.');
+      return;
+    }
     onAddStudent({
       name: regStudentName,
       email: regStudentEmail,
       phone: regStudentPhone,
       admissionNo: regStudentAdmission,
       cohort: regStudentCohort,
-      passcode: regStudentPasscode || 'student123'
+      passcode: regStudentPasscode.trim()
     });
     setRegStudentName('');
     setRegStudentEmail('');
     setRegStudentPhone('');
     setRegStudentAdmission('');
     setRegStudentCohort('2026 Intake');
+    const issuedPasscode = regStudentPasscode.trim();
     setRegStudentPasscode('');
     setStudentTableRefetchTrigger(prev => prev + 1);
     showRegistrationModal({
       name: regStudentName,
       idOrAdmissionNo: regStudentAdmission || 'STU-REG',
-      temporaryPasscode: regStudentPasscode || 'student123',
+      temporaryPasscode: issuedPasscode,
       role: 'Student',
       department: regStudentCohort,
       email: regStudentEmail
@@ -837,7 +842,7 @@ export default function AdminDashboard({
     showRegistrationModal({
       name: staffName,
       idOrAdmissionNo: staffDesignation || 'STF-REG',
-      temporaryPasscode: autoGeneratePasscode ? 'auto-passcode' : (staffPasscode || 'staff123'),
+      temporaryPasscode: autoGeneratePasscode ? '(generated securely)' : staffPasscode.trim(),
       role: staffIsAccountant ? 'Finance / Accountant' : 'Lecturer / Faculty',
       department: 'Academic Staff',
       email: staffEmail
@@ -1690,7 +1695,7 @@ export default function AdminDashboard({
                   <input
                     id="reg-std-passcode"
                     type="password"
-                    placeholder="Default: student123"
+                    required
                     value={regStudentPasscode}
                     onChange={(e) => setRegStudentPasscode(e.target.value)}
                     className="w-full bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-750 rounded-lg p-2 text-xs focus:outline-hidden text-slate-850 dark:text-slate-100 font-mono"
