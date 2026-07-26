@@ -1,9 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { ShieldCheck, LockKeyhole, KeyRound, ArrowRight, Eye, EyeOff, CheckCircle2, AlertCircle } from 'lucide-react';
 import { UserRole } from '../types';
+import {
+  clearPendingPasswordChange,
+  getPendingPasswordChange,
+  pickLoginIdentifier,
+  rememberLogin
+} from '../authIdentity';
 
 interface ChangePasswordPageProps {
-  initialUserId?: string;
+  /** Login identifier (admission number / staff code / email) - not a profile UUID. */
+  initialIdentifier?: string;
   initialRole?: string;
   initialEmail?: string;
   onSuccess: (role: UserRole, userId: string) => void;
@@ -11,15 +18,20 @@ interface ChangePasswordPageProps {
 }
 
 export default function ChangePasswordPage({
-  initialUserId,
+  initialIdentifier,
   initialRole,
   initialEmail,
   onSuccess,
   onCancel
 }: ChangePasswordPageProps) {
-  const [userId, setUserId] = useState<string>('');
+  // The identifier used to authenticate this password change.
+  const [identifier, setIdentifier] = useState<string>('');
+  // Profile UUID carried through only so the caller can route to the right dashboard.
+  const [profileUserId, setProfileUserId] = useState<string>('');
   const [role, setRole] = useState<string>('student');
   const [email, setEmail] = useState<string>('');
+  // Set once, from the resolved login state: keeps the field visible while it is typed in.
+  const [needsIdentifierInput, setNeedsIdentifierInput] = useState<boolean>(false);
 
   const [currentPassword, setCurrentPassword] = useState<string>('');
   const [newPassword, setNewPassword] = useState<string>('');
@@ -34,30 +46,32 @@ export default function ChangePasswordPage({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   useEffect(() => {
-    let targetUserId = initialUserId;
+    let targetIdentifier = pickLoginIdentifier(initialIdentifier);
     let targetRole = initialRole;
     let targetEmail = initialEmail;
+    let targetProfileId = '';
 
-    if (!targetUserId || !targetRole) {
-      const pendingRaw = localStorage.getItem('zenti_pending_password_change');
-      if (pendingRaw) {
-        try {
-          const pending = JSON.parse(pendingRaw);
-          targetUserId = pending.userId;
-          targetRole = pending.role;
-          targetEmail = pending.email;
-        } catch (e) {
-          console.error("Failed to parse pending password change state:", e);
-        }
+    if (!targetIdentifier || !targetRole) {
+      const pending = getPendingPasswordChange();
+      if (pending) {
+        targetIdentifier = targetIdentifier || pending.identifier;
+        targetRole = targetRole || pending.role;
+        targetEmail = targetEmail || pending.email;
+        targetProfileId = pending.userId;
       }
     }
 
-    if (targetUserId) setUserId(targetUserId);
+    if (targetIdentifier) setIdentifier(targetIdentifier);
+    setNeedsIdentifierInput(!targetIdentifier);
     if (targetRole) setRole(targetRole);
     if (targetEmail) setEmail(targetEmail);
-  }, [initialUserId, initialRole, initialEmail]);
+    if (targetProfileId) setProfileUserId(targetProfileId);
+  }, [initialIdentifier, initialRole, initialEmail]);
 
   const validatePassword = () => {
+    if (!identifier.trim()) {
+      return 'Please enter your admission number, staff code or email.';
+    }
     if (!currentPassword) {
       return 'Please enter your current or default password.';
     }
@@ -97,7 +111,8 @@ export default function ChangePasswordPage({
         },
         body: JSON.stringify({
           role: role || 'student',
-          userId: userId,
+          // Authenticate with the login identifier, never the profile UUID.
+          userId: identifier.trim(),
           currentPassword: currentPassword,
           newPassword: newPassword,
         }),
@@ -113,12 +128,19 @@ export default function ChangePasswordPage({
       if (data.token) {
         localStorage.setItem('zenti_session_token', data.token);
       }
-      localStorage.removeItem('zenti_pending_password_change');
+      clearPendingPasswordChange();
+
+      // Remember the identifier that now owns the new password, so the login page offers
+      // the admission number / staff code / email back instead of a database UUID.
+      rememberLogin(
+        pickLoginIdentifier(data.username, identifier, data.email || email),
+        data.role || role
+      );
 
       setSuccessText('Password changed successfully! Redirecting to your dashboard...');
 
       setTimeout(() => {
-        onSuccess((data.role || role) as UserRole, data.userId || userId);
+        onSuccess((data.role || role) as UserRole, data.userId || profileUserId);
       }, 1200);
 
     } catch (err: any) {
@@ -150,11 +172,11 @@ export default function ChangePasswordPage({
             Your account was created with a default password. For account security, you must establish a custom password before continuing.
           </p>
           
-          {(role || userId) && (
+          {(role || identifier) && (
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-700/50 border border-slate-600/50 text-xs font-mono text-slate-300 mt-2">
               <span className="uppercase font-bold text-blue-400">{role}</span>
               <span className="text-slate-500">•</span>
-              <span>{email || userId}</span>
+              <span>{identifier || email}</span>
             </div>
           )}
         </div>
@@ -177,18 +199,18 @@ export default function ChangePasswordPage({
 
         {/* Password Form */}
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* User ID field if not set */}
-          {!userId && (
+          {/* Identifier field if it could not be resolved from the login step */}
+          {needsIdentifierInput && (
             <div>
               <label htmlFor="change-pass-userid" className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
-                User ID / Email / Admission No
+                Admission No / Staff Code / Email
               </label>
               <input
                 id="change-pass-userid"
                 type="text"
-                value={userId}
-                onChange={(e) => setUserId(e.target.value)}
-                placeholder="Enter your User ID or Email"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+                placeholder="e.g. ADM001 or your email"
                 required
                 className="w-full px-4 py-3 bg-slate-900/80 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:border-blue-500 transition-colors"
               />

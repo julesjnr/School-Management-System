@@ -83,7 +83,6 @@ export interface Lecturer {
   isActive?: boolean;
   isAccountant?: boolean;
   isLibrarian?: boolean;
-  passcode?: string;
 }
 
 export interface PayrollRecord {

@@ -544,9 +544,15 @@ export default function StudentAdmissionDossierStation({
 
                 <div className="space-y-3 text-xs">
                   <div className="flex justify-between items-center py-1">
-                    <span className="text-slate-450 font-bold">Portal Access Passcode</span>
+                    <span className="text-slate-450 font-bold">Portal Login Identifier</span>
                     <span className="font-mono bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-800 px-2 py-0.5 rounded text-[11px] font-black text-slate-800 dark:text-slate-200">
-                      {selectedStudent.passcode || 'student123'}
+                      {selectedStudent.admissionNo || selectedStudent.email}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-t border-slate-100 dark:border-slate-800">
+                    <span className="text-slate-450 font-bold">Portal Password</span>
+                    <span className="text-[11px] text-slate-450 font-semibold">
+                      Hashed in user accounts &mdash; use Reset Password
                     </span>
                   </div>
                   <div className="flex justify-between items-center py-1 border-t border-slate-100 dark:border-slate-800">

@@ -19,7 +19,6 @@ import ChangePasswordPage from './components/ChangePasswordPage';
 import StudentDashboard from './components/StudentDashboard';
 import LecturerDashboard from './components/LecturerDashboard';
 import AdminDashboard from './components/AdminDashboard';
-import LoginModal from './components/LoginModal';
 import Forbidden403 from './components/Forbidden403';
 import DashboardShowcase from './components/DashboardShowcase';
 import SessionTimeout from './components/SessionTimeout';
@@ -173,9 +172,6 @@ export default function App() {
   }, []);
 
   const [isBooting, setIsBooting] = useState<boolean>(true);
-  const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
-  const [loginAllowedPortals, setLoginAllowedPortals] = useState<('student' | 'lecturer' | 'accountant' | 'librarian' | 'admin')[]>(['student', 'lecturer', 'accountant', 'librarian', 'admin']);
-  const [loginInitialPortal, setLoginInitialPortal] = useState<'student' | 'lecturer' | 'accountant' | 'librarian' | 'admin'>('student');
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -965,7 +961,7 @@ Zenti Library Services`;
 
   // 10. NEW LECTURER REGISTRAR PROFILE
   const handleAddLecturer = async (
-  newLec: Omit<Lecturer, "id" | "loggedHours">
+  newLec: Omit<Lecturer, "id" | "loggedHours"> & { passcode?: string }
 ) => {
   try {
     const res = await fetch("/api/lecturers", {
@@ -1235,7 +1231,7 @@ Zenti Library Services`;
 
   // 15c. REGISTER NEW STUDENT
   const handleAddStudent = async (
-  newStud: Omit<Student, 'id' | 'enrolledUnits' | 'grades' | 'ledger' | 'payments' | 'attendance'>
+  newStud: Omit<Student, 'id' | 'enrolledUnits' | 'grades' | 'ledger' | 'payments' | 'attendance'> & { passcode?: string }
 ) => {
   try {
     const response = await fetch("/api/students", {

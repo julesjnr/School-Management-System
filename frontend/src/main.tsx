@@ -41,7 +41,14 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   }
 
   const response = await originalFetch(input, init);
-  if (response.status === 401) {
+
+  // A 401 from the auth endpoints themselves means "these credentials are wrong", not
+  // "your session expired" - let the login / change-password form surface its own error
+  // instead of tearing down the session and redirecting away from it.
+  const requestUrl = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  const isAuthEndpoint = typeof requestUrl === 'string' && requestUrl.includes('/api/auth/');
+
+  if (response.status === 401 && !isAuthEndpoint) {
     localStorage.removeItem("zenti_current_user_role");
     localStorage.removeItem("zenti_current_user_id");
     localStorage.removeItem("zenti_session_token");

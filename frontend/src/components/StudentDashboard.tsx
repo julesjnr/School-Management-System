@@ -327,9 +327,6 @@ export default function StudentDashboard({
         setPasscodeSuccess('Your access passcode has been updated successfully!');
         setCurrentPasscode('');
         setNewPasscode('');
-        if (onUpdateProfile) {
-          onUpdateProfile(student.id, { passcode: newPasscode });
-        }
       } else {
         setPasscodeError(data.error || 'Failed to update passcode. Verify credentials.');
       }

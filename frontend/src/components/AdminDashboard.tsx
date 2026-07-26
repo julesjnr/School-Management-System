@@ -40,8 +40,8 @@ interface AdminDashboardProps {
   onAddStockItem: (item: Omit<StockItem, 'id'>) => void;
   onUpdateStockQuantity: (itemId: string, increment: number) => void;
   onProcessRequisition: (requisitionId: string, status: 'approved' | 'rejected') => void;
-  onAddLecturer: (lecturer: Omit<Lecturer, 'id' | 'loggedHours'>) => void;
-  onAddStudent?: (student: Omit<Student, 'id' | 'enrolledUnits' | 'grades' | 'ledger' | 'payments' | 'attendance'>) => void;
+  onAddLecturer: (lecturer: Omit<Lecturer, 'id' | 'loggedHours'> & { passcode?: string }) => void;
+  onAddStudent?: (student: Omit<Student, 'id' | 'enrolledUnits' | 'grades' | 'ledger' | 'payments' | 'attendance'> & { passcode?: string }) => void;
   onDeleteLecturer?: (lecturerId: string) => void;
   onDeleteStudent?: (studentId: string) => void;
   onLogout: () => void;
@@ -332,18 +332,8 @@ export default function AdminDashboard({
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
-          // Trigger the parent props callbacks to update state across Zenti
-          const finalPass = data.request.temporaryPasscode || passcode || 'default123';
-          if (reqItem.role === 'student') {
-            if (onUpdateStudent) {
-              onUpdateStudent(reqItem.userId, { passcode: finalPass });
-            }
-          } else {
-            if (onUpdateLecturer) {
-              onUpdateLecturer(reqItem.userId, { passcode: finalPass });
-            }
-          }
-
+          // The temporary credential is written straight to the `users` table by the API.
+          // Profile records intentionally no longer carry a passcode field.
           logAudit(
             `Password reset request for ${reqItem.name} (${reqItem.role}) was ${action === 'approve' ? 'Approved' : 'Rejected'}`,
             'Authentication Access Control'

@@ -118,7 +118,6 @@ export interface Lecturer {
   isActive?: boolean;
   isAccountant?: boolean;
   isLibrarian?: boolean;
-  passcode?: string;
 }
 
 export interface PayrollRecord {
@@ -182,7 +181,6 @@ export interface Student {
   payments: Payment[];
   attendance?: Record<string, number>; // subjectCode -> Attendance percentage (e.g. 0-100)
   avatar?: string;
-  passcode?: string;
   accountStatus?: string;
   createdAt?: string;
 }

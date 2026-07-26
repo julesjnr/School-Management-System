@@ -249,9 +249,6 @@ export default function LecturerDashboard({
         setPasscodeSuccess('Your access passcode has been updated successfully!');
         setCurrentPasscode('');
         setNewPasscode('');
-        if (onUpdateProfile) {
-          onUpdateProfile(lecturer.id, { passcode: newPasscode });
-        }
       } else {
         setPasscodeError(data.error || 'Failed to update passcode. Verify credentials.');
       }

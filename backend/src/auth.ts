@@ -78,6 +78,10 @@ export interface UserAuthRecord {
 
 /**
  * Finds a user record in the `users` table using admission number, staff code, username, or email.
+ *
+ * The `role_id` / `uid` columns are matched as an internal fallback only (admin password
+ * resets and reset-requests look users up by profile id). Clients must always authenticate
+ * with a username / admission number / staff code / email - never a profile UUID.
  */
 export async function findUserByIdentifier(identifier: string, roleHint?: string): Promise<any | null> {
   if (!identifier) return null;
@@ -331,6 +335,7 @@ export async function authenticateUser(params: {
   status?: string;
   role?: string;
   userId?: string;
+  username?: string;
   email?: string;
   token?: string;
   profile?: any;
@@ -376,6 +381,8 @@ export async function authenticateUser(params: {
       success: true,
       status: "REQUIRES_PASSWORD_CHANGE",
       userId: profileId,
+      // The identifier the client must keep using to sign in / change the password.
+      username: user.username,
       role: userRole,
       email: user.email,
       message: "Password change is required on first login."
@@ -395,6 +402,7 @@ export async function authenticateUser(params: {
     success: true,
     role: userRole,
     userId: profileId,
+    username: user.username,
     email: user.email,
     token,
     profile: sanitizeProfile(profileObj)
@@ -417,6 +425,8 @@ export async function changeUserPassword(params: {
   token?: string;
   role?: string;
   userId?: string;
+  username?: string;
+  email?: string;
   profile?: any;
   error?: string;
 }> {
@@ -465,6 +475,9 @@ export async function changeUserPassword(params: {
     token,
     role: userRole,
     userId: profileId,
+    // Echo back the canonical login identifier so the client can remember it.
+    username: user.username,
+    email: user.email,
     profile: sanitizeProfile(profileObj)
   };
 }

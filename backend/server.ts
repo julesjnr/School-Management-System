@@ -3,6 +3,9 @@ dotenv.config({ override: true });
 import express from "express";
 import path from "path";
 import fs from "fs";
+import http from "http";
+import net from "net";
+import { execSync } from "child_process";
 import crypto from "crypto";
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
@@ -70,7 +73,7 @@ import {
 } from "./src/data";
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 // Set up larger limit for full state synchronizations
 app.use(express.json({ limit: "20mb" }));
@@ -1240,28 +1243,32 @@ function getDatabase() {
   return cachedDb || {};
 }
 
-// Helper to hash plain-text passcodes in memory before writing to DB
-function hashPasscodesInState(dbState: any) {
-  if (!dbState) return;
-  if (Array.isArray(dbState.students)) {
-    for (const s of dbState.students) {
-      if (s.passcode && typeof s.passcode === 'string' && !s.passcode.startsWith('$2b$') && !s.passcode.startsWith('$2a$') && !s.passcode.startsWith('$2y$')) {
-        s.passcode = bcrypt.hashSync(s.passcode, 10);
-      }
+/**
+ * Drops the obsolete `passcode` field from profile records before anything is persisted.
+ * Authentication moved to the `users` table and the column was dropped from `students` /
+ * `lecturers`, so a stray passcode is only a way to leak or resurrect a stale credential.
+ */
+function stripLegacyProfilePasscodes(dbState: any) {
+  if (!dbState) return dbState;
+  for (const key of ['students', 'lecturers']) {
+    if (Array.isArray(dbState[key])) {
+      dbState[key] = dbState[key].map((record: any) => {
+        if (record && 'passcode' in record) {
+          const { passcode: _legacyPasscode, ...rest } = record;
+          return rest;
+        }
+        return record;
+      });
     }
   }
-  if (Array.isArray(dbState.lecturers)) {
-    for (const l of dbState.lecturers) {
-      if (l.passcode && typeof l.passcode === 'string' && !l.passcode.startsWith('$2b$') && !l.passcode.startsWith('$2a$') && !l.passcode.startsWith('$2y$')) {
-        l.passcode = bcrypt.hashSync(l.passcode, 10);
-      }
-    }
-  }
+  return dbState;
 }
 
 // Helper to save database state
 function saveDatabase(dbState: any) {
-  hashPasscodesInState(dbState);
+  // Credentials live exclusively in the `users` table; the profile tables no longer carry
+  // a `passcode` column, so nothing password-related is hashed or persisted from here.
+  dbState = stripLegacyProfilePasscodes(dbState);
   dbState = sanitizeStateIds(dbState);
   cachedDb = dbState;
   
@@ -1357,6 +1364,11 @@ function authenticateJWT(req: any, res: any, next: any) {
 const publicAPIPaths = [
   "/api/health",
   "/api/auth/login",
+  // Forced first-login password changes happen before any token is issued, so this
+  // endpoint cannot sit behind the JWT gate. It authenticates the caller itself by
+  // verifying the current password before writing a new one.
+  "/api/auth/change-password",
+  "/api/auth/change-passcode",
   "/api/auth/reset-request",
   "/api/auth/reset-requests",
   "/api/data",
@@ -1577,8 +1589,7 @@ app.post("/api/supabase/sync", async (req, res) => {
         designator_code: l.designatorCode || l.designator_code || `LEC-${Math.floor(100 + Math.random() * 900)}`,
         bio: l.bio || "",
         avatar: l.avatar || "",
-        is_active: l.isActive !== false,
-        passcode: l.passcode || "lecturer123"
+        is_active: l.isActive !== false
       }));
       const { error: err } = await supabase.from('lecturers').upsert(lecturersToSync, { onConflict: 'email' });
       if (err) throw new Error(`Lecturers sync error: ${err.message}`);
@@ -1592,8 +1603,7 @@ app.post("/api/supabase/sync", async (req, res) => {
         phone: s.phone || "+254799000111",
         admission_no: s.admissionNo || s.admission_no || `ED-CS-2026-${Math.floor(100 + Math.random() * 900)}`,
         cohort: s.cohort || "2026 Cohort",
-        avatar: s.avatar || "",
-        passcode: s.passcode || "student123"
+        avatar: s.avatar || ""
       }));
       const { error: err } = await supabase.from('students').upsert(studentsToSync, { onConflict: 'email' });
       if (err) throw new Error(`Students sync error: ${err.message}`);
@@ -1811,6 +1821,7 @@ app.post("/api/auth/login", async (req: any, res: any) => {
         success: true,
         status: "REQUIRES_PASSWORD_CHANGE",
         userId: result.userId,
+        username: result.username,
         role: result.role,
         email: result.email,
         message: result.message
@@ -1822,6 +1833,8 @@ app.post("/api/auth/login", async (req: any, res: any) => {
       success: true,
       role: result.role,
       userId: result.userId,
+      username: result.username,
+      email: result.email,
       token: result.token,
       profile: result.profile
     });
@@ -1854,7 +1867,10 @@ app.post(["/api/auth/change-password", "/api/auth/change-passcode"], async (req:
     });
 
     if (!result.success) {
-      res.status(401).json({ success: false, error: result.error });
+      // 400, not 401: a wrong current password is a validation failure on this form, not an
+      // expired session. A 401 here would trip the client's global session-expiry handler
+      // and bounce the user to the login page before they can read the error.
+      res.status(400).json({ success: false, error: result.error });
       return;
     }
 
@@ -3201,14 +3217,26 @@ app.post("/api/students/:id/reset-password", async (req, res) => {
       return res.status(404).json({ error: "Student not found" });
     }
 
-    // Generate a temporary, single-use activation credential passcode
+    const student = dbVal.students[studentIdx];
+
+    // Generate a temporary, single-use activation credential and write it to the `users`
+    // table - the only place credentials live. Writing it onto the student profile (as this
+    // route used to) hit a dropped column, so the generated passcode never worked.
     const temporaryPasscode = "ZENTI-" + Math.floor(100000 + Math.random() * 900000).toString();
+    const resetResult = await adminResetUserPassword(
+      student.admissionNo || student.email || studentId,
+      temporaryPasscode
+    );
 
-    // Update in memory cache and flag as pending setup
-    dbVal.students[studentIdx].passcode = temporaryPasscode;
+    if (!resetResult.success) {
+      return res.status(404).json({
+        success: false,
+        error: resetResult.error || "No user account is linked to this student profile."
+      });
+    }
+
+    // Flag the profile as awaiting first-login setup
     dbVal.students[studentIdx].accountStatus = "Pending Setup";
-
-    // Save database (hashes passcode automatically and writes to PG / fallback)
     saveDatabase(dbVal);
 
     res.status(200).json({
@@ -3691,50 +3719,189 @@ app.post("/api/gate-logs", async (req, res) => {
 });
 
 // ==========================================
-// VITE CLIENT INTEGRATION MIDDLEWARE
+// HTTP LISTENER LIFECYCLE (single instance)
 // ==========================================
 
-async function startServer() {
-  // Initialize the PostgreSQL database state (or fallback store if offline)
-  await initPostgresDB();
-  const dbStateForAuth = getDatabase();
-  await migrateAuthSchemaAndData(dbStateForAuth);
+/** Exactly one HTTP server per process. Hot-reload closes this before exit. */
+let httpServer: http.Server | null = null;
+/** Prevents overlapping startServer() calls in the same process. */
+let startupPromise: Promise<void> | null = null;
+let isShuttingDown = false;
+let shutdownHandlersRegistered = false;
 
-  if (process.env.NODE_ENV !== "production") {
-    console.log("Backend API server running in development mode (port " + PORT + ")");
-  } else {
-    // Production Mode: Serve compiled static frontend bundle from frontend workspace
-    const distPath = path.resolve(process.cwd(), "../frontend/dist");
-    if (fs.existsSync(distPath)) {
-      app.use(express.static(distPath));
-      app.get("*", (req, res) => {
-        res.sendFile(path.join(distPath, "index.html"));
-      });
-      console.log("Production static build routing loaded from " + distPath);
-    } else {
-      app.get("/", (req, res) => {
-        res.json({ message: "Zenti School Portal Backend API is running." });
-      });
-      console.log("Production mode: frontend build directory not found, serving API only");
+function describePortOccupant(port: number): string {
+  try {
+    const out = execSync(
+      `ss -tlnp "sport = :${port}" 2>/dev/null || lsof -nP -iTCP:${port} -sTCP:LISTEN 2>/dev/null || true`,
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+    ).trim();
+    return out || "(unable to identify process)";
+  } catch {
+    return "(unable to identify process)";
+  }
+}
+
+function isPortFree(port: number, host = "0.0.0.0"): Promise<boolean> {
+  return new Promise((resolve) => {
+    const tester = net
+      .createServer()
+      .once("error", () => resolve(false))
+      .once("listening", () => {
+        tester.close(() => resolve(true));
+      })
+      .listen(port, host);
+  });
+}
+
+/** Wait briefly so a previous watcher process can release the port after SIGTERM. */
+async function waitForPortFree(port: number, attempts = 20, delayMs = 150): Promise<boolean> {
+  for (let i = 0; i < attempts; i++) {
+    if (await isPortFree(port)) return true;
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  return false;
+}
+
+async function closeHttpServer(): Promise<void> {
+  if (!httpServer) return;
+  const server = httpServer;
+  httpServer = null;
+  await new Promise<void>((resolve) => {
+    server.close(() => resolve());
+    if (typeof server.closeAllConnections === "function") {
+      server.closeAllConnections();
     }
+  });
+}
+
+function registerShutdownHandlers() {
+  if (shutdownHandlersRegistered) return;
+  shutdownHandlersRegistered = true;
+
+  const shutdown = async (signal: string) => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    console.log(
+      `Received ${signal}; closing HTTP listener (pid=${process.pid}, port=${PORT})`
+    );
+    try {
+      await closeHttpServer();
+      console.log(`HTTP listener closed gracefully (pid=${process.pid})`);
+    } catch (err) {
+      console.error(`Error while closing HTTP listener:`, err);
+    }
+    process.exit(0);
+  };
+
+  process.once("SIGTERM", () => void shutdown("SIGTERM"));
+  process.once("SIGINT", () => void shutdown("SIGINT"));
+}
+
+async function bindHttpServer(): Promise<"newly-started" | "reused"> {
+  let mode: "newly-started" | "reused" = "newly-started";
+
+  if (httpServer?.listening) {
+    console.log(
+      `Existing in-process listener found — closing before rebind (pid=${process.pid}, port=${PORT})`
+    );
+    await closeHttpServer();
+    mode = "reused";
   }
 
-  if (!process.env.VERCEL) {
-    const serverInstance = app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server is running on port ${PORT}`);
-    });
-    serverInstance.on("error", (err: any) => {
+  const free = await waitForPortFree(PORT);
+  if (!free) {
+    const occupant = describePortOccupant(PORT);
+    console.error(
+      `Port ${PORT} is occupied by a stale or external process. Refusing to start a second listener.`
+    );
+    console.error(`Occupant:\n${occupant}`);
+    console.error(
+      `Fix: stop that process, then retry. Example: fuser -k ${PORT}/tcp`
+    );
+    process.exit(1);
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const server = app.listen(PORT, "0.0.0.0", () => resolve());
+    httpServer = server;
+    server.once("error", (err: NodeJS.ErrnoException) => {
+      httpServer = null;
       if (err.code === "EADDRINUSE") {
-        console.error(`Port ${PORT} is already in use by another process (EADDRINUSE).`);
-      } else {
-        console.error("Server listener error:", err);
+        const occupant = describePortOccupant(PORT);
+        console.error(
+          `Port ${PORT} became busy during bind (EADDRINUSE). Another process owns the port.`
+        );
+        console.error(`Occupant:\n${occupant}`);
+        console.error(
+          `Fix: stop that process, then retry. Example: fuser -k ${PORT}/tcp`
+        );
       }
+      reject(err);
     });
+  });
+
+  return mode;
+}
+
+async function startServer() {
+  // Idempotent: concurrent callers share one startup chain.
+  if (startupPromise) {
+    console.log(
+      `Startup already in progress — awaiting existing startup (pid=${process.pid}, port=${PORT})`
+    );
+    return startupPromise;
+  }
+
+  startupPromise = (async () => {
+    // Initialize the PostgreSQL database state (or fallback store if offline)
+    await initPostgresDB();
+    const dbStateForAuth = getDatabase();
+    await migrateAuthSchemaAndData(dbStateForAuth);
+
+    if (process.env.NODE_ENV !== "production") {
+      console.log(
+        `Development mode ready (pid=${process.pid}, port=${PORT})`
+      );
+    } else {
+      // Production Mode: Serve compiled static frontend bundle from frontend workspace
+      const distPath = path.resolve(process.cwd(), "../frontend/dist");
+      if (fs.existsSync(distPath)) {
+        app.use(express.static(distPath));
+        app.get("*", (req, res) => {
+          res.sendFile(path.join(distPath, "index.html"));
+        });
+        console.log("Production static build routing loaded from " + distPath);
+      } else {
+        app.get("/", (req, res) => {
+          res.json({ message: "Zenti School Portal Backend API is running." });
+        });
+        console.log("Production mode: frontend build directory not found, serving API only");
+      }
+    }
+
+    if (process.env.VERCEL) {
+      console.log(`Vercel mode — skipping app.listen (pid=${process.pid})`);
+      return;
+    }
+
+    registerShutdownHandlers();
+    const startMode = await bindHttpServer();
+    console.log(
+      `${startMode === "reused" ? "Listener reused" : "Newly started"} | pid=${process.pid} | port=${PORT}`
+    );
+  })();
+
+  try {
+    await startupPromise;
+  } catch (err) {
+    startupPromise = null;
+    throw err;
   }
 }
 
 startServer().catch((err) => {
   console.error("Failed to start server:", err);
+  process.exit(1);
 });
 
 export default app;

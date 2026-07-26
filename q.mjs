@@ -1,0 +1,10 @@
+import pg from 'pg';
+const c = new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+await c.connect();
+const r = await c.query(`SELECT id, uid, username, email, role, role_id, is_active, must_change_password, left(password_hash,7) AS hp, updated_at FROM users ORDER BY id`);
+console.table(r.rows);
+const s = await c.query(`SELECT id, admission_no, email, account_status FROM students ORDER BY created_at`);
+console.table(s.rows);
+const cols = await c.query(`SELECT table_name, column_name FROM information_schema.columns WHERE table_name IN ('students','lecturers') AND column_name IN ('passcode','must_change_password')`);
+console.table(cols.rows);
+await c.end();

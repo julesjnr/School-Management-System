@@ -1,11 +1,19 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  ShieldCheck, User, Users, GraduationCap, ArrowRight, X, 
-  Library, LockKeyhole, Landmark, ChevronRight, HelpCircle, 
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  ShieldCheck, User, Users, GraduationCap, ArrowRight, X,
+  Library, LockKeyhole, Landmark, ChevronRight, HelpCircle,
   BookOpen, Calculator, Sparkles, KeyRound, School
 } from 'lucide-react';
 import { Student, Lecturer, UserRole } from '../types';
 import PasswordRecoveryModal from './PasswordRecoveryModal';
+import {
+  clearPendingPasswordChange,
+  forgetRememberedLogin,
+  getRememberedLogin,
+  pickLoginIdentifier,
+  rememberLogin,
+  setPendingPasswordChange
+} from '../authIdentity';
 
 interface LoginPageProps {
   students: Student[];
@@ -40,68 +48,71 @@ export default function LoginPage({
   onClose,
   infoMessage
 }: LoginPageProps) {
-  const [activePortal, setActivePortal] = useState<ExtendedRole>('student');
-  const [selectedUser, setSelectedUser] = useState<string>('');
-  const [emailText, setEmailText] = useState<string>('');
+  const rememberedLogin = useRef(getRememberedLogin()).current;
+
+  const [activePortal, setActivePortal] = useState<ExtendedRole>(
+    () => (rememberedLogin?.role as ExtendedRole) || 'student'
+  );
+  const [selectedUser, setSelectedUser] = useState<string>(() => rememberedLogin?.identifier || '');
   const [passcode, setPasscode] = useState<string>('');
-  const [rememberMe, setRememberMe] = useState<boolean>(true);
+  const [rememberMe, setRememberMe] = useState<boolean>(() => !!rememberedLogin);
   const [errorText, setErrorText] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isRecoveryMode, setIsRecoveryMode] = useState<boolean>(false);
 
-  const autoSelectUserForPortal = (portal: ExtendedRole) => {
-    if (portal === 'student' && students.length > 0) {
-      setSelectedUser(students[0].id);
-      setEmailText(students[0].email || '');
-      setPasscode('student123');
-    } else if (portal === 'lecturer' && lecturers.length > 0) {
-      const standardLec = lecturers.find(l => !l.isAccountant && !l.isLibrarian) || lecturers[0];
-      setSelectedUser(standardLec.id);
-      setEmailText(standardLec.email || '');
-      setPasscode('lecturer123');
-    } else if (portal === 'accountant') {
-      const accountantLec = lecturers.find(l => l.isAccountant) || lecturers[0];
-      if (accountantLec) {
-        setSelectedUser(accountantLec.id);
-        setEmailText(accountantLec.email || '');
-      }
-      setPasscode('acc123');
-    } else if (portal === 'librarian') {
-      const librarianLec = lecturers.find(l => l.isLibrarian) || lecturers.find(l => l.id === 'l3') || lecturers[0];
-      if (librarianLec) {
-        setSelectedUser(librarianLec.id);
-        setEmailText(librarianLec.email || '');
-      }
-      setPasscode('lib123');
-    } else if (portal === 'admin') {
-      setSelectedUser('admin');
-      setEmailText('admin@zenti.edu');
-      setPasscode('admin123');
-    }
+  // Once the user types, demo prefills must never overwrite their input. The roster props
+  // are replaced on every /api/data refresh, so the prefill effect below re-runs often.
+  const hasTypedIdentifier = useRef<boolean>(!!rememberedLogin);
+  const hasTypedPasscode = useRef<boolean>(false);
+
+  const defaultPasscodes: Record<ExtendedRole, string> = {
+    student: 'student123',
+    lecturer: 'lecturer123',
+    accountant: 'acc123',
+    librarian: 'lib123',
+    admin: 'admin123'
   };
 
+  /**
+   * The demo login identifier for a portal: an admission number, staff designator code or
+   * email. Never `Student.id` / `Lecturer.id` - those are database UUIDs, not credentials.
+   */
+  const defaultIdentifierForPortal = (portal: ExtendedRole): string => {
+    if (portal === 'admin') return 'admin';
+
+    if (portal === 'student') {
+      const profile = students[0];
+      return profile ? pickLoginIdentifier(profile.admissionNo, profile.email) : '';
+    }
+
+    const staffProfile =
+      portal === 'accountant' ? lecturers.find(l => l.isAccountant) :
+      portal === 'librarian' ? lecturers.find(l => l.isLibrarian) :
+      lecturers.find(l => !l.isAccountant && !l.isLibrarian);
+    const profile = staffProfile || lecturers[0];
+    return profile ? pickLoginIdentifier(profile.designatorCode, profile.email) : '';
+  };
+
+  // Prefill the demo credentials, but only while both fields are still untouched.
   useEffect(() => {
-    autoSelectUserForPortal(activePortal);
+    if (!hasTypedIdentifier.current) {
+      const fallbackIdentifier = defaultIdentifierForPortal(activePortal);
+      if (fallbackIdentifier) setSelectedUser(fallbackIdentifier);
+    }
+    if (!hasTypedPasscode.current) {
+      // A returning user has their own password, so don't suggest the role default.
+      setPasscode(rememberedLogin ? '' : defaultPasscodes[activePortal]);
+    }
   }, [students, lecturers, activePortal]);
 
   const handlePortalSwitch = (portal: ExtendedRole) => {
+    // Switching portal is an explicit reset, so demo prefills apply again.
+    hasTypedIdentifier.current = false;
+    hasTypedPasscode.current = false;
     setActivePortal(portal);
     setErrorText('');
-    autoSelectUserForPortal(portal);
-  };
-
-  // Sync email text field when selected profile dropdown changes
-  const handleUserSelectChange = (userId: string) => {
-    setSelectedUser(userId);
-    setErrorText('');
-    
-    if (activePortal === 'student') {
-      const profile = students.find(s => s.id === userId);
-      if (profile) setEmailText(profile.email);
-    } else {
-      const profile = lecturers.find(l => l.id === userId);
-      if (profile) setEmailText(profile.email);
-    }
+    setSelectedUser(defaultIdentifierForPortal(portal));
+    setPasscode(rememberedLogin ? '' : defaultPasscodes[portal]);
   };
 
   const portalConfigs: Record<ExtendedRole, RolePortalConfig> = {
@@ -223,9 +234,11 @@ export default function LoginPage({
       return;
     }
 
+    const submittedIdentifier = activePortal === 'admin' ? 'admin' : selectedUser.trim();
+
     // Invalidate stale local sessions before starting a new authentication request
     localStorage.removeItem('zenti_session_token');
-    localStorage.removeItem('zenti_pending_password_change');
+    clearPendingPasswordChange();
 
     setIsSubmitting(true);
 
@@ -236,7 +249,7 @@ export default function LoginPage({
       },
       body: JSON.stringify({
         role: activePortal,
-        userId: activePortal === 'admin' ? 'admin' : selectedUser.trim(),
+        userId: submittedIdentifier,
         passcode: passcode,
       }),
     })
@@ -255,19 +268,31 @@ export default function LoginPage({
       })
       .then((data) => {
         if (data.success) {
+          // The identifier the account is actually keyed on: the server's `username`
+          // (admission number / staff code), falling back to what was typed. `data.userId`
+          // is the profile UUID and must never be used as a login identifier.
+          const canonicalIdentifier = pickLoginIdentifier(data.username, submittedIdentifier, data.email);
+
+          if (rememberMe) {
+            rememberLogin(canonicalIdentifier, data.role || activePortal);
+          } else {
+            forgetRememberedLogin();
+          }
+
           if (data.status === 'REQUIRES_PASSWORD_CHANGE') {
-            localStorage.setItem('zenti_pending_password_change', JSON.stringify({
+            setPendingPasswordChange({
+              identifier: canonicalIdentifier,
               userId: data.userId,
               role: data.role,
               email: data.email
-            }));
+            });
             window.history.pushState({}, '', '/change-password');
             window.dispatchEvent(new Event('popstate'));
             return;
           }
 
           localStorage.setItem('zenti_session_token', data.token);
-          
+
           if (data.role === 'lecturer' && data.profile?.isAccountant) {
             onLogin('accountant', data.userId);
           } else {
@@ -292,24 +317,6 @@ export default function LoginPage({
       case 'accountant': return <Landmark className={size} />;
       case 'librarian': return <BookOpen className={size} />;
       case 'admin': return <LockKeyhole className={size} />;
-    }
-  };
-
-  const getActiveOptions = () => {
-    switch (activePortal) {
-      case 'student':
-        return students.map(s => ({ id: s.id, name: s.name, extra: s.admissionNo }));
-      case 'lecturer':
-        return lecturers.filter(l => !l.isAccountant && !l.isLibrarian).map(l => ({ id: l.id, name: l.name, extra: l.designatorCode }));
-      case 'accountant':
-        return lecturers.filter(l => l.isAccountant).map(l => ({ id: l.id, name: l.name, extra: l.designatorCode }));
-      case 'librarian':
-        return (lecturers.filter(l => l.isLibrarian).length > 0 
-          ? lecturers.filter(l => l.isLibrarian) 
-          : [lecturers.find(l => l.id === 'l3') || lecturers[0]].filter(Boolean) as Lecturer[]
-        ).map(l => ({ id: l.id, name: l.name, extra: l.designatorCode }));
-      default:
-        return [];
     }
   };
 
@@ -485,10 +492,11 @@ export default function LoginPage({
                     required
                     value={selectedUser}
                     onChange={(e) => {
+                      hasTypedIdentifier.current = true;
                       setSelectedUser(e.target.value);
                       setErrorText('');
                     }}
-                    placeholder={activePortal === 'student' ? 'e.g. CSC6/0639/24 or email' : 'e.g. LEC-402 or email'}
+                    placeholder={activePortal === 'student' ? 'e.g. ADM001 or email' : 'e.g. STF-2026-001 or email'}
                     className="w-full bg-white dark:bg-slate-850 dark:text-slate-100 border border-slate-200 dark:border-slate-800 rounded-xl pl-10 pr-3 py-3 text-xs text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 shadow-2xs font-medium"
                   />
                 </div>
@@ -501,14 +509,16 @@ export default function LoginPage({
                 <label htmlFor="login-password-field" className="block text-xs font-bold text-slate-550 dark:text-slate-400 uppercase tracking-wider">
                   Portal Passcode
                 </label>
-                <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase font-medium">Auto-prefilled for demo</span>
+                {!rememberedLogin && (
+                  <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase font-medium">Auto-prefilled for demo</span>
+                )}
               </div>
               <div className="relative">
                 <input
                   id="login-password-field"
                   type="password"
                   value={passcode}
-                  onChange={(e) => { setPasscode(e.target.value); setErrorText(''); }}
+                  onChange={(e) => { hasTypedPasscode.current = true; setPasscode(e.target.value); setErrorText(''); }}
                   placeholder="Enter passcode"
                   className="w-full bg-white dark:bg-slate-850 dark:text-slate-100 border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-xs text-slate-850 focus:outline-hidden focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 font-mono shadow-2xs"
                   required
