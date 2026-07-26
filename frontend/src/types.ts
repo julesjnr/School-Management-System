@@ -166,6 +166,7 @@ export interface PayrollPeriod {
 export interface Grade {
   cat: number;   // Max 30
   exam: number;  // Max 70
+  gradedAt?: string;
 }
 
 export interface Student {
@@ -417,4 +418,112 @@ export interface AttendanceSession {
   subjectCode: string;
   presentStudents: string[];
   absentStudents: string[];
+  lecturerId?: string;
 }
+
+export interface TeachingSessionRecord {
+  id: string;
+  date: string;
+  courseCode: string;
+  topic: string;
+  hours: number;
+  time?: string;
+  status: 'Pending' | 'Approved';
+}
+
+export interface LecturerAssignedSubject {
+  code: string;
+  title: string;
+  label: string;
+}
+
+export interface LecturerNextClass {
+  subjectCode: string;
+  subjectTitle: string;
+  room: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+}
+
+export interface LecturerDashboardTask {
+  id: string;
+  title: string;
+  detail: string;
+  priority: 'high' | 'normal' | 'done';
+  type: string;
+  completed?: boolean;
+}
+
+export interface LecturerDashboardSummary {
+  lecturerId: string;
+  name: string;
+  email: string;
+  designatorCode: string;
+  assignedSubjectsCount: number;
+  assignedSubjects: LecturerAssignedSubject[];
+  loggedHours: number;
+  hourlyRate: number;
+  rateSource: 'lecturer' | 'academic_rank' | 'default';
+  estimatedPayout: number;
+  nextClass: LecturerNextClass | null;
+  weeklyHours: Array<{ name: string; hours: number; weekStart: string }>;
+  syllabusCoverage: {
+    percent: number | null;
+    completedSessions: number;
+    plannedTopics: number;
+    note: string;
+  };
+  tasks: LecturerDashboardTask[];
+  recentSessions: TeachingSessionRecord[];
+}
+
+/** Teaching-safe student profile for lecturer Student Lookup (no auth/finance ledger). */
+export interface LecturerStudentLookupUnit {
+  code: string;
+  title: string;
+  faculty: string | null;
+  isMyClass: boolean;
+  attendanceRate: number | null;
+  grade: {
+    cat: number;
+    exam: number;
+    total: number;
+    letter: string;
+    gradedAt?: string;
+  } | null;
+}
+
+export interface LecturerAdvisorNote {
+  id: string;
+  day: string;
+  timeSlot: string;
+  notes: string;
+  lecturerName?: string;
+}
+
+export interface LecturerStudentLookup {
+  id: string;
+  name: string;
+  admissionNo: string;
+  avatar: string | null;
+  cohort: string;
+  course: string;
+  department: string | null;
+  yearOfStudy: number | null;
+  semester: string | null;
+  financeStatus: 'Finance Cleared' | 'Finance Hold';
+  gpa: number | null;
+  academicStanding: string;
+  registeredUnits: LecturerStudentLookupUnit[];
+  advisorNotes: LecturerAdvisorNote[];
+}
+
+export interface LecturerStudentDirectoryItem {
+  id: string;
+  name: string;
+  admissionNo: string;
+  cohort: string;
+  avatar: string | null;
+}
+

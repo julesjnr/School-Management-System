@@ -535,7 +535,8 @@ export default function StudentAdmissionDossierStation({
             {/* RIGHT SIDEBAR PANEL: CONTEXTUAL STUDENT TELEMETRY */}
             <div className="lg:col-span-4 space-y-6">
               
-              {/* Quick Profile Summary Badge */}
+              {/* Quick Profile Summary Badge — admin/accountant/librarian only for auth & finance detail */}
+              {(role === 'admin' || role === 'accountant' || role === 'librarian') ? (
               <div className="bg-white dark:bg-slate-850 rounded-xl border border-slate-200 dark:border-slate-800 p-5 space-y-4 shadow-3xs">
                 <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 border-b border-slate-150 dark:border-slate-800 pb-2.5">
                   <User className="w-4 h-4 text-slate-500" />
@@ -561,36 +562,88 @@ export default function StudentAdmissionDossierStation({
                       {selectedStudent.enrolledUnits.length} Classes
                     </span>
                   </div>
-                  <div className="flex justify-between items-center py-1 border-t border-slate-100 dark:border-slate-800">
-                    <span className="text-slate-450 font-bold">Invoiced Amount</span>
-                    <span className="font-bold text-slate-800 dark:text-slate-200 font-mono">
-                      KES {totalInvoiced.toLocaleString()}
+                  {(role === 'admin' || role === 'accountant') && (
+                    <>
+                      <div className="flex justify-between items-center py-1 border-t border-slate-100 dark:border-slate-800">
+                        <span className="text-slate-450 font-bold">Invoiced Amount</span>
+                        <span className="font-bold text-slate-800 dark:text-slate-200 font-mono">
+                          KES {totalInvoiced.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center py-1 border-t border-slate-100 dark:border-slate-800">
+                        <span className="text-slate-450 font-bold">Pending Outstanding Balance</span>
+                        <span className={`font-mono font-bold ${outstandingDebt > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                          KES {outstandingDebt.toLocaleString()}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+              ) : role === 'lecturer' ? (
+              <div className="bg-white dark:bg-slate-850 rounded-xl border border-slate-200 dark:border-slate-800 p-5 space-y-3 shadow-3xs">
+                <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 border-b border-slate-150 dark:border-slate-800 pb-2.5">
+                  <User className="w-4 h-4 text-slate-500" />
+                  Academic Snapshot
+                </h4>
+                <div className="space-y-3 text-xs">
+                  <div className="flex justify-between items-center py-1">
+                    <span className="text-slate-450 font-bold">Registered Units</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-200">
+                      {selectedStudent.enrolledUnits.length}
                     </span>
                   </div>
                   <div className="flex justify-between items-center py-1 border-t border-slate-100 dark:border-slate-800">
-                    <span className="text-slate-450 font-bold">Pending Outstanding Balance</span>
-                    <span className={`font-mono font-bold ${outstandingDebt > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                      KES {outstandingDebt.toLocaleString()}
+                    <span className="text-slate-450 font-bold">Finance Status</span>
+                    <span className={`font-bold ${outstandingDebt > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                      {outstandingDebt > 0 ? 'Finance Hold' : 'Finance Cleared'}
                     </span>
                   </div>
                 </div>
               </div>
+              ) : (
+              <div className="bg-white dark:bg-slate-850 rounded-xl border border-slate-200 dark:border-slate-800 p-5 space-y-3 shadow-3xs">
+                <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 border-b border-slate-150 dark:border-slate-800 pb-2.5">
+                  <User className="w-4 h-4 text-slate-500" />
+                  Roster Check
+                </h4>
+                <div className="flex justify-between items-center py-1 text-xs">
+                  <span className="text-slate-450 font-bold">Registered Units</span>
+                  <span className="font-bold text-slate-800 dark:text-slate-200">
+                    {selectedStudent.enrolledUnits.length} Classes
+                  </span>
+                </div>
+              </div>
+              )}
 
-              {/* Notice card */}
+              {/* Notice card — not shown to lecturers */}
+              {role !== 'lecturer' && (
               <div className="bg-slate-50 dark:bg-slate-850 rounded-xl border border-slate-150 p-4 space-y-2 text-xs leading-relaxed text-slate-600">
                 <div className="flex items-center gap-1.5 text-slate-750 font-bold">
                   <AlertCircle className="w-4 h-4 text-indigo-500 shrink-0" />
-                  <span>Dossier Synchronization</span>
+                  <span>Record Notice</span>
                 </div>
                 <p className="text-[11px] text-slate-500">
-                  Information displayed inside this station represents active system records. Student registry and fee payment adjustments are managed by Accountant or Admin workflows.
+                  Information displayed represents active system records. Fee adjustments are managed by Accountant or Admin workflows.
                 </p>
               </div>
+              )}
 
             </div>
 
           </div>
 
+        </div>
+      ) : role === 'lecturer' && currentLecturer ? (
+        <div className="border border-dashed border-violet-200 dark:border-violet-900/40 rounded-2xl p-6 bg-violet-50/40 dark:bg-violet-950/10 space-y-3">
+          <User className="w-10 h-10 text-violet-400 mx-auto" />
+          <h4 className="text-xs uppercase font-bold text-violet-700 dark:text-violet-300 tracking-wider text-center">
+            Faculty Lookup Ready
+          </h4>
+          <p className="text-xs text-slate-500 max-w-md mx-auto text-center">
+            Signed in as <span className="font-bold text-slate-700 dark:text-slate-200">{currentLecturer.name}</span>
+            {' '}({currentLecturer.designatorCode}). Search an admission number above when you need a student dossier — no student profile is required for your workstation.
+          </p>
         </div>
       ) : (
         /* Empty Search State */

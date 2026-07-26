@@ -701,5 +701,77 @@ export const taxRates = pgTable("tax_rates", {
 	ratePercentage: numeric("rate_percentage", { precision: 5, scale: 2 }).notNull(),
 });
 
+/** Logged teaching hours for payroll and analytics */
+export const teachingSessions = pgTable("teaching_sessions", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	lecturerId: uuid("lecturer_id").notNull(),
+	subjectCode: varchar("subject_code", { length: 30 }).notNull(),
+	topic: text().notNull(),
+	durationHours: numeric("duration_hours", { precision: 6, scale: 2 }).notNull(),
+	sessionDate: date("session_date").notNull(),
+	sessionTime: varchar("session_time", { length: 20 }).default('09:00').notNull(),
+	status: varchar({ length: 20 }).default('Pending').notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("idx_teaching_sessions_lecturer").using("btree", table.lecturerId.asc().nullsLast().op("uuid_ops")),
+	index("idx_teaching_sessions_date").using("btree", table.sessionDate.desc().nullsLast().op("date_ops")),
+	foreignKey({
+		columns: [table.lecturerId],
+		foreignColumns: [lecturers.id],
+		name: "teaching_sessions_lecturer_id_fkey",
+	}).onDelete("cascade"),
+	check("teaching_sessions_duration_check", sql`duration_hours > (0)::numeric`),
+	check("teaching_sessions_status_check", sql`(status)::text = ANY ((ARRAY['Pending'::character varying, 'Approved'::character varying])::text[])`),
+]);
 
+/** Timetable / class roster entries for assigned subjects */
+export const lectureSchedules = pgTable("lecture_schedules", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	lecturerId: uuid("lecturer_id").notNull(),
+	subjectCode: varchar("subject_code", { length: 30 }).notNull(),
+	room: varchar({ length: 100 }).notNull(),
+	sessionDate: date("session_date").notNull(),
+	startTime: varchar("start_time", { length: 20 }).notNull(),
+	endTime: varchar("end_time", { length: 20 }).notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("idx_lecture_schedules_lecturer").using("btree", table.lecturerId.asc().nullsLast().op("uuid_ops")),
+	index("idx_lecture_schedules_date").using("btree", table.sessionDate.asc().nullsLast().op("date_ops")),
+	foreignKey({
+		columns: [table.lecturerId],
+		foreignColumns: [lecturers.id],
+		name: "lecture_schedules_lecturer_id_fkey",
+	}).onDelete("cascade"),
+]);
+
+/** Planned syllabus topics per subject for coverage calculation */
+export const syllabusTopics = pgTable("syllabus_topics", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	subjectCode: varchar("subject_code", { length: 30 }).notNull(),
+	topicTitle: text("topic_title").notNull(),
+	weekNumber: integer("week_number").default(1).notNull(),
+	sequenceNo: integer("sequence_no").default(1).notNull(),
+}, (table) => [
+	index("idx_syllabus_topics_subject").using("btree", table.subjectCode.asc().nullsLast().op("text_ops")),
+]);
+
+/** Per-class roll-call sessions (present/absent student lists) */
+export const classAttendanceSessions = pgTable("attendance_sessions", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	lecturerId: uuid("lecturer_id").notNull(),
+	subjectCode: varchar("subject_code", { length: 30 }).notNull(),
+	sessionDate: date("session_date").notNull(),
+	presentStudentIds: jsonb("present_student_ids").$type<string[]>().default([]).notNull(),
+	absentStudentIds: jsonb("absent_student_ids").$type<string[]>().default([]).notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("idx_attendance_sessions_lecturer").using("btree", table.lecturerId.asc().nullsLast().op("uuid_ops")),
+	index("idx_attendance_sessions_subject_date").using("btree", table.subjectCode.asc().nullsLast().op("text_ops"), table.sessionDate.desc().nullsLast().op("date_ops")),
+	unique("uq_attendance_session_lecturer_subject_date").on(table.lecturerId, table.subjectCode, table.sessionDate),
+	foreignKey({
+		columns: [table.lecturerId],
+		foreignColumns: [lecturers.id],
+		name: "attendance_sessions_lecturer_id_fkey",
+	}).onDelete("cascade"),
+]);
 

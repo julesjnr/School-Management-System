@@ -3,14 +3,18 @@ import { useNotification } from './notifications';
 import { 
   Users, Award, Calendar, BookOpen, Clock, 
   CheckCircle2, Save, FileSpreadsheet, Plus, 
-  DollarSign, Activity, AlertCircle, Sparkles, LogOut, ChevronDown, Trash2, User, Sliders, X, Menu,
-  Megaphone, UserCheck, MapPin, School, ArrowRight
+  Activity, AlertCircle, Sparkles, LogOut, ChevronDown, Trash2, User, Sliders, X, Menu,
+  UserCheck, School, GraduationCap
  } from 'lucide-react';
 import { Lecturer, Student, Grade, Course, StockItem, Book, LMSReadingList, TeacherResource, BookRequest, AttendanceSession } from '../types';
-import { subjectMap } from '../data';
 import GlobalSearchBar from './GlobalSearchBar';
 import LecturerBooksView from './LecturerBooksView';
-import StudentAdmissionDossierStation from './StudentAdmissionDossierStation';
+import StudentLookupPage from './StudentLookupPage';
+import LecturerWorkstationDashboard, {
+  LecturerWorkstationLoading,
+  LecturerWorkstationError,
+} from './LecturerWorkstationDashboard';
+import { useLecturerDashboard } from '../hooks/useLecturerDashboard';
 import {
   ResponsiveContainer,
   BarChart,
@@ -41,13 +45,13 @@ interface LecturerDashboardProps {
   onCancelOfficeHour?: (lecturerId: string, slotId: string, removeEntirely?: boolean) => void;
   onAddOfficeHourSlot?: (lecturerId: string, day: string, time: string) => void;
   onUpdateGrades: (studentId: string, subjectCode: string, grade: Grade) => void;
-  onLogHours: (lecturerId: string, hours: number) => void;
+  onLogHours: (lecturerId: string, hours: number, absolute?: boolean) => void;
   onUpdateProfile: (lecturerId: string, updatedFields: Partial<Lecturer>) => void;
   onReserveTeacherResource: (resourceId: string, lecturerId: string, lecturerName: string) => void;
   onReleaseTeacherResource: (resourceId: string) => void;
   onAddBookRequest: (request: Omit<BookRequest, 'id' | 'date' | 'status'>) => void;
   attendanceSessions?: AttendanceSession[];
-  onSaveAttendance?: (subjectCode: string, date: string, presentStudentIds: string[], absentStudentIds: string[]) => void;
+  onSaveAttendance?: (subjectCode: string, date: string, presentStudentIds: string[], absentStudentIds: string[]) => void | Promise<void>;
   onLogout: () => void;
 }
 
@@ -74,8 +78,33 @@ export default function LecturerDashboard({
   onLogout
 }: LecturerDashboardProps) {
   const { showToast, showWarning, showConfirm } = useNotification();
-  const [activeTab, setActiveTab] = useState<'workstation' | 'grading' | 'schedule' | 'attendance' | 'profile' | 'books'>('workstation');
+  const [activeTab, setActiveTab] = useState<'workstation' | 'grading' | 'schedule' | 'attendance' | 'lookup' | 'books'>('workstation');
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
+
+  const {
+    summary,
+    isLoading: dashboardLoading,
+    error: dashboardError,
+    isLogging,
+    refresh: refreshDashboard,
+    logTeachingSession,
+  } = useLecturerDashboard(lecturer.id);
+
+  const assignedSubjects = summary?.assignedSubjects ?? [];
+  const assignedCodes = assignedSubjects.map((s) => s.code);
+  const liveLoggedHours = summary?.loggedHours ?? lecturer.loggedHours ?? 0;
+  const liveHourlyRate = summary?.hourlyRate ?? lecturer.hourlyRate ?? 0;
+  const liveEstimatedPayout =
+    summary?.estimatedPayout ?? liveLoggedHours * liveHourlyRate;
+
+  const resolveSubjectTitle = (code: string) => {
+    const fromSummary = assignedSubjects.find((s) => s.code === code);
+    if (fromSummary) return fromSummary.title;
+    const fromCourses = courses.find((c) => c.code === code);
+    return fromCourses?.title || code;
+  };
+
+  const subjectLabel = (code: string) => `${code} – ${resolveSubjectTitle(code)}`;
 
   const [timerSeconds, setTimerSeconds] = useState<number>(1500);
   const [timerActive, setTimerActive] = useState<boolean>(false);
@@ -106,10 +135,19 @@ export default function LecturerDashboard({
     return `${mins.toString().padStart(2, '0')}:${remainingSecs.toString().padStart(2, '0')}`;
   };
 
-  const [selectedSubject, setSelectedSubject] = useState<string>(
-  lecturer.subjects?.[0] ?? ''
-);
+  const [selectedSubject, setSelectedSubject] = useState<string>('');
   const [showBellCurve, setShowBellCurve] = useState(false);
+
+  // Keep selected subject in sync with live assigned subjects
+  useEffect(() => {
+    if (assignedCodes.length === 0) {
+      setSelectedSubject('');
+      return;
+    }
+    if (!assignedCodes.includes(selectedSubject)) {
+      setSelectedSubject(assignedCodes[0]);
+    }
+  }, [assignedCodes.join('|'), selectedSubject]);
 
   // Form states for adding open consultation time-blocks
   const [newSlotDay, setNewSlotDay] = useState('Monday');
@@ -128,30 +166,11 @@ export default function LecturerDashboard({
   const [newPublication, setNewPublication] = useState('');
   const [profileSuccess, setProfileSuccess] = useState(false);
 
-  // Profile sub-tab selection state
-  const [profileSubTab, setProfileSubTab] = useState<'timesheets' | 'portfolio'>('timesheets');
+  // Workstation sub-section: portfolio editor (timesheets live in sidebar + recent sessions)
+  const [workstationSubTab, setWorkstationSubTab] = useState<'dashboard' | 'portfolio'>('dashboard');
 
-  // Local logged sessions list state
-  const [loggedSessions, setLoggedSessions] = useState<{
-    id: string;
-    date: string;
-    courseCode: string;
-    topic: string;
-    hours: number;
-    status: 'Pending' | 'Approved';
-  }[]>(() => {
-    const saved = localStorage.getItem(`logged_sessions_${lecturer.id}`);
-    if (saved) return JSON.parse(saved);
-    return [
-      { id: '1', date: '2026-07-06', courseCode: lecturer.subjects?.[0] || 'CS-101-Web', topic: 'Course introduction & syllabus walkthrough', hours: 2, status: 'Approved' },
-      { id: '2', date: '2026-07-08', courseCode: lecturer.subjects?.[0] || 'CS-101-Web', topic: 'DOM structure manipulation & event listeners', hours: 3, status: 'Approved' },
-      { id: '3', date: '2026-07-10', courseCode: lecturer.subjects?.[1] || 'DS-202-ML', topic: 'Supervised vs Unsupervised learning methods introduction', hours: 2.5, status: 'Pending' },
-    ];
-  });
-
-  useEffect(() => {
-    localStorage.setItem(`logged_sessions_${lecturer.id}`, JSON.stringify(loggedSessions));
-  }, [loggedSessions, lecturer.id]);
+  // Historical sessions from PostgreSQL (via dashboard summary)
+  const loggedSessions = summary?.recentSessions ?? [];
 
   useEffect(() => {
     setEditedBio(lecturer.bio || '');
@@ -259,33 +278,52 @@ export default function LecturerDashboard({
     }
   };
 
-  const handleLogHoursSubmit = (e: React.FormEvent) => {
+  const handleLogHoursSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (assignedCodes.length === 0 || !selectedSubject) {
+      showWarning("No Assigned Subjects", 'You have no assigned subjects. Ask an administrator to allocate modules first.');
+      return;
+    }
+    if (!assignedCodes.includes(selectedSubject)) {
+      showWarning("Invalid Subject", 'Selected subject is not assigned to your faculty profile.');
+      return;
+    }
     const hrsVal = parseFloat(logSessionHours);
     if (isNaN(hrsVal) || hrsVal <= 0 || hrsVal > 12) {
       showWarning("Lesson Duration Error", 'Please log a realistic lesson duration between 0.5 and 12 hours.');
       return;
     }
+    if (!logTopic.trim()) {
+      showWarning("Topic Required", 'Please enter the topic delivered for this lecturing session.');
+      return;
+    }
 
-    onLogHours(lecturer.id, hrsVal);
+    try {
+      const result = await logTeachingSession({
+        subjectCode: selectedSubject,
+        topic: logTopic.trim(),
+        durationHours: hrsVal,
+        sessionDate: new Date().toLocaleDateString('en-CA'),
+        sessionTime: new Date().toTimeString().slice(0, 5),
+      });
 
-    // Add to historical list
-    const newSession = {
-      id: Date.now().toString(),
-      date: new Date().toLocaleDateString('en-CA'),
-      courseCode: selectedSubject,
-      topic: logTopic,
-      hours: hrsVal,
-      status: 'Pending' as const
-    };
-    setLoggedSessions(prev => [newSession, ...prev]);
+      onLogHours(lecturer.id, result.loggedHours, true);
+      onUpdateProfile(lecturer.id, {
+        loggedHours: result.loggedHours,
+        subjects: assignedCodes,
+        hourlyRate: result.hourlyRate,
+      });
 
-    setLogSessionHours('');
-    setLogTopic('');
-    setTimeLoggedSuccess(true);
-    setTimeout(() => {
-      setTimeLoggedSuccess(false);
-    }, 2500);
+      setLogSessionHours('');
+      setLogTopic('');
+      setTimeLoggedSuccess(true);
+      showToast('Teaching session saved to the database.', 'success');
+      setTimeout(() => {
+        setTimeLoggedSuccess(false);
+      }, 2500);
+    } catch (err: any) {
+      showWarning("Session Log Failed", err.message || 'Could not save teaching session.');
+    }
   };
 
   // Load existing session values on date or unit toggle
@@ -321,19 +359,28 @@ export default function LecturerDashboard({
     }));
   };
 
-  const handleSaveAttendance = (e: React.FormEvent) => {
+  const handleSaveAttendance = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedSubject || assignedCodes.length === 0) {
+      showWarning("No Assigned Subjects", "Select an assigned subject before saving attendance.");
+      return;
+    }
     const presentStudentIds = subjectStudents.filter(s => !!attendanceRecords[s.id]).map(s => s.id);
     const absentStudentIds = subjectStudents.filter(s => !attendanceRecords[s.id]).map(s => s.id);
 
-    if (onSaveAttendance) {
-      onSaveAttendance(selectedSubject, attendanceDate, presentStudentIds, absentStudentIds);
+    try {
+      if (onSaveAttendance) {
+        await onSaveAttendance(selectedSubject, attendanceDate, presentStudentIds, absentStudentIds);
+      }
+      await refreshDashboard();
+      setAttendanceSuccess(true);
+      showToast("Attendance session saved to the database.", "success");
+      setTimeout(() => {
+        setAttendanceSuccess(false);
+      }, 3000);
+    } catch (err: any) {
+      showWarning("Attendance Save Failed", err.message || "Could not save attendance session.");
     }
-
-    setAttendanceSuccess(true);
-    setTimeout(() => {
-      setAttendanceSuccess(false);
-    }, 3000);
   };
 
   return (
@@ -389,9 +436,9 @@ export default function LecturerDashboard({
                 <UserCheck className="w-4 h-4" />
                 <span>Attendance Log</span>
               </button>
-              <button type="button" onClick={() => { setActiveTab('profile'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'profile' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
-                <User className="w-4 h-4" />
-                <span>Faculty Profile</span>
+              <button type="button" onClick={() => { setActiveTab('lookup'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'lookup' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                <GraduationCap className="w-4 h-4" />
+                <span>Student Lookup</span>
               </button>
               <button type="button" onClick={() => { setActiveTab('books'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'books' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
                 <BookOpen className="w-4 h-4" />
@@ -450,9 +497,9 @@ export default function LecturerDashboard({
             <UserCheck className="w-4 h-4" />
             <span>Attendance Log</span>
           </button>
-          <button type="button" onClick={() => setActiveTab('profile')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'profile' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
-            <User className="w-4 h-4" />
-            <span>Faculty Profile</span>
+          <button type="button" onClick={() => setActiveTab('lookup')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'lookup' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+            <GraduationCap className="w-4 h-4" />
+            <span>Student Lookup</span>
           </button>
           <button type="button" onClick={() => setActiveTab('books')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'books' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
             <BookOpen className="w-4 h-4" />
@@ -531,267 +578,291 @@ export default function LecturerDashboard({
         {/* WORKSPACE CONTENT AREA */}
         <div className="p-6 space-y-6 flex-1 bg-slate-50 dark:bg-slate-950">
           
-          {/* STUDENT ADMISSION QUICK-SEARCH & DOSSIER STATION */}
-          <StudentAdmissionDossierStation
-            students={students}
-            role="lecturer"
-            courses={courses}
-            currentLecturer={lecturer}
-          />
-          
           {/* WORKSPACE MIDDLE PANELS GRID */}
           <div className="grid lg:grid-cols-12 gap-6 items-start">
             
             {/* LEFT COLUMN: ACTIVE VIEW OPTIONS (TABBED) */}
-            <div className={`${activeTab === 'profile' ? 'lg:col-span-12' : 'lg:col-span-8'} space-y-6`}>
+            <div className={`${activeTab === 'lookup' ? 'lg:col-span-12' : 'lg:col-span-8'} space-y-6`}>
               
               <div className="bg-white rounded-2xl border border-slate-150 p-6 shadow-sm">
                 
                 {/* VIEW 0: WORKSTATION (DASHBOARD B) */}
                 {activeTab === 'workstation' && (
-              <div className="space-y-6">
-                {/* HIGH-DENSITY SUMMARY STRIP */}
-                <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-150 dark:border-slate-800 p-6 shadow-xs grid grid-cols-1 md:grid-cols-4 gap-6 divide-y md:divide-y-0 md:divide-x divide-slate-100 dark:divide-slate-800">
-                  
-                  {/* Assigned Subjects */}
-                  <div className="flex items-center justify-between pr-4 md:pr-0 md:px-4 first:pl-0">
-                    <div className="space-y-1">
-                      <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block font-sans">Assigned Subjects</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-2xl font-black text-slate-800 dark:text-white font-mono">{(lecturer.subjects ?? []).length} Units</span>
-                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-650 dark:bg-indigo-950/20 dark:text-indigo-400">Active</span>
-                      </div>
-                    </div>
-                    <div className="p-3 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-650 dark:text-indigo-400 rounded-xl">
-                      <Award className="w-5 h-5" />
-                    </div>
-                  </div>
-
-                  {/* Teaching Hours */}
-                  <div className="flex items-center justify-between pt-4 md:pt-0 pr-4 md:pr-0 md:px-6">
-                    <div className="space-y-1">
-                      <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block font-sans">Hours Logged</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-2xl font-black text-slate-800 dark:text-white font-mono">{lecturer.loggedHours || 0} Hrs</span>
-                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/20 dark:text-blue-400">Milestone</span>
-                      </div>
-                    </div>
-                    <div className="p-3 bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 rounded-xl">
-                      <Clock className="w-5 h-5" />
-                    </div>
-                  </div>
-
-                  {/* Hourly Rate */}
-                  <div className="flex items-center justify-between pt-4 md:pt-0 pr-4 md:pr-0 md:px-6">
-                    <div className="space-y-1">
-                      <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block font-sans">Hourly Rate</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-2xl font-black text-slate-800 dark:text-white font-mono">KES {(lecturer.hourlyRate || 0).toLocaleString()}</span>
-                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400">Standard</span>
-                      </div>
-                    </div>
-                    <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 rounded-xl">
-                      <DollarSign className="w-5 h-5" />
-                    </div>
-                  </div>
-
-                  {/* Estimated Payout */}
-                  <div className="flex items-center justify-between pt-4 md:pt-0 pr-4 md:pr-0 md:pl-6 last:pr-0">
-                    <div className="space-y-1">
-                      <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block font-sans">Estimated Payout</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xl font-black text-emerald-650 font-mono">KES {((lecturer.loggedHours || 0) * (lecturer.hourlyRate || 0)).toLocaleString()}</span>
-                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400">Accrued</span>
-                      </div>
-                    </div>
-                    <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 rounded-xl">
-                      <Activity className="w-5 h-5" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* MIDDLE ROW: 2-column Analytics & Schedule */}
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-                  {/* Col 1: Hours Analytics Chart */}
-                  <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-150 dark:border-slate-800 p-5 shadow-xs lg:col-span-8 flex flex-col justify-between">
-                    <div className="border-b border-slate-100 dark:border-slate-800 pb-3 mb-4 flex justify-between items-center">
-                      <div>
-                        <h3 className="text-xs font-black uppercase text-slate-800 dark:text-white tracking-wider flex items-center gap-1.5 font-display">
-                          <Activity className="w-4 h-4 text-blue-600" />
-                          Teaching Hours Analytics
-                        </h3>
-                        <p className="text-[9px] text-slate-500">Weekly teaching load telemetry and logged session milestones.</p>
-                      </div>
-                    </div>
-                    <div className="h-60 w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={[
-                          { name: 'Week 1', hours: 10 },
-                          { name: 'Week 2', hours: 12 },
-                          { name: 'Week 3', hours: 15 },
-                          { name: 'Week 4', hours: lecturer.loggedHours ? Math.min(lecturer.loggedHours - 37, 20) : 5 }
-                        ]} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                          <defs>
-                            <linearGradient id="colorHours" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.2}/>
-                              <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
-                            </linearGradient>
-                          </defs>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" className="dark:hidden" />
-                          <XAxis dataKey="name" stroke="#94a3b8" fontSize={9} className="font-mono" />
-                          <YAxis stroke="#94a3b8" fontSize={9} className="font-mono" />
-                          <Tooltip contentStyle={{ fontSize: '11px', borderRadius: '8px' }} />
-                          <Area type="monotone" dataKey="hours" stroke="#8b5cf6" strokeWidth={2} fillOpacity={1} fill="url(#colorHours)" />
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-
-                  {/* Col 2: Next Up calendar card */}
-                  <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-150 dark:border-slate-800 p-5 shadow-xs lg:col-span-4 flex flex-col justify-between">
-                    <div className="border-b border-slate-100 dark:border-slate-800 pb-3 mb-4">
-                      <span className="text-[9px] font-bold text-slate-450 uppercase tracking-widest block font-mono">Class Roster Schedule</span>
-                      <h3 className="text-xs font-bold text-slate-800 dark:text-white mt-0.5 flex items-center gap-1.5">
-                        <Calendar className="w-4 h-4 text-violet-650 animate-pulse" />
-                        Next Assigned Class
-                      </h3>
-                    </div>
-                    <div className="py-4 space-y-4 flex-1 flex flex-col justify-center">
-                      <div className="bg-violet-50/50 dark:bg-violet-950/20 border border-violet-100/50 dark:border-violet-900/30 rounded-xl p-4 space-y-2">
-                        <span className="text-[8px] bg-violet-100 dark:bg-violet-900 text-violet-850 dark:text-violet-250 px-2 py-0.5 rounded font-black uppercase tracking-wider">
-                          {lecturer.subjects?.[1] || 'DS-202'}
-                        </span>
-                        <h4 className="text-xs font-extrabold text-slate-800 dark:text-slate-205 leading-tight">
-                          {subjectMap[lecturer.subjects?.[1] ?? 'DS-202'] ?? 'Intro to Machine Learning'}
-                        </h4>
-                        <div className="flex items-center gap-4 text-[10px] text-slate-550 font-medium font-mono pt-1">
-                          <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-slate-400" /> 11:00 AM</span>
-                          <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-slate-400" /> Comp Lab 3</span>
-                        </div>
-                      </div>
-                    </div>
-                    <button 
-                      type="button" 
-                      onClick={() => setActiveTab('attendance')}
-                      className="w-full py-3 bg-violet-600 hover:bg-violet-700 text-white font-extrabold rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-violet-100 dark:shadow-none"
-                    >
-                      <span>Mark Class Attendance</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* BOTTOM ROW: 3-column deliverables feed, syllabus coverage gauge, focus study timer */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {/* Column 1: Task Checklist */}
-                  <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-150 dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between h-[360px]">
-                    <div>
-                      <div className="border-b border-slate-100 dark:border-slate-800 pb-3 mb-4 flex justify-between items-center">
-                        <div>
-                          <h3 className="text-xs font-black uppercase text-slate-800 dark:text-white tracking-wider flex items-center gap-1.5 font-display">
-                            <AlertCircle className="w-4 h-4 text-violet-650" />
-                            Faculty Task List
-                          </h3>
-                          <p className="text-[9px] text-slate-550">Action items for this week.</p>
-                        </div>
-                        <span className="text-[8px] bg-red-100 text-red-700 px-2 py-0.5 rounded font-black tracking-wider uppercase">Active</span>
-                      </div>
-                      <div className="space-y-3 overflow-y-auto max-h-[220px] pr-1 text-xs">
-                        <div className="flex items-start gap-2.5 p-2 bg-slate-50 dark:bg-slate-850 rounded-lg">
-                          <input type="checkbox" defaultChecked className="mt-0.5 rounded text-violet-650 focus:ring-violet-500 cursor-pointer" />
-                          <div className="space-y-0.5 text-xs">
-                            <p className="font-bold text-slate-400 line-through">Grading Assignment 2</p>
-                            <p className="text-[9.5px] text-slate-500">Graded: Cohort II results dispatched.</p>
-                          </div>
-                        </div>
-                        <div className="flex items-start gap-2.5 p-2 bg-slate-50 dark:bg-slate-850 rounded-lg border-l-2 border-red-500">
-                          <input type="checkbox" className="mt-0.5 rounded text-violet-650 focus:ring-violet-500 cursor-pointer" />
-                          <div className="space-y-0.5 text-xs">
-                            <p className="font-bold text-slate-800 dark:text-slate-205">Submit Exam Drafts</p>
-                            <p className="text-[9.5px] text-red-505 font-semibold">Due: In 2 days (Semester Finals)</p>
-                          </div>
-                        </div>
-                        <div className="flex items-start gap-2.5 p-2 bg-slate-50 dark:bg-slate-850 rounded-lg">
-                          <input type="checkbox" className="mt-0.5 rounded text-violet-650 focus:ring-violet-500 cursor-pointer" />
-                          <div className="space-y-0.5 text-xs">
-                            <p className="font-bold text-slate-800 dark:text-slate-205">Upload CAT Marks</p>
-                            <p className="text-[9.5px] text-slate-500">Log grades for CS-101 registered profiles.</p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-[10px] text-slate-400 font-semibold text-center pt-2 font-mono">
-                      Check tasks regularly
-                    </div>
-                  </div>
-
-                  {/* Column 2: Syllabus Progress Radial Gauge */}
-                  <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-150 dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between h-[360px] items-center">
-                    <div className="w-full text-left">
-                      <div className="border-b border-slate-100 dark:border-slate-800 pb-3 mb-4">
-                        <h3 className="text-xs font-black uppercase text-slate-800 dark:text-white tracking-wider flex items-center gap-1.5 font-display">
-                          <Activity className="w-4 h-4 text-emerald-600 animate-pulse" />
-                          Course Syllabus Gauge
-                        </h3>
-                        <p className="text-[9px] text-slate-550">Overall curriculum coverage milestone.</p>
-                      </div>
-                    </div>
-                    <div className="relative inline-flex items-center justify-center py-4">
-                      <svg className="w-32 h-32 transform -rotate-90">
-                        <circle cx="64" cy="64" r="50" className="stroke-slate-100 dark:stroke-slate-800" strokeWidth="8" fill="transparent" />
-                        <circle cx="64" cy="64" r="50" className="stroke-emerald-500" strokeWidth="8" fill="transparent" strokeDasharray={314.16} strokeDashoffset={314.16 - (314.16 * 55) / 100} strokeLinecap="round" />
-                      </svg>
-                      <div className="absolute text-center">
-                        <span className="text-2xl font-black text-slate-800 dark:text-white font-mono block">55%</span>
-                        <span className="text-[7.5px] bg-emerald-500/10 text-emerald-600 px-1.5 py-0.5 rounded-full font-extrabold uppercase tracking-wide">On Track</span>
-                      </div>
-                    </div>
-                    <div className="text-[10px] text-slate-500 font-medium text-center font-mono leading-relaxed px-4">
-                      Module syllabus coverage is currently meeting standard milestone pacing.
-                    </div>
-                  </div>
-
-                  {/* Column 3: Focus Study Timer */}
-                  <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-150 dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between h-[360px]">
-                    <div>
-                      <div className="border-b border-slate-100 dark:border-slate-800 pb-3 mb-4">
-                        <h3 className="text-xs font-black uppercase text-slate-800 dark:text-white tracking-wider flex items-center gap-1.5">
-                          <Clock className="w-4 h-4 text-amber-500 animate-pulse" />
-                          Focus Study Timer
-                        </h3>
-                        <p className="text-[9px] text-slate-555">Pomodoro focus session timer.</p>
-                      </div>
-                      <div className="text-center py-4 space-y-3">
-                        <div className="font-mono text-4xl font-black text-slate-800 dark:text-white tracking-widest bg-slate-55 dark:bg-slate-850 py-3 rounded-2xl border border-slate-100 dark:border-slate-800">
-                          {formatTimer(timerSeconds)}
-                        </div>
-                        <div className="flex items-center justify-center gap-2">
-                          <span className={`text-[9.5px] uppercase font-bold px-3 py-1 rounded-full ${timerMode === 'focus' ? 'bg-amber-50 text-amber-700 border border-amber-100' : 'bg-emerald-50 text-emerald-700 border border-emerald-100'}`}>
-                            {timerMode === 'focus' ? '📚 FOCUSING WORK' : '☕ SHORT BREAK'}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button 
-                        type="button" 
-                        onClick={() => setTimerActive(!timerActive)}
-                        className={`flex-1 py-2.5 text-white font-extrabold rounded-xl text-[10px] uppercase tracking-wider cursor-pointer shadow-xs transition-colors ${timerActive ? 'bg-red-600 hover:bg-red-700' : 'bg-violet-650 hover:bg-violet-700'}`}
+                  <div className="space-y-6">
+                    <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setWorkstationSubTab('dashboard')}
+                        className={`flex-1 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
+                          workstationSubTab === 'dashboard'
+                            ? 'bg-white dark:bg-slate-950 text-violet-700 dark:text-violet-400 shadow-3xs'
+                            : 'text-slate-400 hover:text-slate-650'
+                        }`}
                       >
-                        {timerActive ? 'Pause Session' : 'Start Focus'}
+                        Teaching Dashboard
                       </button>
-                      <button 
-                        type="button" 
-                        onClick={() => { setTimerActive(false); setTimerSeconds(timerMode === 'focus' ? 1500 : 300); }}
-                        className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-350 font-bold rounded-xl text-[10px] uppercase tracking-wider transition-colors cursor-pointer"
+                      <button
+                        type="button"
+                        onClick={() => setWorkstationSubTab('portfolio')}
+                        className={`flex-1 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
+                          workstationSubTab === 'portfolio'
+                            ? 'bg-white dark:bg-slate-950 text-violet-700 dark:text-violet-400 shadow-3xs'
+                            : 'text-slate-400 hover:text-slate-650'
+                        }`}
                       >
-                        Reset
+                        Research & Portfolio
                       </button>
                     </div>
+
+                    {workstationSubTab === 'dashboard' ? (
+                      dashboardLoading ? (
+                        <LecturerWorkstationLoading />
+                      ) : dashboardError || !summary ? (
+                        <LecturerWorkstationError
+                          message={dashboardError || 'Unknown error'}
+                          onRetry={refreshDashboard}
+                        />
+                      ) : (
+                        <>
+                          <LecturerWorkstationDashboard
+                            summary={summary}
+                            timerSeconds={timerSeconds}
+                            timerActive={timerActive}
+                            timerMode={timerMode}
+                            formatTimer={formatTimer}
+                            setTimerActive={setTimerActive}
+                            setTimerSeconds={setTimerSeconds}
+                            onOpenAttendance={() => setActiveTab('attendance')}
+                          />
+                          {/* Historical teaching sessions (timesheets) */}
+                          <div className="border border-slate-150 dark:border-slate-800 rounded-2xl p-5 space-y-3">
+                            <div>
+                              <h3 className="font-extrabold text-slate-900 dark:text-white text-sm uppercase tracking-wide">
+                                Teaching Session History
+                              </h3>
+                              <p className="text-[11px] text-slate-500 mt-1">Logged hours and session topics from PostgreSQL.</p>
+                            </div>
+                            <div className="overflow-x-auto border border-slate-150 dark:border-slate-800 rounded-xl">
+                              <table className="w-full text-left text-xs border-collapse">
+                                <thead>
+                                  <tr className="bg-slate-50 dark:bg-slate-950 border-b border-slate-150 dark:border-slate-800 text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                                    <th className="py-3 px-4">Date</th>
+                                    <th className="py-3 px-4">Course</th>
+                                    <th className="py-3 px-4">Topic</th>
+                                    <th className="py-3 px-4 text-center">Hours</th>
+                                    <th className="py-3 px-4 text-center">Status</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
+                                  {loggedSessions.length === 0 ? (
+                                    <tr>
+                                      <td colSpan={5} className="py-8 px-4 text-center text-slate-400 italic">No teaching sessions logged yet.</td>
+                                    </tr>
+                                  ) : (
+                                    loggedSessions.map((session) => (
+                                      <tr key={session.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/20 font-mono">
+                                        <td className="py-3 px-4 text-slate-600 dark:text-slate-400">{session.date}</td>
+                                        <td className="py-3 px-4 font-bold text-slate-850 dark:text-slate-205">{session.courseCode}</td>
+                                        <td className="py-3 px-4 font-sans text-slate-700 dark:text-slate-350 truncate max-w-[150px]" title={session.topic}>{session.topic}</td>
+                                        <td className="py-3 px-4 text-center font-bold">{session.hours} hrs</td>
+                                        <td className="py-3 px-4 text-center">
+                                          <span className={`inline-block px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                                            session.status === 'Approved'
+                                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400'
+                                              : 'bg-amber-50 text-amber-700 dark:bg-amber-950/20 dark:text-amber-400'
+                                          }`}>
+                                            {session.status}
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    ))
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </>
+                      )
+                    ) : (
+                      <div className="space-y-4 animate-fadeIn">
+                        {profileSuccess && (
+                          <div className="bg-emerald-50 dark:bg-emerald-950/20 text-emerald-800 border border-emerald-100 dark:border-emerald-900/50 p-4 rounded-xl text-xs font-semibold flex items-center gap-1.5">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                            <span>Profile saved successfully.</span>
+                          </div>
+                        )}
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            onUpdateProfile(lecturer.id, {
+                              bio: editedBio,
+                              avatar: editedAvatar,
+                              researchInterests: interests,
+                              publications: publications
+                            });
+                            setProfileSuccess(true);
+                            setTimeout(() => setProfileSuccess(false), 3000);
+                          }}
+                          className="space-y-6"
+                        >
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-2">
+                              <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">Avatar URL</label>
+                              <div className="flex items-center gap-4 bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl border border-slate-200 dark:border-slate-850">
+                                {editedAvatar ? (
+                                  <img
+                                    src={editedAvatar}
+                                    alt=""
+                                    className="w-16 h-16 rounded-full object-cover border-2 border-violet-500/30 shrink-0"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                ) : (
+                                  <div className="w-16 h-16 rounded-full bg-violet-600 text-white flex items-center justify-center font-black text-xl shrink-0">
+                                    {lecturer.name.charAt(0)}
+                                  </div>
+                                )}
+                                <input
+                                  type="url"
+                                  value={editedAvatar}
+                                  onChange={(e) => setEditedAvatar(e.target.value)}
+                                  placeholder="https://…"
+                                  className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-750 rounded-xl px-2.5 py-2 text-xs text-slate-850 dark:text-slate-200 focus:outline-hidden"
+                                />
+                              </div>
+                            </div>
+                            <div className="space-y-2">
+                              <label className="block text-[11px] font-bold text-slate-605 dark:text-slate-400 uppercase tracking-wider">Professional Biography</label>
+                              <textarea
+                                rows={3}
+                                value={editedBio}
+                                onChange={(e) => setEditedBio(e.target.value)}
+                                placeholder="Academic focus and teaching experience…"
+                                className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-750 rounded-xl p-2.5 text-xs text-slate-850 dark:text-slate-200 focus:outline-hidden resize-none leading-relaxed"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-slate-100 dark:border-slate-805 pt-6">
+                            <div className="space-y-3">
+                              <div className="flex justify-between items-center">
+                                <label className="text-[11px] font-bold text-slate-605 dark:text-slate-450 uppercase tracking-wider flex items-center gap-1">
+                                  <Sparkles className="w-3.5 h-3.5 text-violet-500" />
+                                  <span>Research Interests</span>
+                                </label>
+                                <span className="text-[10px] font-bold text-slate-400">{interests.length}</span>
+                              </div>
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  value={newInterest}
+                                  onChange={(e) => setNewInterest(e.target.value)}
+                                  placeholder="Add interest…"
+                                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-750 rounded-xl px-2.5 py-2 text-xs focus:outline-hidden"
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      if (newInterest.trim()) {
+                                        setInterests(prev => [...prev, newInterest.trim()]);
+                                        setNewInterest('');
+                                      }
+                                    }
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (newInterest.trim()) {
+                                      setInterests(prev => [...prev, newInterest.trim()]);
+                                      setNewInterest('');
+                                    }
+                                  }}
+                                  className="bg-violet-50 text-violet-700 hover:bg-violet-100 px-3 py-2 rounded-xl font-bold text-xs border border-violet-100 cursor-pointer"
+                                >
+                                  Add
+                                </button>
+                              </div>
+                              <div className="flex flex-wrap gap-2 max-h-[150px] overflow-y-auto p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-150 dark:border-slate-850">
+                                {interests.length === 0 ? (
+                                  <p className="text-[11px] text-slate-400 italic">No research interests listed.</p>
+                                ) : (
+                                  interests.map((interest, idx) => (
+                                    <span key={idx} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-violet-50 text-violet-700 text-xs font-semibold border border-violet-100">
+                                      <span>{interest}</span>
+                                      <button type="button" onClick={() => setInterests(prev => prev.filter((_, i) => i !== idx))} className="hover:bg-violet-200 p-0.5 rounded-full text-violet-500 shrink-0 cursor-pointer" title="Remove">
+                                        <X className="w-3 h-3" />
+                                      </button>
+                                    </span>
+                                  ))
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="space-y-3">
+                              <div className="flex justify-between items-center">
+                                <label className="text-[11px] font-bold text-slate-605 dark:text-slate-450 uppercase tracking-wider flex items-center gap-1">
+                                  <BookOpen className="w-3.5 h-3.5 text-indigo-500" />
+                                  <span>Publications</span>
+                                </label>
+                                <span className="text-[10px] font-bold text-slate-400">{publications.length}</span>
+                              </div>
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  value={newPublication}
+                                  onChange={(e) => setNewPublication(e.target.value)}
+                                  placeholder="Add publication citation…"
+                                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-750 rounded-xl px-2.5 py-2 text-xs focus:outline-hidden"
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      if (newPublication.trim()) {
+                                        setPublications(prev => [...prev, newPublication.trim()]);
+                                        setNewPublication('');
+                                      }
+                                    }
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (newPublication.trim()) {
+                                      setPublications(prev => [...prev, newPublication.trim()]);
+                                      setNewPublication('');
+                                    }
+                                  }}
+                                  className="bg-indigo-50 text-indigo-600 hover:bg-indigo-100 px-3 py-2 rounded-xl font-bold text-xs border border-indigo-100 cursor-pointer"
+                                >
+                                  Add
+                                </button>
+                              </div>
+                              <div className="space-y-2 max-h-[150px] overflow-y-auto">
+                                {publications.length === 0 ? (
+                                  <p className="text-[11px] text-slate-400 italic">No publications listed.</p>
+                                ) : (
+                                  publications.map((pub, idx) => (
+                                    <div key={idx} className="flex justify-between items-start p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 text-xs">
+                                      <span className="text-[11px] leading-snug mr-3 break-words flex-1 font-mono">{pub}</span>
+                                      <button type="button" onClick={() => setPublications(prev => prev.filter((_, i) => i !== idx))} className="text-rose-500 hover:bg-rose-50 p-1 rounded-lg shrink-0 cursor-pointer" title="Remove">
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="border-t border-slate-105 dark:border-slate-800 pt-5 flex justify-end">
+                            <button type="submit" className="bg-violet-600 hover:bg-violet-700 text-white font-extrabold text-xs py-2.5 px-6 rounded-xl flex items-center gap-2 cursor-pointer transition-all shadow-md">
+                              <Save className="w-4 h-4" />
+                              <span>Save Portfolio</span>
+                            </button>
+                          </div>
+                        </form>
+                      </div>
+                    )}
                   </div>
-                </div>
-              </div>
-            )}
+                )}
 
             {/* VIEW 1: GRADING SPREADSHEEET */}
             {activeTab === 'grading' && (
@@ -814,12 +885,17 @@ export default function LecturerDashboard({
                       value={selectedSubject}
                       onChange={(e) => { setSelectedSubject(e.target.value); setGradeInputs({}); }}
                       className="bg-white border border-slate-200 rounded-lg p-2 text-xs font-bold text-slate-800 focus:outline-hidden"
+                      disabled={assignedCodes.length === 0}
                     >
-                      {(lecturer.subjects ?? []).map((s) => (
-                        <option key={s} value={s}>
-                          {subjectMap[s] || s}
-                        </option>
-                      ))}
+                      {assignedCodes.length === 0 ? (
+                        <option value="">No assigned subjects</option>
+                      ) : (
+                        assignedCodes.map((s) => (
+                          <option key={s} value={s}>
+                            {subjectLabel(s)}
+                          </option>
+                        ))
+                      )}
                     </select>
                   </div>
                 </div>
@@ -841,7 +917,7 @@ export default function LecturerDashboard({
 
                     <div className="flex flex-wrap items-center gap-2.5 text-[10px] font-bold font-mono bg-white border border-slate-150/85 px-2.5 py-1.5 rounded-xl">
                       <span className="text-slate-400">Total Graded Modules:</span>
-                      <span className="text-blue-600 font-extrabold">{(lecturer.subjects ?? []).length} Units</span>
+                      <span className="text-blue-600 font-extrabold">{assignedCodes.length} Units</span>
                     </div>
                   </div>
 
@@ -854,7 +930,7 @@ export default function LecturerDashboard({
                     let totalGraded = 0;
                     const modulePerformance: Record<string, { totalScore: number; count: number }> = {};
 
-                    const subjects = lecturer.subjects ?? [];
+                    const subjects = assignedCodes;
 
 subjects.forEach(subj => {
                       const enrolled = students.filter(s => s.enrolledUnits.includes(subj));
@@ -889,11 +965,11 @@ subjects.forEach(subj => {
                       { name: 'Grade E/F', value: efCount, range: '<40%', label: 'Fail / Retake', color: '#ef4444' }
                     ];
 
-                    const moduleAverageData = (lecturer.subjects ?? []).map(subj => {
+                    const moduleAverageData = assignedCodes.map(subj => {
                       const record = modulePerformance[subj];
                       return {
                         subject: subj,
-                        title: subjectMap[subj] || subj,
+                        title: resolveSubjectTitle(subj),
                         average: record && record.count > 0 ? Math.round(record.totalScore / record.count) : 0,
                         studentsCount: students.filter(s => s.enrolledUnits.includes(subj)).length
                       };
@@ -1118,21 +1194,32 @@ subjects.forEach(subj => {
 
                     {/* OVERLAY VISUALIZATION CARD */}
                     {showBellCurve && (() => {
-                      const classScores = subjectStudents.map(student => {
-                        const grade = student.grades[selectedSubject] || { cat: 0, exam: 0 };
-                        return grade.cat + grade.exam;
-                      });
+                      const classScores = subjectStudents
+                        .filter((student) => !!student.grades[selectedSubject])
+                        .map((student) => {
+                          const grade = student.grades[selectedSubject];
+                          return Number(grade.cat) + Number(grade.exam);
+                        });
 
                       const classCount = classScores.length;
-                      const classMean = classCount > 0 
-                        ? (classScores.reduce((sum, score) => sum + score, 0) / classCount) 
-                        : 62;
-                      const classVariance = classCount > 0 
-                        ? (classScores.reduce((sum, score) => sum + Math.pow(score - classMean, 2), 0) / classCount) 
-                        : 100;
-                      const classStdDev = classCount > 0 ? (Math.sqrt(classVariance) || 12) : 12;
+                      if (classCount === 0) {
+                        return (
+                          <div className="text-center py-8 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-slate-400">
+                            <AlertCircle className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                            <p className="font-semibold text-xs text-slate-700">No graded scores to plot</p>
+                            <p className="text-[10px] mt-1">Enter CAT/exam marks first to render the class distribution curve.</p>
+                          </div>
+                        );
+                      }
 
-                      // Generate sample points from 10 to 100 for normal distribution curve
+                      const classMean =
+                        classScores.reduce((sum, score) => sum + score, 0) / classCount;
+                      const classVariance =
+                        classScores.reduce((sum, score) => sum + Math.pow(score - classMean, 2), 0) /
+                        classCount;
+                      const classStdDev = Math.sqrt(classVariance) || 1;
+
+                      // Density sample points across the mark range for the normal curve overlay
                       const curvePoints = [];
                       for (let xCoord = 10; xCoord <= 100; xCoord += 2.5) {
                         const densityFunc = (x: number, m: number, s: number) => {
@@ -1141,7 +1228,7 @@ subjects.forEach(subj => {
                         };
 
                         // Scale the densities for beautiful representation on Recharts Area graph (multiplied by 1000 for relative view)
-                        const currentClassDensity = classCount > 0 ? densityFunc(xCoord, classMean, classStdDev) * 1000 : 0;
+                        const currentClassDensity = densityFunc(xCoord, classMean, classStdDev) * 1000;
                         const defaultBenchmarkDensity = densityFunc(xCoord, 65, 12) * 1000; // standard academic bell curve of mu=65 sd=12
 
                         let letterGrade = 'F';
@@ -1413,7 +1500,12 @@ subjects.forEach(subj => {
                   </div>
 
                   <div className="grid sm:grid-cols-2 gap-4">
-                    {(lecturer.subjects ?? []).map(code => {
+                    {assignedCodes.length === 0 ? (
+                      <div className="sm:col-span-2 border border-dashed border-slate-200 rounded-xl p-8 text-center text-xs text-slate-400">
+                        No subjects assigned yet. Allocations from <span className="font-mono">lecturer_subjects</span> will appear here.
+                      </div>
+                    ) : (
+                      assignedCodes.map(code => {
                       const matchedStudents = students.filter(
                         s => s.enrolledUnits.includes(code)
                       );
@@ -1433,7 +1525,7 @@ subjects.forEach(subj => {
                                 {code}
                               </span>
                               <h4 className="font-extrabold text-slate-800 text-sm">
-                                {subjectMap[code] || "General Elective"}
+                                {resolveSubjectTitle(code)}
                               </h4>
                             </div>
 
@@ -1443,7 +1535,8 @@ subjects.forEach(subj => {
                           </div>
                         </div>
                       );
-                    })}
+                    })
+                    )}
                   </div>
                 </div>
                 {/* 2.2 OFFICE HOURS PLANNER */}
@@ -1715,7 +1808,7 @@ subjects.forEach(subj => {
                           </h3>
                         </div>
                         <p className="text-[11px] text-slate-500 mt-1 leading-normal">
-                          Weekly progression of class attendance rates for <span className="font-semibold text-slate-700 font-mono">{selectedSubject}</span> ({subjectMap[selectedSubject] || 'Selected Module'}) against registration limits.
+                          Weekly progression of class attendance rates for <span className="font-semibold text-slate-700 font-mono">{selectedSubject}</span> ({resolveSubjectTitle(selectedSubject) || 'Selected Module'}) against registration limits.
                         </p>
                       </div>
 
@@ -1732,55 +1825,60 @@ subjects.forEach(subj => {
 
                     {(() => {
                       const totalStudentsCount = subjectStudents.length;
-                      const classAttendanceAverage = totalStudentsCount > 0
-                        ? Math.round(subjectStudents.reduce((sum, s) => {
-                            const val = s.attendance?.[selectedSubject] !== undefined ? s.attendance[selectedSubject] : 85; 
-                            return sum + val;
-                          }, 0) / totalStudentsCount)
-                        : 85;
+                      const recordedRates = subjectStudents
+                        .map((s) => s.attendance?.[selectedSubject])
+                        .filter((v): v is number => typeof v === "number");
 
-                      const checkedPresentCount = subjectStudents.filter(s => attendanceRecords[s.id]).length;
-                      const hasActiveInteraction = Object.keys(attendanceRecords).length > 0;
-                      const liveSessionRate = totalStudentsCount > 0 
-                        ? Math.round((checkedPresentCount / totalStudentsCount) * 100) 
-                        : classAttendanceAverage;
+                      const classAttendanceAverage =
+                        recordedRates.length > 0
+                          ? Math.round(
+                              recordedRates.reduce((sum, val) => sum + val, 0) /
+                                recordedRates.length
+                            )
+                          : null;
 
-                      const week12Rate = hasActiveInteraction ? liveSessionRate : classAttendanceAverage;
+                      const checkedPresentCount = subjectStudents.filter(
+                        (s) => attendanceRecords[s.id]
+                      ).length;
+                      const hasActiveInteraction =
+                        Object.keys(attendanceRecords).length > 0;
+                      const liveSessionRate =
+                        totalStudentsCount > 0 && hasActiveInteraction
+                          ? Math.round(
+                              (checkedPresentCount / totalStudentsCount) * 100
+                            )
+                          : null;
 
-                      // Clearance metrics
-                      const studentsCleared = totalStudentsCount > 0
-                        ? Math.round((subjectStudents.filter(s => {
-                            const val = s.attendance?.[selectedSubject] !== undefined ? s.attendance[selectedSubject] : 85;
-                            return val >= 75;
-                          }).length / totalStudentsCount) * 100)
-                        : 100;
+                      const studentsCleared =
+                        recordedRates.length > 0
+                          ? Math.round(
+                              (recordedRates.filter((val) => val >= 75).length /
+                                recordedRates.length) *
+                                100
+                            )
+                          : null;
 
-                      // Generate deterministic 12-week progression based on module code
-                      let seed = 0;
-                      for (let i = 0; i < selectedSubject.length; i++) {
-                        seed += selectedSubject.charCodeAt(i);
-                      }
+                      const pastSessions = (attendanceSessions || [])
+                        .filter((s) => s.subjectCode === selectedSubject)
+                        .slice()
+                        .sort((a, b) => a.date.localeCompare(b.date));
 
-                      const trendData = Array.from({ length: 12 }, (_, index) => {
-                        const weekNum = index + 1;
-                        if (weekNum === 12) {
-                          return {
-                            week: 'Wk 12 (Live)',
-                            'Participation Rate': week12Rate,
-                            'Minimum Threshold': 75,
-                            'Class Average': classAttendanceAverage,
-                          };
-                        }
-
-                        // Fluctuations around the class average percentage
-                        const offset = Math.sin(weekNum + seed) * 4.5 + Math.cos(weekNum * 0.8) * 2;
-                        const computedRate = Math.min(100, Math.max(55, Math.round(classAttendanceAverage + offset)));
-
+                      const trendData = pastSessions.map((session) => {
+                        const total =
+                          (session.presentStudents?.length || 0) +
+                          (session.absentStudents?.length || 0);
+                        const rate =
+                          total > 0
+                            ? Math.round(
+                                ((session.presentStudents?.length || 0) / total) *
+                                  100
+                              )
+                            : 0;
                         return {
-                          week: `Wk ${weekNum}`,
-                          'Participation Rate': computedRate,
-                          'Minimum Threshold': 75,
-                          'Class Average': classAttendanceAverage,
+                          week: session.date,
+                          "Participation Rate": rate,
+                          "Minimum Threshold": 75,
+                          "Class Average": classAttendanceAverage ?? rate,
                         };
                       });
 
@@ -1806,25 +1904,46 @@ subjects.forEach(subj => {
                             </div>
                             <div className="space-y-0.5 border-t lg:border-t lg:border-l-0 border-l border-slate-200 pt-2 lg:pt-2 pl-3 lg:pl-0">
                               <span className="block text-[9px] uppercase font-bold text-slate-400 tracking-wider font-mono">Semester Cum. Average</span>
-                              <span className="block text-base font-extrabold text-blue-600 font-mono">{classAttendanceAverage}%</span>
-                              <span className="block text-[10px] text-slate-500">Weekly cohort average</span>
+                              <span className="block text-base font-extrabold text-blue-600 font-mono">
+                                {classAttendanceAverage !== null ? `${classAttendanceAverage}%` : "—"}
+                              </span>
+                              <span className="block text-[10px] text-slate-500">
+                                {recordedRates.length > 0
+                                  ? `${recordedRates.length} recorded rate${recordedRates.length === 1 ? "" : "s"}`
+                                  : "No rates in student_attendance yet"}
+                              </span>
                             </div>
                             <div className="space-y-0.5 border-t border-slate-100 pt-2 col-span-2 lg:col-span-1">
                               <span className="block text-[9px] uppercase font-bold text-slate-400 tracking-wider font-mono">Exam Attendance clearance</span>
-                              <span className="block text-base font-extrabold text-emerald-600 font-mono">{studentsCleared}% Cleared</span>
+                              <span className="block text-base font-extrabold text-emerald-600 font-mono">
+                                {studentsCleared !== null ? `${studentsCleared}% Cleared` : "—"}
+                              </span>
                               <span className="block text-[10px] text-slate-500">Satisfy standard hours (≥75%)</span>
                             </div>
                             <div className="space-y-0.5 border-t border-slate-100 pt-2 col-span-2 lg:col-span-1">
-                              <span className="block text-[9px] uppercase font-bold text-slate-400 tracking-wider font-mono">Week 12 Live Rate</span>
-                              <span className="block text-base font-extrabold text-indigo-600 font-mono">{week12Rate}%</span>
+                              <span className="block text-[9px] uppercase font-bold text-slate-400 tracking-wider font-mono">Live Session Rate</span>
+                              <span className="block text-base font-extrabold text-indigo-600 font-mono">
+                                {liveSessionRate !== null ? `${liveSessionRate}%` : "—"}
+                              </span>
                               <span className="block text-[10px] text-slate-500">
-                                {hasActiveInteraction ? 'Recalculating live roll call' : 'Awaiting roll call inputs'}
+                                {hasActiveInteraction ? "Recalculating live roll call" : "Awaiting roll call inputs"}
                               </span>
                             </div>
                           </div>
 
                           {/* Recharts Line Chart */}
                           <div className="lg:col-span-9 bg-white border border-slate-150/80 rounded-xl p-3 h-64 shadow-xs">
+                            {trendData.length === 0 ? (
+                              <div className="h-full flex flex-col items-center justify-center text-center gap-2 text-slate-400">
+                                <Activity className="w-8 h-8 opacity-40" />
+                                <p className="text-xs font-semibold text-slate-600">
+                                  No attendance sessions recorded yet
+                                </p>
+                                <p className="text-[10px] max-w-sm">
+                                  Submit a roll-call below to plot participation rates from PostgreSQL attendance_sessions.
+                                </p>
+                              </div>
+                            ) : (
                             <ResponsiveContainer width="100%" height="100%">
                               <LineChart
                                 data={trendData}
@@ -1901,6 +2020,7 @@ subjects.forEach(subj => {
                                 />
                               </LineChart>
                             </ResponsiveContainer>
+                            )}
                           </div>
 
                         </div>
@@ -1936,10 +2056,15 @@ subjects.forEach(subj => {
                         onChange={(e) => { setSelectedSubject(e.target.value); setAttendanceRecords({}); }}
                         className="bg-white border border-slate-200 rounded p-1.5 text-xs text-slate-800 font-bold focus:outline-hidden"
                         title="Choose active class"
+                        disabled={assignedCodes.length === 0}
                       >
-                       {(lecturer.subjects ?? []).map(s => (
-                          <option key={s} value={s}>{s}</option>
-                        ))}
+                       {assignedCodes.length === 0 ? (
+                          <option value="">No assigned subjects</option>
+                        ) : (
+                          assignedCodes.map(s => (
+                            <option key={s} value={s}>{subjectLabel(s)}</option>
+                          ))
+                        )}
                       </select>
                     </div>
                   </div>
@@ -2050,405 +2175,8 @@ subjects.forEach(subj => {
               </div>
             )}
 
-            {activeTab === 'profile' && (
-              <div className="space-y-6">
-                <div>
-                  <h2 className="text-base font-black text-slate-800 dark:text-white flex items-center gap-1.5 uppercase tracking-wide">
-                    <User className="w-5 h-5 text-blue-600" />
-                    Faculty workspace profile & logs
-                  </h2>
-                  <p className="text-xs text-slate-500">Manage payroll logs, timesheets, and customize research portfolio data shown on directory.</p>
-                </div>
-
-                {/* Sub-tab navigation */}
-                <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setProfileSubTab('timesheets')}
-                    className={`flex-1 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
-                      profileSubTab === 'timesheets'
-                        ? 'bg-white dark:bg-slate-950 text-blue-650 dark:text-blue-450 shadow-3xs'
-                        : 'text-slate-400 hover:text-slate-650 dark:hover:text-slate-350'
-                    }`}
-                  >
-                    Timesheets & Academic Logs
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setProfileSubTab('portfolio')}
-                    className={`flex-1 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
-                      profileSubTab === 'portfolio'
-                        ? 'bg-white dark:bg-slate-950 text-blue-650 dark:text-blue-450 shadow-3xs'
-                        : 'text-slate-400 hover:text-slate-655 dark:hover:text-slate-350'
-                    }`}
-                  >
-                    Public Profile & Research Portfolio
-                  </button>
-                </div>
-
-                {profileSubTab === 'timesheets' ? (
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start animate-fadeIn">
-                    {/* Hours Submitter (Left: 5 Cols) */}
-                    <div className="lg:col-span-5 bg-white dark:bg-slate-900 border border-slate-150 dark:border-slate-800 rounded-3xl p-6 space-y-6 shadow-xs">
-                      <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
-                        <h3 className="font-extrabold text-slate-905 dark:text-white text-sm flex items-center gap-1.5 uppercase tracking-wide">
-                          <Activity className="w-4 h-4 text-blue-600" />
-                          Hours Log Submitter
-                        </h3>
-                        <p className="text-[11px] text-slate-500">Record a completed lecturing slot for payment computation.</p>
-                      </div>
-
-                      {timeLoggedSuccess && (
-                        <div className="bg-emerald-50 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/50 p-3 rounded-xl text-xs font-medium">
-                          Session logged to payroll database!
-                        </div>
-                      )}
-
-                      <form onSubmit={handleLogHoursSubmit} className="space-y-4">
-                        <div className="space-y-1.5">
-                          <label htmlFor="log-class" className="block text-[11px] font-bold text-slate-650 dark:text-slate-400">Select Session Course</label>
-                          <select
-                            id="log-class"
-                            value={selectedSubject}
-                            onChange={(e) => setSelectedSubject(e.target.value)}
-                            className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-750 rounded-xl p-2.5 text-xs text-slate-800 dark:text-slate-205 focus:outline-hidden"
-                            required
-                          >
-                            {(lecturer.subjects ?? []).map(s => (
-                              <option key={s} value={s}>{subjectMap[s] || s}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <label htmlFor="log-topic" className="block text-[11px] font-bold text-slate-650 dark:text-slate-400">Session Topic Delivered</label>
-                          <input
-                            id="log-topic"
-                            type="text"
-                            value={logTopic}
-                            onChange={(e) => setLogTopic(e.target.value)}
-                            placeholder="Introduced Big-O notation & graphs theory"
-                            className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-750 rounded-xl p-2.5 text-xs text-slate-850 dark:text-slate-200 focus:outline-hidden"
-                            required
-                          />
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <label htmlFor="log-hours" className="block text-[11px] font-bold text-slate-650 dark:text-slate-400">Duration (Hourly)</label>
-                          <input
-                            id="log-hours"
-                            type="number"
-                            step="0.5"
-                            min="0.5"
-                            max="10"
-                            value={logSessionHours}
-                            onChange={(e) => setLogSessionHours(e.target.value)}
-                            placeholder="3"
-                            className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-750 rounded-xl p-2.5 text-xs text-slate-850 dark:text-slate-200 focus:outline-hidden font-mono"
-                            required
-                          />
-                        </div>
-
-                        <button
-                          type="submit"
-                          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-2.5 rounded-xl text-xs cursor-pointer transition-colors shadow-sm"
-                        >
-                          Log Lecturing Session
-                        </button>
-                      </form>
-
-                      {/* Pay-Stub Snippet */}
-                      <div className="bg-slate-50 dark:bg-slate-950 p-5 rounded-2xl border border-slate-150 dark:border-slate-850 text-xs space-y-3 font-mono">
-                        <div className="border-b border-dashed border-slate-200 dark:border-slate-800 pb-2 mb-2">
-                          <span className="font-sans font-black text-slate-800 dark:text-slate-200 block text-xs uppercase tracking-wider">Official Pay-Stub Calculation</span>
-                          <span className="text-[10px] text-slate-405">Zenti Faculty Payroll System</span>
-                        </div>
-                        <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                          <span>Your Hourly Rate:</span>
-                          <span className="font-extrabold text-slate-900 dark:text-white bg-slate-150 dark:bg-slate-800 px-2 py-0.5 rounded">KES {lecturer.hourlyRate.toLocaleString()} / hr</span>
-                        </div>
-                        <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                          <span>Accumulated Hours:</span>
-                          <span className="font-extrabold text-slate-900 dark:text-white">{lecturer.loggedHours} Hrs</span>
-                        </div>
-                        <div className="border-t border-dashed border-slate-200 dark:border-slate-800 pt-3 mt-2 flex justify-between font-black text-sm text-slate-900 dark:text-white">
-                          <span>Calculated Total:</span>
-                          <span className="text-emerald-600 dark:text-emerald-400">KES {((lecturer.loggedHours || 0) * (lecturer.hourlyRate || 0)).toLocaleString()}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Historical Table (Right: 7 Cols) */}
-                    <div className="lg:col-span-7 bg-white dark:bg-slate-900 border border-slate-150 dark:border-slate-800 rounded-3xl p-6 space-y-4 shadow-xs">
-                      <div>
-                        <h3 className="font-extrabold text-slate-900 dark:text-white text-sm uppercase tracking-wide">
-                          Historical Logged Sessions
-                        </h3>
-                        <p className="text-[11px] text-slate-505 mt-1">Review the list of your active teaching log reports.</p>
-                      </div>
-
-                      <div className="overflow-x-auto border border-slate-150 dark:border-slate-800 rounded-2xl">
-                        <table className="w-full text-left text-xs border-collapse">
-                          <thead>
-                            <tr className="bg-slate-50 dark:bg-slate-950 border-b border-slate-150 dark:border-slate-800 text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">
-                              <th className="py-3 px-4">Date</th>
-                              <th className="py-3 px-4">Course</th>
-                              <th className="py-3 px-4">Topic</th>
-                              <th className="py-3 px-4 text-center">Hours</th>
-                              <th className="py-3 px-4 text-center">Status</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
-                            {loggedSessions.length === 0 ? (
-                              <tr>
-                                <td colSpan={5} className="py-8 px-4 text-center text-slate-400 italic">No teaching sessions logged yet.</td>
-                              </tr>
-                            ) : (
-                              loggedSessions.map((session) => (
-                                <tr key={session.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/20 font-mono">
-                                  <td className="py-3 px-4 text-slate-600 dark:text-slate-400">{session.date}</td>
-                                  <td className="py-3 px-4 font-bold text-slate-850 dark:text-slate-205">{session.courseCode}</td>
-                                  <td className="py-3 px-4 font-sans text-slate-700 dark:text-slate-350 truncate max-w-[150px]" title={session.topic}>{session.topic}</td>
-                                  <td className="py-3 px-4 text-center font-bold">{session.hours} hrs</td>
-                                  <td className="py-3 px-4 text-center">
-                                    <span className={`inline-block px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
-                                      session.status === 'Approved'
-                                        ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400'
-                                        : 'bg-amber-50 text-amber-700 dark:bg-amber-950/20 dark:text-amber-400'
-                                    }`}>
-                                      {session.status}
-                                    </span>
-                                  </td>
-                                </tr>
-                              ))
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  // Tab B: Public Profile & Research Portfolio Editor
-                  <div className="bg-white dark:bg-slate-900 border border-slate-150 dark:border-slate-800 rounded-3xl p-6 shadow-xs animate-fadeIn">
-                    {profileSuccess && (
-                      <div className="bg-emerald-50 dark:bg-emerald-950/20 text-emerald-805 border border-emerald-100 dark:border-emerald-900/50 p-4 rounded-xl text-xs font-semibold flex items-center gap-1.5 mb-6">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                        <span>Your academic profile portfolio has been synchronized and saved to storage!</span>
-                      </div>
-                    )}
-
-                    <form 
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        onUpdateProfile(lecturer.id, {
-                          bio: editedBio,
-                          avatar: editedAvatar,
-                          researchInterests: interests,
-                          publications: publications
-                        });
-                        setProfileSuccess(true);
-                        setTimeout(() => {
-                          setProfileSuccess(false);
-                        }, 3000);
-                      }}
-                      className="space-y-6"
-                    >
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        
-                        {/* FILE UPLOADER FOR PROFILE PIC */}
-                        <div className="space-y-3">
-                          <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">Faculty Profile Avatar</label>
-                          <div className="flex flex-col sm:flex-row gap-4 items-center bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl border border-slate-200 dark:border-slate-850">
-                            <img 
-                              src={editedAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=150'} 
-                              alt="Avatar Preview" 
-                              className="w-16 h-16 rounded-full object-cover border-2 border-blue-500/30 shrink-0"
-                              referrerPolicy="no-referrer"
-                            />
-                            <div className="flex-1 w-full text-center sm:text-left space-y-2">
-                              <div className="relative border-2 border-dashed border-slate-200 dark:border-slate-800 hover:border-blue-500 dark:hover:border-blue-500 rounded-xl p-3 text-center transition-all cursor-pointer">
-                                <input 
-                                  type="file"
-                                  accept="image/*"
-                                  onChange={(e) => {
-                                    const file = e.target.files?.[0];
-                                    if (file) {
-                                      const dummyUrls = [
-                                        "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80",
-                                        "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80",
-                                        "https://images.unsplash.com/photo-1519345182560-3f2917c472ef?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80",
-                                        "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80"
-                                      ];
-                                      const selectedUrl = dummyUrls[Math.floor(Math.random() * dummyUrls.length)];
-                                      setEditedAvatar(selectedUrl);
-                                      showToast("File uploaded successfully into Faculty CDN storage!", "success");
-                                    }
-                                  }}
-                                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                />
-                                <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
-                                  Click to upload picture
-                                </div>
-                                <div className="text-[9px] text-slate-400">
-                                  JPG, PNG or GIF up to 5MB
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* BIO WRAPPER */}
-                        <div className="space-y-2">
-                          <label className="block text-[11px] font-bold text-slate-605 dark:text-slate-400 uppercase tracking-wider">Professional Biography Brief</label>
-                          <textarea 
-                            rows={3}
-                            value={editedBio}
-                            onChange={(e) => setEditedBio(e.target.value)}
-                            placeholder="Introduce your academic focus, departments, and industry experience at Zenti Metro University..."
-                            className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-750 rounded-xl p-2.5 text-xs text-slate-850 dark:text-slate-200 focus:outline-hidden resize-none leading-relaxed"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-slate-100 dark:border-slate-805 pt-6">
-                        {/* SPECIALIZATION BADGES */}
-                        <div className="space-y-3">
-                          <div className="flex justify-between items-center">
-                            <label className="text-[11px] font-bold text-slate-605 dark:text-slate-450 uppercase tracking-wider flex items-center gap-1">
-                              <Sparkles className="w-3.5 h-3.5 text-blue-500" />
-                              <span>Specialization & Core Interests</span>
-                            </label>
-                            <span className="text-[10px] font-bold text-slate-400">{interests.length} Area(s)</span>
-                          </div>
-
-                          <div className="flex gap-2">
-                            <input
-                              type="text"
-                              value={newInterest}
-                              onChange={(e) => setNewInterest(e.target.value)}
-                              placeholder="e.g. Adaptive Distributed Consensus Topologies"
-                              className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-750 rounded-xl px-2.5 py-2 text-xs text-slate-855 dark:text-slate-200 focus:outline-hidden"
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  if (newInterest.trim()) {
-                                    setInterests(prev => [...prev, newInterest.trim()]);
-                                    setNewInterest('');
-                                  }
-                                }
-                              }}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (newInterest.trim()) {
-                                  setInterests(prev => [...prev, newInterest.trim()]);
-                                  setNewInterest('');
-                                }
-                              }}
-                              className="bg-blue-50 dark:bg-blue-950/30 text-blue-605 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 px-3 py-2 rounded-xl font-bold text-xs font-sans select-none border border-blue-100 dark:border-blue-900/50 cursor-pointer"
-                            >
-                              Add
-                            </button>
-                          </div>
-
-                          <div className="flex flex-wrap gap-2 max-h-[150px] overflow-y-auto p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-150 dark:border-slate-850">
-                            {interests.length === 0 ? (
-                              <p className="text-[11px] text-slate-400 italic">No research domains catalogued. Add some above!</p>
-                            ) : (
-                              interests.map((interest, idx) => (
-                                <span key={idx} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 text-xs font-semibold border border-blue-100 dark:border-blue-900/50">
-                                  <span>{interest}</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => setInterests(prev => prev.filter((_, i) => i !== idx))}
-                                    className="hover:bg-blue-200 dark:hover:bg-blue-900/80 p-0.5 rounded-full text-blue-500 hover:text-blue-750 dark:text-blue-405 shrink-0 cursor-pointer"
-                                    title="Remove item"
-                                  >
-                                    <X className="w-3 h-3" />
-                                  </button>
-                                </span>
-                              ))
-                            )}
-                          </div>
-                        </div>
-
-                        {/* ACADEMIC PUBLICATIONS */}
-                        <div className="space-y-3">
-                          <div className="flex justify-between items-center">
-                            <label className="text-[11px] font-bold text-slate-605 dark:text-slate-450 uppercase tracking-wider flex items-center gap-1">
-                              <BookOpen className="w-3.5 h-3.5 text-indigo-500" />
-                              <span>Academic Publications</span>
-                            </label>
-                            <span className="text-[10px] font-bold text-slate-400">{publications.length} Publication(s)</span>
-                          </div>
-
-                          <div className="flex gap-2">
-                            <input
-                              type="text"
-                              value={newPublication}
-                              onChange={(e) => setNewPublication(e.target.value)}
-                              placeholder="e.g. Vance, M. (2500). 'Adaptive Algorithms in Microcomputing.'"
-                              className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-750 rounded-xl px-2.5 py-2 text-xs text-slate-855 dark:text-slate-205 focus:outline-hidden"
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  if (newPublication.trim()) {
-                                    setPublications(prev => [...prev, newPublication.trim()]);
-                                    setNewPublication('');
-                                  }
-                                }
-                              }}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (newPublication.trim()) {
-                                  setPublications(prev => [...prev, newPublication.trim()]);
-                                  setNewPublication('');
-                                }
-                              }}
-                              className="bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-105 dark:hover:bg-indigo-900/40 px-3 py-2 rounded-xl font-bold text-xs select-none border border-indigo-100 dark:border-indigo-900/50 cursor-pointer"
-                            >
-                              Add
-                            </button>
-                          </div>
-
-                          <div className="space-y-2 max-h-[150px] overflow-y-auto">
-                            {publications.length === 0 ? (
-                              <p className="text-[11px] text-slate-400 italic">No academic bibliography listed yet.</p>
-                            ) : (
-                              publications.map((pub, idx) => (
-                                <div key={idx} className="flex justify-between items-start p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 text-xs text-slate-800 dark:text-slate-205">
-                                  <span className="text-[11px] leading-snug mr-3 break-words flex-1 font-mono">{pub}</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => setPublications(prev => prev.filter((_, i) => i !== idx))}
-                                    className="text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 p-1 rounded-lg shrink-0 cursor-pointer"
-                                    title="Remove item"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              ))
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="border-t border-slate-105 dark:border-slate-800 pt-5 flex justify-end">
-                        <button
-                          type="submit"
-                          className="bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs py-2.5 px-6 rounded-xl flex items-center gap-2 cursor-pointer transition-all active:scale-95 shadow-md shadow-blue-500/10"
-                        >
-                          <Save className="w-4 h-4" />
-                          <span>Synchronize Profile Credentials</span>
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-                )}
-              </div>
+            {activeTab === 'lookup' && (
+              <StudentLookupPage lecturer={lecturer} />
             )}
 
             {activeTab === 'books' && (
@@ -2470,7 +2198,7 @@ subjects.forEach(subj => {
         </div>
 
         {/* RIGHT COLUMN: TIMECARDS AND HOUR LOGGING */}
-        {activeTab !== 'profile' && (
+        {activeTab !== 'lookup' && (
           <div className="lg:col-span-4 bg-white border border-slate-150 rounded-2xl p-6 shadow-sm space-y-6">
           
           <div className="border-b border-slate-100 pb-3">
@@ -2490,37 +2218,43 @@ subjects.forEach(subj => {
           <form onSubmit={handleLogHoursSubmit} className="space-y-4">
             
             <div className="space-y-1.5">
-              <label htmlFor="log-class" className="block text-[11px] font-bold text-slate-650">Select Session Course</label>
+              <label htmlFor="sidebar-log-class" className="block text-[11px] font-bold text-slate-650">Select Session Course</label>
               <select
-                id="log-class"
+                id="sidebar-log-class"
                 value={selectedSubject}
                 onChange={(e) => setSelectedSubject(e.target.value)}
                 className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs text-slate-800 focus:outline-hidden"
                 required
+                disabled={assignedCodes.length === 0}
               >
-                {(lecturer.subjects ?? []).map(s => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
+                {assignedCodes.length === 0 ? (
+                  <option value="">No assigned subjects</option>
+                ) : (
+                  assignedCodes.map(s => (
+                    <option key={s} value={s}>{subjectLabel(s)}</option>
+                  ))
+                )}
               </select>
             </div>
 
             <div className="space-y-1.5">
-              <label htmlFor="log-topic" className="block text-[11px] font-bold text-slate-650">Session Topic Delivered</label>
+              <label htmlFor="sidebar-log-topic" className="block text-[11px] font-bold text-slate-650">Session Topic Delivered</label>
               <input
-                id="log-topic"
+                id="sidebar-log-topic"
                 type="text"
                 value={logTopic}
                 onChange={(e) => setLogTopic(e.target.value)}
                 placeholder="Introduced Big-O notation & graphs theory"
                 className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs text-slate-850 focus:outline-hidden"
                 required
+                disabled={assignedCodes.length === 0}
               />
             </div>
 
             <div className="space-y-1.5">
-              <label htmlFor="log-hours" className="block text-[11px] font-bold text-slate-650">Duration (Hourly)</label>
+              <label htmlFor="sidebar-log-hours" className="block text-[11px] font-bold text-slate-650">Duration (Hourly)</label>
               <input
-                id="log-hours"
+                id="sidebar-log-hours"
                 type="number"
                 step="0.5"
                 min="0.5"
@@ -2530,14 +2264,16 @@ subjects.forEach(subj => {
                 placeholder="3"
                 className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs text-slate-850 focus:outline-hidden"
                 required
+                disabled={assignedCodes.length === 0}
               />
             </div>
 
             <button
               type="submit"
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-lg text-xs cursor-pointer transition-colors"
+              disabled={assignedCodes.length === 0 || isLogging}
+              className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 rounded-lg text-xs cursor-pointer transition-colors"
             >
-              Log Active Lecturing Session
+              {isLogging ? 'Saving Session…' : 'Log Active Lecturing Session'}
             </button>
           </form>
 
@@ -2545,15 +2281,15 @@ subjects.forEach(subj => {
             <span className="font-bold text-slate-800 block text-xs">Payout Calculations Detail:</span>
             <div className="flex justify-between">
               <span>Your Hourly Rate:</span>
-              <span className="font-bold text-slate-900">KES {lecturer.hourlyRate.toLocaleString()} / hr</span>
+              <span className="font-bold text-slate-900">KES {liveHourlyRate.toLocaleString()} / hr</span>
             </div>
             <div className="flex justify-between">
               <span>Logged Hours:</span>
-              <span className="font-bold text-slate-900">{lecturer.loggedHours} Hrs</span>
+              <span className="font-bold text-slate-900">{liveLoggedHours} Hrs</span>
             </div>
             <div className="border-t border-slate-200 pt-2 flex justify-between font-bold text-slate-900">
               <span>Calculated Total:</span>
-              <span>KES {((lecturer.loggedHours || 0) * (lecturer.hourlyRate || 0)).toLocaleString()}</span>
+              <span>KES {liveEstimatedPayout.toLocaleString()}</span>
             </div>
           </div>
         </div>

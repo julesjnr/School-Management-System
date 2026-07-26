@@ -27,7 +27,63 @@
   ],
   "books": [],
   "loans": [],
-  "courses": [],
+  "courses": [
+    {
+      "id": "3515c26b-f0bd-4494-8ba0-e70f53affd73",
+      "code": "BDS",
+      "title": "Bachelor of Data Science",
+      "description": "Focuses on statistics, machine learning, big data analytics, artificial intelligence, and data engineering.",
+      "duration": "4 Years",
+      "fees": 520000,
+      "thumbnail": "",
+      "faculty": "School of Computing and Informatics",
+      "active": true
+    },
+    {
+      "id": "6ab1051c-03f9-4293-9cde-d50daa8f1c7e",
+      "code": "BIT",
+      "title": "Bachelor of Information Technology",
+      "description": "A programme covering software development, cloud computing, networking, web technologies, and IT infrastructure management.",
+      "duration": "4 Years",
+      "fees": 450000,
+      "thumbnail": "",
+      "faculty": "School of Computing and Informatics",
+      "active": true
+    },
+    {
+      "id": "3e6160cc-f3c9-4746-b17e-ed8855e7da32",
+      "code": "BBIT",
+      "title": "Bachelor of Business Information Technology",
+      "description": "Integrates business management principles with information technology to prepare graduates for digital business environments.",
+      "duration": "4 Years",
+      "fees": 430000,
+      "thumbnail": "",
+      "faculty": "School of Business and Computing",
+      "active": true
+    },
+    {
+      "id": "cfccd04f-89dd-45ac-977c-ab782636626a",
+      "code": "BSE",
+      "title": "Bachelor of Software Engineering",
+      "description": "A programme specializing in software architecture, software testing, DevOps, mobile development, and enterprise systems.",
+      "duration": "4 Years",
+      "fees": 500000,
+      "thumbnail": "",
+      "faculty": "School of Computing and Informatics",
+      "active": true
+    },
+    {
+      "id": "430353d5-bbf6-4f75-ba73-3e4b47681c9f",
+      "code": "BCS",
+      "title": "Bachelor of Computer Science",
+      "description": "A degree focusing on software engineering, artificial intelligence, databases, networking, cybersecurity, and computer systems.",
+      "duration": "4 Years",
+      "fees": 480000,
+      "thumbnail": "",
+      "faculty": "School of Computing and Informatics",
+      "active": true
+    }
+  ],
   "reviews": [],
   "expenses": [],
   "students": [
@@ -40,32 +96,52 @@
       "cohort": "2025 Intake",
       "accountStatus": "Pending Setup",
       "createdAt": "2026-07-26 08:55:24.008457+00",
-      "enrolledUnits": [],
-      "grades": {},
-      "ledger": [],
+      "enrolledUnits": [
+        "BCS"
+      ],
+      "grades": {
+        "BCS": {
+          "cat": 25,
+          "exam": 68,
+          "gradedAt": "2026-07-26 13:41:17.114164+00"
+        }
+      },
+      "ledger": [
+        {
+          "id": "a3cc2b24-278a-4190-980e-e0b996fddd65",
+          "invoiceNo": "INV-8830",
+          "description": "[Boarding] Semester Tuition and Accommodation Fees",
+          "amount": 45000,
+          "date": "2026-07-26",
+          "status": "unpaid"
+        }
+      ],
       "payments": [],
-      "attendance": {}
+      "attendance": {
+        "BCS": 100
+      }
     }
   ],
   "inventory": [],
   "lecturers": [
     {
-      "id": "e4e64050-0024-483d-b48a-c996e2817aa6",
-      "name": "Allan",
-      "email": "allan@zenti.edu",
-      "phone": "047365626",
-      "hourlyRate": 70,
-      "loggedHours": 80,
-      "bankDetails": "Equity Bank Kenya - 0743968235463 (Nairobi Central)",
-      "contractLength": "Contract (2024-01-15 to 2027-01-15)",
-      "designatorCode": "STF-2026-377",
+      "id": "c40008df-40cf-4e8d-93f5-aec7287907f5",
+      "name": "Mercy Mueni",
+      "email": "mueni@zenti.edu.ke",
+      "phone": "+25477664651",
+      "hourlyRate": 50,
+      "loggedHours": 4,
+      "bankDetails": "Equity Bank Kenya - 8673652897465 (Nairobi Central)",
+      "contractLength": "Permanent",
+      "designatorCode": "STF-2026-001",
       "bio": "",
       "avatar": "",
       "isActive": true,
       "isAccountant": false,
       "isLibrarian": false,
       "subjects": [
-        "DS-202-ML"
+        "BCS",
+        "BSE"
       ],
       "publications": [],
       "researchInterests": [],
@@ -79,18 +155,47 @@
   "readingLists": [],
   "requisitions": [],
   "reservations": [],
-  "notifications": [],
+  "notifications": [
+    {
+      "id": "e13d5169-2a31-40df-b1ad-77575fd765b2",
+      "targetUserRole": "all",
+      "type": "library",
+      "title": " [Grade Posted] New Grade for Unit BCS",
+      "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
+      "status": "unread",
+      "dateTime": "2026-07-26 13:15:08+00"
+    },
+    {
+      "id": "afce5cd0-a3a8-4a63-8b91-a385e021c89e",
+      "targetUserRole": "all",
+      "type": "payment",
+      "title": " [Invoice Generated] New Billing Invoice #INV-8830",
+      "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
+      "status": "unread",
+      "dateTime": "2026-07-26 12:15:22+00"
+    },
+    {
+      "id": "56ce593d-d574-4eaa-bd39-3e0088504fa6",
+      "targetUserRole": "all",
+      "type": "payment",
+      "title": " [Invoice Generated] New Billing Invoice #INV-1194",
+      "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
+      "status": "unread",
+      "dateTime": "2026-07-26 12:15:21+00"
+    }
+  ],
   "libraryGateLogs": [],
   "teacherResources": [],
   "attendanceSessions": [
     {
-      "id": "2d7c5f88-7c07-ae18-94ad-b4289dae9635",
-      "date": "2026-07-13",
-      "subjectCode": "SE103",
-      "absentStudents": [
-        "2e7132ce-b8c9-4725-a2c4-70a97a30a857"
+      "id": "546b88de-791e-47fc-85d0-3a35e078b00a",
+      "date": "2026-07-26",
+      "subjectCode": "BCS",
+      "presentStudents": [
+        "351d378f-ce47-4f2f-bfa8-a8956982d577"
       ],
-      "presentStudents": []
+      "absentStudents": [],
+      "lecturerId": "c40008df-40cf-4e8d-93f5-aec7287907f5"
     }
   ],
   "passwordResetRequests": [

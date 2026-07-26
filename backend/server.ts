@@ -45,8 +45,13 @@ import {
   transactions,
   studentLedger,
   users,
+  teachingSessions,
+  lectureSchedules,
+  syllabusTopics,
+  academicRanks,
+  classAttendanceSessions,
 } from "./src/db/schema.ts";
-import { eq, notInArray, and, or, desc, asc, count, ilike, inArray, sql } from "drizzle-orm";
+import { eq, notInArray, and, or, desc, asc, count, ilike, inArray, sql, gte } from "drizzle-orm";
 import { supabase } from "./src/db/supabaseClient.ts";
 import {
   hashPassword,
@@ -100,6 +105,22 @@ export async function loadFullDatabaseState(): Promise<any> {
       news: initialNews,
       attendanceSessions: [],
     };
+  }
+
+  // Class roll-call sessions (relational source of truth)
+  try {
+    const attendanceSessionRows = await db.select().from(classAttendanceSessions);
+    dbState.attendanceSessions = attendanceSessionRows.map((s) => ({
+      id: s.id,
+      date: s.sessionDate,
+      subjectCode: s.subjectCode,
+      presentStudents: Array.isArray(s.presentStudentIds) ? s.presentStudentIds : [],
+      absentStudents: Array.isArray(s.absentStudentIds) ? s.absentStudentIds : [],
+      lecturerId: s.lecturerId,
+    }));
+  } catch (e) {
+    console.warn("attendance_sessions table not available yet:", e);
+    dbState.attendanceSessions = dbState.attendanceSessions || [];
   }
 
   // 1. Courses
@@ -178,11 +199,12 @@ export async function loadFullDatabaseState(): Promise<any> {
   dbState.students = studentRows.map(s => {
     const enrolledUnits = enrollmentRows.filter(e => e.studentId === s.id).map(e => e.courseCode);
     
-    const studentGrades: Record<string, { cat: number; exam: number }> = {};
+    const studentGrades: Record<string, { cat: number; exam: number; gradedAt?: string }> = {};
     gradeRows.filter(g => g.studentId === s.id).forEach(g => {
       studentGrades[g.subjectCode] = {
         cat: g.catScore ? Number(g.catScore) : 0,
-        exam: g.examScore ? Number(g.examScore) : 0
+        exam: g.examScore ? Number(g.examScore) : 0,
+        gradedAt: g.gradedAt ?? undefined,
       };
     });
 
@@ -1292,37 +1314,172 @@ function saveDatabase(dbState: any) {
 function checkRBAC(allowedRoles: string[]) {
   return (req: any, res: any, next: any) => {
     // Only trust the verified role propagated from the JWT token header
-    const userRole = req.headers["x-user-role"];
-    
-    // Explicitly block students from administrative routes and restrict write access
-    if (userRole === "student" && (req.path.startsWith("/api/admin") || req.path.startsWith("/admin"))) {
+    const userRole = req.headers["x-user-role"] || req.user?.role;
+
+    if (!userRole) {
       return res.status(403).json({
         success: false,
-        error: "Access Denied: Students are technically blocked from accessing administrative routes.",
-        code: "RBAC_STUDENT_RESTRICTED",
-        allowedRoles
+        error: "Access Denied: Authentication required.",
+        code: "RBAC_UNAUTHENTICATED",
+        allowedRoles,
       });
     }
 
-    // Default permission checks
-    if (req.path.startsWith("/api/admin")) {
-      if (!userRole) {
-        return res.status(403).json({
-          success: false,
-          error: "Access Denied: Unauthenticated access to administrative routes is strictly forbidden.",
-          code: "RBAC_UNAUTHENTICATED"
-        });
-      }
-      if (!allowedRoles.includes(userRole)) {
-        return res.status(403).json({
-          success: false,
-          error: `Access Denied: Users with role '${userRole}' are not permitted to access this administrative route.`,
-          code: "RBAC_FORBIDDEN_ROLE"
-        });
-      }
+    if (!allowedRoles.includes(userRole)) {
+      return res.status(403).json({
+        success: false,
+        error: `Access Denied: Users with role '${userRole}' are not permitted to access this resource.`,
+        code: "RBAC_FORBIDDEN_ROLE",
+        allowedRoles,
+      });
     }
 
     next();
+  };
+}
+
+/** Teaching-safe student DTO — never includes passwords, ledger lines, or auth identifiers. */
+function buildLecturerStudentLookupView(params: {
+  student: typeof students.$inferSelect;
+  enrollments: Array<{ courseCode: string }>;
+  gradeRows: Array<{ subjectCode: string; catScore: string | null; examScore: string | null; gradedAt: string | null }>;
+  attendanceRows: Array<{ subjectCode: string; attendanceRate: number }>;
+  courseRows: Array<{ code: string; title: string; faculty: string }>;
+  invoiceRows: Array<{ status: string; amount: string | null }>;
+  advisorNotes: Array<{ id: string; day: string; timeSlot: string; notes: string; lecturerName?: string }>;
+  taughtSubjectCodes: string[];
+  semesterFromDb: string | null;
+}) {
+  const {
+    student,
+    enrollments,
+    gradeRows,
+    attendanceRows,
+    courseRows,
+    invoiceRows,
+    advisorNotes,
+    taughtSubjectCodes,
+    semesterFromDb,
+  } = params;
+
+  const courseByCode = new Map(courseRows.map((c) => [c.code, c]));
+  const enrolledUnits = enrollments.map((e) => e.courseCode);
+
+  const facultyCounts = new Map<string, number>();
+  for (const code of enrolledUnits) {
+    const faculty = courseByCode.get(code)?.faculty;
+    if (faculty) facultyCounts.set(faculty, (facultyCounts.get(faculty) || 0) + 1);
+  }
+  let department: string | null = null;
+  let maxFaculty = 0;
+  for (const [faculty, count] of facultyCounts) {
+    if (count > maxFaculty) {
+      maxFaculty = count;
+      department = faculty;
+    }
+  }
+
+  const markToGpa = (mark: number): number => {
+    if (mark >= 70) return 4.0;
+    if (mark >= 60) return 3.0;
+    if (mark >= 50) return 2.0;
+    if (mark >= 40) return 1.0;
+    return 0.0;
+  };
+
+  const gpaStanding = (gpa: number): string => {
+    if (gpa >= 3.7) return "Excellent";
+    if (gpa >= 3.0) return "Good";
+    if (gpa >= 2.0) return "Satisfactory";
+    if (gpa > 0) return "At Risk";
+    return "N/A";
+  };
+
+  const letterFromTotal = (total: number): string => {
+    if (total >= 70) return "A";
+    if (total >= 60) return "B";
+    if (total >= 50) return "C";
+    if (total >= 40) return "D";
+    return "F";
+  };
+
+  let gpa: number | null = null;
+  let academicStanding = "N/A";
+  if (gradeRows.length > 0) {
+    const total = gradeRows.reduce((sum, g) => {
+      const mark = Number(g.catScore || 0) + Number(g.examScore || 0);
+      return sum + markToGpa(mark);
+    }, 0);
+    gpa = Number((total / gradeRows.length).toFixed(2));
+    academicStanding = gpaStanding(gpa);
+  }
+
+  const attendanceByCode = new Map(
+    attendanceRows.map((a) => [a.subjectCode, Number(a.attendanceRate)])
+  );
+  const gradesByCode = new Map(
+    gradeRows.map((g) => [
+      g.subjectCode,
+      {
+        cat: Number(g.catScore || 0),
+        exam: Number(g.examScore || 0),
+        gradedAt: g.gradedAt || undefined,
+      },
+    ])
+  );
+
+  const registeredUnits = enrolledUnits.map((code) => {
+    const course = courseByCode.get(code);
+    const grade = gradesByCode.get(code);
+    const total = grade ? grade.cat + grade.exam : null;
+    return {
+      code,
+      title: course?.title || code,
+      faculty: course?.faculty || null,
+      isMyClass: taughtSubjectCodes.includes(code),
+      attendanceRate: attendanceByCode.has(code) ? attendanceByCode.get(code)! : null,
+      grade: grade
+        ? {
+            cat: grade.cat,
+            exam: grade.exam,
+            total: total as number,
+            letter: letterFromTotal(total as number),
+            gradedAt: grade.gradedAt,
+          }
+        : null,
+    };
+  });
+
+  const outstanding = invoiceRows
+    .filter((i) => i.status === "unpaid")
+    .reduce((sum, i) => sum + Number(i.amount || 0), 0);
+  const financeStatus: "Finance Cleared" | "Finance Hold" =
+    outstanding > 0 ? "Finance Hold" : "Finance Cleared";
+
+  // Year of study from cohort year when present (e.g. "2024 Intake") — cohort is stored in PostgreSQL
+  const cohortYearMatch = String(student.cohort || "").match(/(20\d{2})/);
+  const cohortYear = cohortYearMatch ? Number(cohortYearMatch[1]) : null;
+  const currentYear = new Date().getFullYear();
+  const yearOfStudy =
+    cohortYear && cohortYear <= currentYear
+      ? Math.min(Math.max(1, currentYear - cohortYear + 1), 6)
+      : null;
+
+  return {
+    id: student.id,
+    name: student.name,
+    admissionNo: student.admissionNo,
+    avatar: student.avatar || null,
+    cohort: student.cohort,
+    course: department || student.cohort || "Undergraduate Programme",
+    department: department,
+    yearOfStudy,
+    semester: semesterFromDb,
+    financeStatus,
+    gpa,
+    academicStanding,
+    registeredUnits,
+    advisorNotes,
   };
 }
 
@@ -1388,11 +1545,18 @@ app.use("/api", (req: any, res: any, next: any) => {
   const fullPath = req.baseUrl + pathWithoutQuery;
   const relativePath = '/api' + pathWithoutQuery;
   
-  const isPublic = 
-    publicAPIPaths.includes(fullPath) || 
-    publicAPIPaths.includes(relativePath) ||
-    relativePath.startsWith('/api/student') ||
-    relativePath.startsWith('/api/student-enrollments');
+  // Lecturer student-lookup endpoints require JWT + RBAC (never public).
+  const lecturerLookupProtected =
+    relativePath.startsWith("/api/lecturer/student-lookup") ||
+    relativePath.startsWith("/api/lecturer/students");
+
+  const isPublic =
+    !lecturerLookupProtected &&
+    (publicAPIPaths.includes(fullPath) ||
+      publicAPIPaths.includes(relativePath) ||
+      relativePath.startsWith("/api/student") ||
+      relativePath.startsWith("/api/lecturer") ||
+      relativePath.startsWith("/api/student-enrollments"));
   if (isPublic) {
     return next();
   }
@@ -2175,37 +2339,56 @@ app.post("/api/invoices", async (req, res) => {
 
 app.post("/api/student-attendance", async (req, res) => {
   try {
-    const attendanceData = req.body;
+    const payload = req.body;
+    const records = Array.isArray(payload) ? payload : [payload];
 
-    if (
-      !attendanceData?.studentId ||
-      !attendanceData?.subjectCode ||
-      attendanceData?.attendanceRate === undefined
-    ) {
+    if (records.length === 0) {
       return res.status(400).json({
         error: "Student ID, subject code and attendance rate are required",
       });
     }
 
-    const [attendance] = await db
-      .insert(studentAttendance)
-      .values({
-        studentId: attendanceData.studentId,
-        subjectCode: attendanceData.subjectCode,
-        attendanceRate: attendanceData.attendanceRate,
-      })
-      .onConflictDoUpdate({
-        target: [
-          studentAttendance.studentId,
-          studentAttendance.subjectCode,
-        ],
-        set: {
-          attendanceRate: attendanceData.attendanceRate,
-        },
-      })
-      .returning();
+    const saved = [];
+    for (const attendanceData of records) {
+      if (
+        !attendanceData?.studentId ||
+        !attendanceData?.subjectCode ||
+        attendanceData?.attendanceRate === undefined
+      ) {
+        return res.status(400).json({
+          error: "Student ID, subject code and attendance rate are required",
+        });
+      }
 
-    res.status(201).json(attendance);
+      const rate = Number(attendanceData.attendanceRate);
+      if (Number.isNaN(rate) || rate < 0 || rate > 100) {
+        return res.status(400).json({
+          error: "attendanceRate must be a number between 0 and 100",
+        });
+      }
+
+      const [attendance] = await db
+        .insert(studentAttendance)
+        .values({
+          studentId: attendanceData.studentId,
+          subjectCode: attendanceData.subjectCode,
+          attendanceRate: rate,
+        })
+        .onConflictDoUpdate({
+          target: [
+            studentAttendance.studentId,
+            studentAttendance.subjectCode,
+          ],
+          set: {
+            attendanceRate: rate,
+          },
+        })
+        .returning();
+
+      saved.push(attendance);
+    }
+
+    res.status(201).json(Array.isArray(payload) ? saved : saved[0]);
   } catch (error: any) {
     console.error("Failed to save attendance:", error);
     res.status(500).json({
@@ -2360,7 +2543,7 @@ app.get("/api/transactions", async (req, res) => {
 });
 
 // GET API to search for a student by their admission_no
-app.get("/api/students/search", async (req, res) => {
+app.get("/api/students/search", async (req: any, res: any) => {
   try {
     const admissionNoQuery = req.query.admission_no || req.query.admissionNo;
     if (!admissionNoQuery || typeof admissionNoQuery !== "string") {
@@ -2368,6 +2551,17 @@ app.get("/api/students/search", async (req, res) => {
     }
 
     const admissionNo = admissionNoQuery.trim();
+    const userRole = req.headers["x-user-role"] || req.user?.role;
+
+    // Lecturers must use the redacted teaching-safe lookup endpoint
+    if (userRole === "lecturer") {
+      return res.status(403).json({
+        success: false,
+        error:
+          "Lecturers must use /api/lecturer/student-lookup for student profiles. Full student records are not available.",
+        code: "RBAC_USE_LECTURER_LOOKUP",
+      });
+    }
 
     // Query fully constructed students list (with all nested details like grades, ledger, etc.)
     const fullDb = await loadFullDatabaseState();
@@ -2383,13 +2577,13 @@ app.get("/api/students/search", async (req, res) => {
       );
 
       if (cachedStudent) {
-        const { passcode, ...studentWithoutPasscode } = cachedStudent;
+        const { passcode, passwordHash, password, ...studentWithoutPasscode } = cachedStudent;
         return res.json(studentWithoutPasscode);
       }
       return res.status(404).json({ error: `Student with admission number ${admissionNo} not found.` });
     }
 
-    const { passcode, ...studentWithoutPasscode } = student;
+    const { passcode, passwordHash, password, ...studentWithoutPasscode } = student;
     res.json(studentWithoutPasscode);
   } catch (err: any) {
     console.error("Error searching student by admission_no:", err);
@@ -3252,6 +3446,1138 @@ app.post("/api/students/:id/reset-password", async (req, res) => {
   }
 });
 
+app.get("/api/student/dashboard-summary", async (req, res) => {
+  try {
+    const studentId = (req.query.studentId as string) || (req.headers["x-student-id"] as string);
+    if (!studentId) {
+      return res.status(400).json({ error: "studentId is required" });
+    }
+
+    const [studentRow] = await db
+      .select()
+      .from(students)
+      .where(eq(students.id, studentId))
+      .limit(1);
+
+    if (!studentRow) {
+      return res.status(404).json({ error: "Student profile not found" });
+    }
+
+    const enrollmentRows = await db
+      .select()
+      .from(studentEnrollments)
+      .where(eq(studentEnrollments.studentId, studentId));
+
+    const gradeRows = await db
+      .select()
+      .from(grades)
+      .where(eq(grades.studentId, studentId));
+
+    const attendanceRows = await db
+      .select()
+      .from(studentAttendance)
+      .where(eq(studentAttendance.studentId, studentId));
+
+    const invoiceRows = await db
+      .select()
+      .from(invoices)
+      .where(eq(invoices.studentId, studentId));
+
+    const courseRows = await db.select().from(courses);
+    const activeCourseCount = courseRows.filter((c) => c.active !== false).length;
+
+    const markToGpa = (mark: number): number => {
+      if (mark >= 70) return 4.0;
+      if (mark >= 60) return 3.0;
+      if (mark >= 50) return 2.0;
+      if (mark >= 40) return 1.0;
+      return 0.0;
+    };
+
+    const gpaStanding = (gpa: number): string => {
+      if (gpa >= 3.7) return "Excellent";
+      if (gpa >= 3.0) return "Good";
+      if (gpa >= 2.0) return "Satisfactory";
+      if (gpa > 0) return "At Risk";
+      return "N/A";
+    };
+
+    // GPA from real grades only
+    let gpa: number | null = null;
+    let gpaLabel = "N/A";
+    if (gradeRows.length > 0) {
+      const total = gradeRows.reduce((sum, g) => {
+        const mark = Number(g.catScore || 0) + Number(g.examScore || 0);
+        return sum + markToGpa(mark);
+      }, 0);
+      gpa = Number((total / gradeRows.length).toFixed(2));
+      gpaLabel = gpaStanding(gpa);
+    }
+
+    // Cumulative GPA trend ordered by graded_at
+    const sortedGrades = [...gradeRows].sort((a, b) =>
+      String(a.gradedAt || "").localeCompare(String(b.gradedAt || ""))
+    );
+    let runningGpaSum = 0;
+    const gpaTrend = sortedGrades.map((g, index) => {
+      const mark = Number(g.catScore || 0) + Number(g.examScore || 0);
+      runningGpaSum += markToGpa(mark);
+      const pointGpa = Number((runningGpaSum / (index + 1)).toFixed(2));
+      const dateLabel = g.gradedAt
+        ? new Date(g.gradedAt).toLocaleDateString("en-GB", { month: "short", year: "2-digit" })
+        : g.subjectCode;
+      return {
+        label: dateLabel,
+        semester: dateLabel,
+        GPA: pointGpa,
+        subjectCode: g.subjectCode,
+        gradedAt: g.gradedAt || null,
+      };
+    });
+
+    // Attendance average only from enrolled units that have DB records
+    const enrolledCodes = enrollmentRows.map((e) => e.courseCode);
+    const attendanceByCode = new Map(
+      attendanceRows.map((a) => [a.subjectCode, Number(a.attendanceRate)])
+    );
+    const attendanceValues = enrolledCodes
+      .map((code) => attendanceByCode.get(code))
+      .filter((v): v is number => typeof v === "number" && !Number.isNaN(v));
+
+    const attendanceRate =
+      attendanceValues.length > 0
+        ? Number(
+            (
+              attendanceValues.reduce((s, v) => s + v, 0) / attendanceValues.length
+            ).toFixed(1)
+          )
+        : null;
+
+    const outstandingFees = invoiceRows
+      .filter((i) => i.status === "unpaid")
+      .reduce((sum, i) => sum + Number(i.amount || 0), 0);
+
+    const completedUnits = gradeRows.filter((g) => {
+      const mark = Number(g.catScore || 0) + Number(g.examScore || 0);
+      return mark >= 40 && enrolledCodes.includes(g.subjectCode);
+    }).length;
+
+    // Curriculum size from active courses until a degree_requirements table exists
+    const requiredUnits = Math.max(activeCourseCount, completedUnits, 1);
+    const degreePercent = Math.min(
+      100,
+      Math.round((completedUnits / requiredUnits) * 100)
+    );
+
+    const gradedCodes = new Set(gradeRows.map((g) => g.subjectCode));
+    const deliverables: Array<{
+      id: string;
+      title: string;
+      detail: string;
+      priority: "high" | "normal" | "done";
+      type: string;
+    }> = [];
+
+    if (outstandingFees > 0) {
+      deliverables.push({
+        id: "fees",
+        title: "Settle outstanding tuition fees",
+        detail: `KES ${outstandingFees.toLocaleString()} unpaid on your finance ledger.`,
+        priority: "high",
+        type: "finance",
+      });
+    }
+
+    const remainingToEnroll = Math.max(0, activeCourseCount - enrolledCodes.length);
+    if (remainingToEnroll > 0) {
+      deliverables.push({
+        id: "enroll",
+        title: "Complete unit registration",
+        detail: `${remainingToEnroll} curriculum unit${remainingToEnroll === 1 ? "" : "s"} still available to enroll.`,
+        priority: "normal",
+        type: "enrollment",
+      });
+    }
+
+    const awaitingGrades = enrolledCodes.filter((code) => !gradedCodes.has(code));
+    if (awaitingGrades.length > 0) {
+      deliverables.push({
+        id: "grades",
+        title: "Awaiting published grades",
+        detail: `${awaitingGrades.length} enrolled module${awaitingGrades.length === 1 ? "" : "s"} without CAT/exam marks yet.`,
+        priority: "normal",
+        type: "grades",
+      });
+    }
+
+    for (const code of enrolledCodes) {
+      const rate = attendanceByCode.get(code);
+      if (typeof rate === "number" && rate < 75) {
+        deliverables.push({
+          id: `att-${code}`,
+          title: `Attendance below threshold (${code})`,
+          detail: `Current rate ${rate}% — exam eligibility requires at least 75%.`,
+          priority: "high",
+          type: "attendance",
+        });
+      }
+    }
+
+    res.json({
+      studentId,
+      gpa,
+      gpaLabel,
+      attendanceRate,
+      activeModules: enrolledCodes.length,
+      outstandingFees,
+      gpaTrend,
+      degreeProgress: {
+        completed: completedUnits,
+        required: requiredUnits,
+        percent: degreePercent,
+        note:
+          "Required units currently equal active courses in the catalogue until a degree_requirements table is added.",
+      },
+      deliverables,
+      // Student timetable can join lecture_schedules once enrollments map to scheduled subjects.
+      nextLecture: null,
+      scheduleAvailable: false,
+    });
+  } catch (error: any) {
+    console.error("Failed to build student dashboard summary:", error);
+    res.status(500).json({ error: error.message || "Failed to load dashboard summary" });
+  }
+});
+
+/** Resolve hourly rate: lecturer record first, else academic_ranks default when available. */
+async function resolveLecturerHourlyRate(lecturerRow: {
+  hourlyRate: string | number | null;
+}): Promise<{ hourlyRate: number; rateSource: "lecturer" | "academic_rank" | "default" }> {
+  const stored = Number(lecturerRow.hourlyRate);
+  if (!Number.isNaN(stored) && stored > 0) {
+    return { hourlyRate: stored, rateSource: "lecturer" };
+  }
+
+  try {
+    const ranks = await db.select().from(academicRanks).limit(20);
+    if (ranks.length > 0) {
+      const fallback = Number(ranks[0].defaultHourlyRate);
+      if (!Number.isNaN(fallback) && fallback > 0) {
+        return { hourlyRate: fallback, rateSource: "academic_rank" };
+      }
+    }
+  } catch {
+    // academic_ranks may not be migrated yet
+  }
+
+  return { hourlyRate: 0, rateSource: "default" };
+}
+
+function startOfIsoWeek(d: Date): Date {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = date.getUTCDay() || 7;
+  if (day !== 1) date.setUTCDate(date.getUTCDate() - (day - 1));
+  return date;
+}
+
+function formatIsoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+app.get("/api/lecturer/dashboard-summary", async (req, res) => {
+  try {
+    const lecturerId =
+      (req.query.lecturerId as string) || (req.headers["x-lecturer-id"] as string);
+    if (!lecturerId) {
+      return res.status(400).json({ error: "lecturerId is required" });
+    }
+
+    const [lecturerRow] = await db
+      .select()
+      .from(lecturers)
+      .where(eq(lecturers.id, lecturerId))
+      .limit(1);
+
+    if (!lecturerRow) {
+      return res.status(404).json({ error: "Lecturer profile not found" });
+    }
+
+    const assignedSubjectRows = await db
+      .select()
+      .from(lecturerSubjects)
+      .where(eq(lecturerSubjects.lecturerId, lecturerId));
+
+    const assignedCodes = assignedSubjectRows.map((s) => s.subjectCode);
+    const courseRows = await db.select().from(courses);
+    const courseByCode = new Map(courseRows.map((c) => [c.code, c]));
+
+    const assignedSubjects = assignedCodes.map((code) => ({
+      code,
+      title: courseByCode.get(code)?.title || code,
+      label: `${code} – ${courseByCode.get(code)?.title || code}`,
+    }));
+
+    const sessionRows = await db
+      .select()
+      .from(teachingSessions)
+      .where(eq(teachingSessions.lecturerId, lecturerId))
+      .orderBy(desc(teachingSessions.sessionDate), desc(teachingSessions.createdAt));
+
+    const loggedHours = Number(
+      sessionRows
+        .reduce((sum, s) => sum + Number(s.durationHours || 0), 0)
+        .toFixed(2)
+    );
+
+    // Keep lecturers.logged_hours aligned with session totals (source of truth = sessions)
+    const storedHours = Number(lecturerRow.loggedHours || 0);
+    if (Math.abs(storedHours - loggedHours) > 0.001) {
+      await db
+        .update(lecturers)
+        .set({ loggedHours: String(loggedHours) })
+        .where(eq(lecturers.id, lecturerId));
+    }
+
+    const { hourlyRate, rateSource } = await resolveLecturerHourlyRate(lecturerRow);
+    const estimatedPayout = Number((loggedHours * hourlyRate).toFixed(2));
+
+    // Next scheduled class for an assigned subject only
+    let nextClass: {
+      subjectCode: string;
+      subjectTitle: string;
+      room: string;
+      date: string;
+      startTime: string;
+      endTime: string;
+    } | null = null;
+
+    if (assignedCodes.length > 0) {
+      const today = formatIsoDate(new Date());
+      const scheduleRows = await db
+        .select()
+        .from(lectureSchedules)
+        .where(
+          and(
+            eq(lectureSchedules.lecturerId, lecturerId),
+            gte(lectureSchedules.sessionDate, today),
+            inArray(lectureSchedules.subjectCode, assignedCodes)
+          )
+        )
+        .orderBy(asc(lectureSchedules.sessionDate), asc(lectureSchedules.startTime));
+
+      const nowMinutes = (() => {
+        const n = new Date();
+        return n.getHours() * 60 + n.getMinutes();
+      })();
+
+      const parseTimeToMinutes = (t: string): number => {
+        const cleaned = t.trim().toUpperCase();
+        const ampm = cleaned.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/);
+        if (ampm) {
+          let h = parseInt(ampm[1], 10);
+          const m = parseInt(ampm[2], 10);
+          if (ampm[3] === "PM" && h < 12) h += 12;
+          if (ampm[3] === "AM" && h === 12) h = 0;
+          return h * 60 + m;
+        }
+        const parts = cleaned.split(":");
+        return parseInt(parts[0] || "0", 10) * 60 + parseInt(parts[1] || "0", 10);
+      };
+
+      const upcoming = scheduleRows.find((row) => {
+        if (row.sessionDate > today) return true;
+        return parseTimeToMinutes(row.startTime) > nowMinutes;
+      });
+
+      if (upcoming) {
+        nextClass = {
+          subjectCode: upcoming.subjectCode,
+          subjectTitle: courseByCode.get(upcoming.subjectCode)?.title || upcoming.subjectCode,
+          room: upcoming.room,
+          date: upcoming.sessionDate,
+          startTime: upcoming.startTime,
+          endTime: upcoming.endTime,
+        };
+      }
+    }
+
+    // Weekly teaching hours (last 4 calendar weeks including current)
+    const weeklyHours: Array<{ name: string; hours: number; weekStart: string }> = [];
+    const thisWeekStart = startOfIsoWeek(new Date());
+    for (let i = 3; i >= 0; i--) {
+      const weekStart = new Date(thisWeekStart);
+      weekStart.setUTCDate(weekStart.getUTCDate() - i * 7);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setUTCDate(weekEnd.getUTCDate() + 6);
+      const startStr = formatIsoDate(weekStart);
+      const endStr = formatIsoDate(weekEnd);
+      const hours = Number(
+        sessionRows
+          .filter((s) => s.sessionDate >= startStr && s.sessionDate <= endStr)
+          .reduce((sum, s) => sum + Number(s.durationHours || 0), 0)
+          .toFixed(2)
+      );
+      weeklyHours.push({
+        name: `Week ${4 - i}`,
+        hours,
+        weekStart: startStr,
+      });
+    }
+
+    // Syllabus coverage: completed sessions vs planned topics for assigned subjects
+    let plannedTopics = 0;
+    let completedSessions = 0;
+    let syllabusCoveragePercent: number | null = null;
+    let syllabusNote =
+      "No planned syllabus topics found for assigned subjects.";
+
+    if (assignedCodes.length > 0) {
+      const topicRows = await db
+        .select()
+        .from(syllabusTopics)
+        .where(inArray(syllabusTopics.subjectCode, assignedCodes));
+      plannedTopics = topicRows.length;
+      completedSessions = sessionRows.filter((s) =>
+        assignedCodes.includes(s.subjectCode)
+      ).length;
+
+      if (plannedTopics > 0) {
+        syllabusCoveragePercent = Math.min(
+          100,
+          Math.round((completedSessions / plannedTopics) * 100)
+        );
+        syllabusNote =
+          syllabusCoveragePercent >= 50
+            ? "Module syllabus coverage is currently meeting standard milestone pacing."
+            : "Syllabus coverage is below midpoint — log remaining planned topics.";
+      } else {
+        syllabusCoveragePercent = null;
+        syllabusNote =
+          "Add syllabus topics for assigned subjects to track curriculum coverage.";
+      }
+    } else {
+      syllabusNote = "Assign subjects to this lecturer to track syllabus coverage.";
+    }
+
+    // Faculty tasks from live data
+    const tasks: Array<{
+      id: string;
+      title: string;
+      detail: string;
+      priority: "high" | "normal" | "done";
+      type: string;
+      completed?: boolean;
+    }> = [];
+
+    if (assignedCodes.length > 0) {
+      const enrollmentRows = await db
+        .select()
+        .from(studentEnrollments)
+        .where(inArray(studentEnrollments.courseCode, assignedCodes));
+
+      const enrolledStudentIds = [...new Set(enrollmentRows.map((e) => e.studentId))];
+      const gradeRows =
+        enrolledStudentIds.length > 0
+          ? await db
+              .select()
+              .from(grades)
+              .where(
+                and(
+                  inArray(grades.studentId, enrolledStudentIds),
+                  inArray(grades.subjectCode, assignedCodes)
+                )
+              )
+          : [];
+
+      const gradeKey = (studentId: string, code: string) => `${studentId}::${code}`;
+      const gradeMap = new Map(
+        gradeRows.map((g) => [gradeKey(g.studentId, g.subjectCode), g])
+      );
+
+      let pendingCat = 0;
+      let pendingExam = 0;
+      for (const enr of enrollmentRows) {
+        const g = gradeMap.get(gradeKey(enr.studentId, enr.courseCode));
+        if (!g || Number(g.catScore) <= 0) pendingCat++;
+        if (!g || Number(g.examScore) <= 0) pendingExam++;
+      }
+
+      if (pendingCat > 0) {
+        tasks.push({
+          id: "pending-cat",
+          title: "Upload CAT Marks",
+          detail: `${pendingCat} enrolled student-subject pair${pendingCat === 1 ? "" : "s"} missing CAT scores.`,
+          priority: "high",
+          type: "grading",
+        });
+      }
+
+      if (pendingExam > 0) {
+        tasks.push({
+          id: "pending-exam",
+          title: "Pending Exam Grading",
+          detail: `${pendingExam} enrolled student-subject pair${pendingExam === 1 ? "" : "s"} without final exam marks.`,
+          priority: "high",
+          type: "grading",
+        });
+      }
+
+      const attendanceRows =
+        enrolledStudentIds.length > 0
+          ? await db
+              .select()
+              .from(studentAttendance)
+              .where(
+                and(
+                  inArray(studentAttendance.studentId, enrolledStudentIds),
+                  inArray(studentAttendance.subjectCode, assignedCodes)
+                )
+              )
+          : [];
+
+      const attKey = (studentId: string, code: string) => `${studentId}::${code}`;
+      const attSet = new Set(attendanceRows.map((a) => attKey(a.studentId, a.subjectCode)));
+      let missingAttendance = 0;
+      for (const enr of enrollmentRows) {
+        if (!attSet.has(attKey(enr.studentId, enr.courseCode))) missingAttendance++;
+      }
+
+      if (missingAttendance > 0) {
+        tasks.push({
+          id: "missing-attendance",
+          title: "Missing Attendance Submissions",
+          detail: `${missingAttendance} enrollment${missingAttendance === 1 ? "" : "s"} have no attendance record yet.`,
+          priority: "normal",
+          type: "attendance",
+        });
+      }
+    }
+
+    if (nextClass) {
+      tasks.push({
+        id: "upcoming-class",
+        title: `Upcoming Class: ${nextClass.subjectCode}`,
+        detail: `${nextClass.subjectTitle} · ${nextClass.date} ${nextClass.startTime}–${nextClass.endTime} · ${nextClass.room}`,
+        priority: "normal",
+        type: "schedule",
+      });
+    } else if (assignedCodes.length > 0) {
+      tasks.push({
+        id: "no-upcoming",
+        title: "No upcoming scheduled classes",
+        detail: "No future timetable entries for your assigned subjects.",
+        priority: "done",
+        type: "schedule",
+        completed: true,
+      });
+    }
+
+    if (assignedCodes.length === 0) {
+      tasks.push({
+        id: "no-subjects",
+        title: "No subjects assigned",
+        detail: "Ask an administrator to allocate modules under lecturer_subjects.",
+        priority: "high",
+        type: "assignment",
+      });
+    }
+
+    const recentSessions = sessionRows.slice(0, 50).map((s) => ({
+      id: s.id,
+      date: s.sessionDate,
+      courseCode: s.subjectCode,
+      topic: s.topic,
+      hours: Number(s.durationHours),
+      time: s.sessionTime,
+      status: s.status as "Pending" | "Approved",
+    }));
+
+    res.json({
+      lecturerId,
+      name: lecturerRow.name,
+      email: lecturerRow.email,
+      designatorCode: lecturerRow.designatorCode,
+      assignedSubjectsCount: assignedCodes.length,
+      assignedSubjects,
+      loggedHours,
+      hourlyRate,
+      rateSource,
+      estimatedPayout,
+      nextClass,
+      weeklyHours,
+      syllabusCoverage: {
+        percent: syllabusCoveragePercent,
+        completedSessions,
+        plannedTopics,
+        note: syllabusNote,
+      },
+      tasks,
+      recentSessions,
+    });
+  } catch (error: any) {
+    console.error("Failed to build lecturer dashboard summary:", error);
+    res.status(500).json({ error: error.message || "Failed to load lecturer dashboard" });
+  }
+});
+
+/** Lightweight student directory for lecturer autocomplete — identity fields only. */
+app.get(
+  "/api/lecturer/students",
+  checkRBAC(["lecturer"]),
+  async (req: any, res: any) => {
+    try {
+      const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+      const lecturerId =
+        (req.query.lecturerId as string) ||
+        (req.headers["x-user-id"] as string) ||
+        req.user?.userId;
+
+      if (!lecturerId) {
+        return res.status(400).json({ error: "lecturerId is required" });
+      }
+
+      const [lecturerRow] = await db
+        .select({ id: lecturers.id })
+        .from(lecturers)
+        .where(eq(lecturers.id, lecturerId))
+        .limit(1);
+
+      if (!lecturerRow) {
+        return res.status(404).json({ error: "Lecturer profile not found" });
+      }
+
+      // Prefer students enrolled in this lecturer's subjects; fall back to all for advisor lookup
+      const assigned = await db
+        .select({ subjectCode: lecturerSubjects.subjectCode })
+        .from(lecturerSubjects)
+        .where(eq(lecturerSubjects.lecturerId, lecturerId));
+      const taughtCodes = assigned.map((a) => a.subjectCode);
+
+      let studentRows;
+      if (taughtCodes.length === 0) {
+        return res.json([]);
+      }
+
+      const enrolledIds = await db
+        .selectDistinct({ studentId: studentEnrollments.studentId })
+        .from(studentEnrollments)
+        .where(inArray(studentEnrollments.courseCode, taughtCodes));
+      const ids = enrolledIds.map((e) => e.studentId);
+      if (ids.length === 0) {
+        return res.json([]);
+      }
+      studentRows = await db
+        .select({
+          id: students.id,
+          name: students.name,
+          admissionNo: students.admissionNo,
+          cohort: students.cohort,
+          avatar: students.avatar,
+        })
+        .from(students)
+        .where(inArray(students.id, ids));
+
+      const filtered = q
+        ? studentRows.filter(
+            (s) =>
+              s.admissionNo.toLowerCase().includes(q.toLowerCase()) ||
+              s.name.toLowerCase().includes(q.toLowerCase())
+          )
+        : studentRows;
+
+      res.json(
+        filtered.slice(0, 50).map((s) => ({
+          id: s.id,
+          name: s.name,
+          admissionNo: s.admissionNo,
+          cohort: s.cohort,
+          avatar: s.avatar || null,
+        }))
+      );
+    } catch (error: any) {
+      console.error("Failed to list lecturer students:", error);
+      res.status(500).json({ error: error.message || "Failed to list students" });
+    }
+  }
+);
+
+/** Full teaching-safe student profile for lecturer Student Lookup. */
+app.get(
+  "/api/lecturer/student-lookup",
+  checkRBAC(["lecturer"]),
+  async (req: any, res: any) => {
+    try {
+      const admissionNoQuery = req.query.admission_no || req.query.admissionNo;
+      const studentIdQuery = req.query.studentId || req.query.student_id;
+      const lecturerId =
+        (req.query.lecturerId as string) ||
+        (req.headers["x-user-id"] as string) ||
+        req.user?.userId;
+
+      if (!lecturerId) {
+        return res.status(400).json({ error: "lecturerId is required" });
+      }
+      if (
+        (!admissionNoQuery || typeof admissionNoQuery !== "string") &&
+        (!studentIdQuery || typeof studentIdQuery !== "string")
+      ) {
+        return res.status(400).json({
+          error: "admission_no or studentId query parameter is required",
+        });
+      }
+
+      const [lecturerRow] = await db
+        .select()
+        .from(lecturers)
+        .where(eq(lecturers.id, lecturerId))
+        .limit(1);
+
+      if (!lecturerRow) {
+        return res.status(404).json({ error: "Lecturer profile not found" });
+      }
+
+      let studentRow;
+      if (typeof studentIdQuery === "string" && studentIdQuery.trim()) {
+        [studentRow] = await db
+          .select()
+          .from(students)
+          .where(eq(students.id, studentIdQuery.trim()))
+          .limit(1);
+      } else {
+        const admissionNo = String(admissionNoQuery).trim();
+        [studentRow] = await db
+          .select()
+          .from(students)
+          .where(ilike(students.admissionNo, admissionNo))
+          .limit(1);
+      }
+
+      if (!studentRow) {
+        return res.status(404).json({ error: "Student not found" });
+      }
+
+      const [
+        enrollmentRows,
+        gradeRows,
+        attendanceRows,
+        courseRows,
+        invoiceRows,
+        assignedSubjects,
+        officeNotes,
+      ] = await Promise.all([
+        db
+          .select()
+          .from(studentEnrollments)
+          .where(eq(studentEnrollments.studentId, studentRow.id)),
+        db.select().from(grades).where(eq(grades.studentId, studentRow.id)),
+        db
+          .select()
+          .from(studentAttendance)
+          .where(eq(studentAttendance.studentId, studentRow.id)),
+        db.select().from(courses),
+        db.select().from(invoices).where(eq(invoices.studentId, studentRow.id)),
+        db
+          .select({ subjectCode: lecturerSubjects.subjectCode })
+          .from(lecturerSubjects)
+          .where(eq(lecturerSubjects.lecturerId, lecturerId)),
+        db
+          .select()
+          .from(officeHourSlots)
+          .where(
+            and(
+              eq(officeHourSlots.studentId, studentRow.id),
+              eq(officeHourSlots.lecturerId, lecturerId)
+            )
+          ),
+      ]);
+
+      const advisorNotes = officeNotes
+        .filter((n) => n.studentNotes && n.studentNotes.trim())
+        .map((n) => ({
+          id: n.id,
+          day: n.day,
+          timeSlot: n.timeSlot,
+          notes: n.studentNotes as string,
+          lecturerName: lecturerRow.name,
+        }));
+
+      // Prefer a real semester label from exam_papers when available
+      const [latestPaper] = await db
+        .select({ semester: examPapers.semester })
+        .from(examPapers)
+        .orderBy(desc(examPapers.id))
+        .limit(1);
+
+      const view = buildLecturerStudentLookupView({
+        student: studentRow,
+        enrollments: enrollmentRows,
+        gradeRows,
+        attendanceRows,
+        courseRows,
+        invoiceRows,
+        advisorNotes,
+        taughtSubjectCodes: assignedSubjects.map((s) => s.subjectCode),
+        semesterFromDb: latestPaper?.semester || null,
+      });
+
+      res.json(view);
+    } catch (error: any) {
+      console.error("Failed lecturer student lookup:", error);
+      res.status(500).json({ error: error.message || "Failed to look up student" });
+    }
+  }
+);
+
+app.get("/api/lecturer/teaching-sessions", async (req, res) => {
+  try {
+    const lecturerId =
+      (req.query.lecturerId as string) || (req.headers["x-lecturer-id"] as string);
+    if (!lecturerId) {
+      return res.status(400).json({ error: "lecturerId is required" });
+    }
+
+    const rows = await db
+      .select()
+      .from(teachingSessions)
+      .where(eq(teachingSessions.lecturerId, lecturerId))
+      .orderBy(desc(teachingSessions.sessionDate), desc(teachingSessions.createdAt));
+
+    res.json(
+      rows.map((s) => ({
+        id: s.id,
+        date: s.sessionDate,
+        courseCode: s.subjectCode,
+        topic: s.topic,
+        hours: Number(s.durationHours),
+        time: s.sessionTime,
+        status: s.status,
+      }))
+    );
+  } catch (error: any) {
+    console.error("Failed to fetch teaching sessions:", error);
+    res.status(500).json({ error: error.message || "Failed to fetch teaching sessions" });
+  }
+});
+
+app.post("/api/lecturer/teaching-sessions", async (req, res) => {
+  try {
+    const {
+      lecturerId,
+      subjectCode,
+      topic,
+      durationHours,
+      sessionDate,
+      sessionTime,
+    } = req.body || {};
+
+    if (!lecturerId || !subjectCode || !topic || durationHours == null) {
+      return res.status(400).json({
+        error: "lecturerId, subjectCode, topic, and durationHours are required",
+      });
+    }
+
+    const hrs = Number(durationHours);
+    if (Number.isNaN(hrs) || hrs <= 0 || hrs > 12) {
+      return res.status(400).json({
+        error: "durationHours must be a number between 0.5 and 12",
+      });
+    }
+
+    const [lecturerRow] = await db
+      .select()
+      .from(lecturers)
+      .where(eq(lecturers.id, lecturerId))
+      .limit(1);
+
+    if (!lecturerRow) {
+      return res.status(404).json({ error: "Lecturer profile not found" });
+    }
+
+    const assignment = await db
+      .select()
+      .from(lecturerSubjects)
+      .where(
+        and(
+          eq(lecturerSubjects.lecturerId, lecturerId),
+          eq(lecturerSubjects.subjectCode, subjectCode)
+        )
+      )
+      .limit(1);
+
+    if (assignment.length === 0) {
+      return res.status(400).json({
+        error: "Selected subject is not assigned to this lecturer",
+      });
+    }
+
+    const dateStr =
+      typeof sessionDate === "string" && sessionDate
+        ? sessionDate
+        : formatIsoDate(new Date());
+    const timeStr =
+      typeof sessionTime === "string" && sessionTime
+        ? sessionTime
+        : new Date().toTimeString().slice(0, 5);
+
+    const [inserted] = await db
+      .insert(teachingSessions)
+      .values({
+        lecturerId,
+        subjectCode,
+        topic: String(topic).trim(),
+        durationHours: String(hrs),
+        sessionDate: dateStr,
+        sessionTime: timeStr,
+        status: "Pending",
+      })
+      .returning();
+
+    const allSessions = await db
+      .select()
+      .from(teachingSessions)
+      .where(eq(teachingSessions.lecturerId, lecturerId));
+
+    const totalLoggedHours = Number(
+      allSessions
+        .reduce((sum, s) => sum + Number(s.durationHours || 0), 0)
+        .toFixed(2)
+    );
+
+    await db
+      .update(lecturers)
+      .set({ loggedHours: String(totalLoggedHours) })
+      .where(eq(lecturers.id, lecturerId));
+
+    const { hourlyRate } = await resolveLecturerHourlyRate(lecturerRow);
+    const estimatedPayout = Number((totalLoggedHours * hourlyRate).toFixed(2));
+
+    // Refresh in-memory / json cache when available
+    try {
+      const fullDb = await loadFullDatabaseState();
+      saveDatabase(fullDb);
+    } catch (e) {
+      console.warn("Cache refresh after teaching session log failed:", e);
+    }
+
+    res.status(201).json({
+      session: {
+        id: inserted.id,
+        date: inserted.sessionDate,
+        courseCode: inserted.subjectCode,
+        topic: inserted.topic,
+        hours: Number(inserted.durationHours),
+        time: inserted.sessionTime,
+        status: inserted.status,
+      },
+      loggedHours: totalLoggedHours,
+      hourlyRate,
+      estimatedPayout,
+    });
+  } catch (error: any) {
+    console.error("Failed to log teaching session:", error);
+    res.status(500).json({ error: error.message || "Failed to log teaching session" });
+  }
+});
+
+function mapAttendanceSessionRow(s: {
+  id: string;
+  lecturerId: string;
+  subjectCode: string;
+  sessionDate: string;
+  presentStudentIds: string[] | null;
+  absentStudentIds: string[] | null;
+}) {
+  return {
+    id: s.id,
+    lecturerId: s.lecturerId,
+    date: s.sessionDate,
+    subjectCode: s.subjectCode,
+    presentStudents: Array.isArray(s.presentStudentIds) ? s.presentStudentIds : [],
+    absentStudents: Array.isArray(s.absentStudentIds) ? s.absentStudentIds : [],
+  };
+}
+
+async function recomputeSubjectAttendanceRates(
+  subjectCode: string,
+  studentIds: string[]
+): Promise<Array<{ studentId: string; subjectCode: string; attendanceRate: number }>> {
+  if (studentIds.length === 0) return [];
+
+  const sessions = await db
+    .select()
+    .from(classAttendanceSessions)
+    .where(eq(classAttendanceSessions.subjectCode, subjectCode));
+
+  const rates: Array<{ studentId: string; subjectCode: string; attendanceRate: number }> = [];
+
+  for (const studentId of studentIds) {
+    const relevant = sessions.filter((s) => {
+      const present = Array.isArray(s.presentStudentIds) ? s.presentStudentIds : [];
+      const absent = Array.isArray(s.absentStudentIds) ? s.absentStudentIds : [];
+      return present.includes(studentId) || absent.includes(studentId);
+    });
+
+    if (relevant.length === 0) continue;
+
+    const presentCount = relevant.filter((s) =>
+      (Array.isArray(s.presentStudentIds) ? s.presentStudentIds : []).includes(studentId)
+    ).length;
+    const attendanceRate = Math.round((presentCount / relevant.length) * 100);
+
+    await db
+      .insert(studentAttendance)
+      .values({
+        studentId,
+        subjectCode,
+        attendanceRate,
+      })
+      .onConflictDoUpdate({
+        target: [studentAttendance.studentId, studentAttendance.subjectCode],
+        set: { attendanceRate },
+      });
+
+    rates.push({ studentId, subjectCode, attendanceRate });
+  }
+
+  return rates;
+}
+
+app.get("/api/lecturer/attendance-sessions", async (req, res) => {
+  try {
+    const lecturerId =
+      (req.query.lecturerId as string) || (req.headers["x-lecturer-id"] as string);
+    const subjectCode = req.query.subjectCode as string | undefined;
+
+    if (!lecturerId) {
+      return res.status(400).json({ error: "lecturerId is required" });
+    }
+
+    const rows = subjectCode
+      ? await db
+          .select()
+          .from(classAttendanceSessions)
+          .where(
+            and(
+              eq(classAttendanceSessions.lecturerId, lecturerId),
+              eq(classAttendanceSessions.subjectCode, subjectCode)
+            )
+          )
+          .orderBy(desc(classAttendanceSessions.sessionDate))
+      : await db
+          .select()
+          .from(classAttendanceSessions)
+          .where(eq(classAttendanceSessions.lecturerId, lecturerId))
+          .orderBy(desc(classAttendanceSessions.sessionDate));
+
+    res.json(rows.map(mapAttendanceSessionRow));
+  } catch (error: any) {
+    console.error("Failed to fetch attendance sessions:", error);
+    res.status(500).json({
+      error: error.message || "Failed to fetch attendance sessions",
+    });
+  }
+});
+
+app.post("/api/lecturer/attendance-sessions", async (req, res) => {
+  try {
+    const {
+      lecturerId,
+      subjectCode,
+      sessionDate,
+      presentStudentIds,
+      absentStudentIds,
+    } = req.body || {};
+
+    if (!lecturerId || !subjectCode || !sessionDate) {
+      return res.status(400).json({
+        error: "lecturerId, subjectCode, and sessionDate are required",
+      });
+    }
+
+    const present = Array.isArray(presentStudentIds)
+      ? presentStudentIds.filter((id: unknown) => typeof id === "string" && id)
+      : [];
+    const absent = Array.isArray(absentStudentIds)
+      ? absentStudentIds.filter((id: unknown) => typeof id === "string" && id)
+      : [];
+
+    const [lecturerRow] = await db
+      .select()
+      .from(lecturers)
+      .where(eq(lecturers.id, lecturerId))
+      .limit(1);
+
+    if (!lecturerRow) {
+      return res.status(404).json({ error: "Lecturer profile not found" });
+    }
+
+    const assignment = await db
+      .select()
+      .from(lecturerSubjects)
+      .where(
+        and(
+          eq(lecturerSubjects.lecturerId, lecturerId),
+          eq(lecturerSubjects.subjectCode, subjectCode)
+        )
+      )
+      .limit(1);
+
+    if (assignment.length === 0) {
+      return res.status(400).json({
+        error: "Selected subject is not assigned to this lecturer",
+      });
+    }
+
+    const [upserted] = await db
+      .insert(classAttendanceSessions)
+      .values({
+        lecturerId,
+        subjectCode,
+        sessionDate,
+        presentStudentIds: present,
+        absentStudentIds: absent,
+      })
+      .onConflictDoUpdate({
+        target: [
+          classAttendanceSessions.lecturerId,
+          classAttendanceSessions.subjectCode,
+          classAttendanceSessions.sessionDate,
+        ],
+        set: {
+          presentStudentIds: present,
+          absentStudentIds: absent,
+        },
+      })
+      .returning();
+
+    const enrolled = await db
+      .select()
+      .from(studentEnrollments)
+      .where(eq(studentEnrollments.courseCode, subjectCode));
+
+    const enrolledIds = enrolled.map((e) => e.studentId);
+    const touchedIds = [...new Set([...present, ...absent, ...enrolledIds])];
+    const rates = await recomputeSubjectAttendanceRates(subjectCode, touchedIds);
+
+    try {
+      const fullDb = await loadFullDatabaseState();
+      saveDatabase(fullDb);
+    } catch (e) {
+      console.warn("Cache refresh after attendance session failed:", e);
+    }
+
+    res.status(201).json({
+      session: mapAttendanceSessionRow(upserted),
+      rates,
+    });
+  } catch (error: any) {
+    console.error("Failed to save attendance session:", error);
+    res.status(500).json({
+      error: error.message || "Failed to save attendance session",
+    });
+  }
+});
+
 app.get("/api/student/registered-units", async (req, res) => {
   try {
     let studentId = (req.query.studentId as string) || (req.headers["x-student-id"] as string);
@@ -3303,26 +4629,15 @@ app.get("/api/student/registered-units", async (req, res) => {
     // Calculate and aggregate dynamic metrics for each enrolled unit
     const result = activeEnrollments.map((item) => {
       const code = item.courseCode;
-
-      let hash = 0;
-      for (let i = 0; i < code.length; i++) {
-        hash = code.charCodeAt(i) + ((hash << 5) - hash);
-      }
-      const absHash = Math.abs(hash);
-
       const totalLectures = 16;
       const attRecord = attendanceLogs.find((a) => a.subjectCode === code);
-      let attendedLectures = attRecord
-        ? Math.round((attRecord.attendanceRate / 100) * totalLectures)
-        : 12 + (absHash % 5);
-      const attendanceRate = Math.round((attendedLectures / totalLectures) * 100);
+      const attendanceRate = attRecord ? Number(attRecord.attendanceRate) : null;
+      const attendedLectures =
+        attendanceRate !== null
+          ? Math.round((attendanceRate / 100) * totalLectures)
+          : null;
 
-      const totalAssignments = 5;
-      const submittedAssignments = 3 + (Math.abs(hash >> 2) % 3);
-      const assignmentRate = Math.round((submittedAssignments / totalAssignments) * 100);
-
-      const overallProgress = Math.round((attendanceRate + assignmentRate) / 2);
-
+      // Assignment submissions are not stored in a dedicated table yet.
       return {
         courseCode: item.courseCode,
         courseTitle: item.courseTitle,
@@ -3332,17 +4647,19 @@ app.get("/api/student/registered-units", async (req, res) => {
         fees: item.fees,
         thumbnail: item.thumbnail,
         enrolledAt: item.enrolledAt,
-        // Aggregated dynamic metrics
         attendedLectures,
         totalLectures,
-        lectures: `${attendedLectures}/${totalLectures} lectures`,
+        lectures:
+          attendedLectures !== null
+            ? `${attendedLectures}/${totalLectures} lectures`
+            : "No attendance recorded",
         attendanceRate,
-        submittedAssignments,
-        totalAssignments,
-        assignments: `${submittedAssignments}/${totalAssignments} assignments`,
-        assignmentRate,
-        overallProgress,
-        completionPercentage: overallProgress,
+        submittedAssignments: null,
+        totalAssignments: null,
+        assignments: "No assignment records",
+        assignmentRate: null,
+        overallProgress: attendanceRate,
+        completionPercentage: attendanceRate,
       };
     });
 

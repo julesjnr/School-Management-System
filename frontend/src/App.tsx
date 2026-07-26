@@ -1083,107 +1083,69 @@ Zenti Library Services`;
   presentStudentIds: string[],
   absentStudentIds: string[]
 ) => {
-  setAttendanceSessions(prev => {
-    const filtered = prev.filter(
-      s => !(s.date === date && s.subjectCode === subjectCode)
-    );
+  const lecturerId = currentUserId;
+  if (!lecturerId) {
+    console.error("Cannot save attendance: no lecturer session");
+    throw new Error("Lecturer session is required to save attendance");
+  }
 
-    const newSession: AttendanceSession = {
-      id: `att-sess-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
-      date,
-      subjectCode,
-      presentStudents: presentStudentIds,
-      absentStudents: absentStudentIds,
-    };
+  try {
+    const res = await fetch("/api/lecturer/attendance-sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        lecturerId,
+        subjectCode,
+        sessionDate: date,
+        presentStudentIds,
+        absentStudentIds,
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(body.error || `Failed to save attendance (${res.status})`);
+    }
 
-    const updatedSessions = [newSession, ...filtered];
+    const savedSession: AttendanceSession = body.session;
+    const rates: Array<{ studentId: string; subjectCode: string; attendanceRate: number }> =
+      body.rates || [];
 
-    // Save attendance to PostgreSQL in the background
-    (async () => {
-      try {
-        const attendance = students
-          .filter(s => s.enrolledUnits.includes(subjectCode))
-          .map(student => {
-            const sessions = updatedSessions.filter(
-              x =>
-                x.subjectCode === subjectCode &&
-                (x.presentStudents.includes(student.id) ||
-                  x.absentStudents.includes(student.id))
-            );
+    setAttendanceSessions((prev) => {
+      const filtered = prev.filter(
+        (s) => !(s.date === date && s.subjectCode === subjectCode)
+      );
+      return [savedSession, ...filtered];
+    });
 
-            const present = sessions.filter(x =>
-              x.presentStudents.includes(student.id)
-            ).length;
-
-            const rate =
-              sessions.length > 0
-                ? Math.round((present / sessions.length) * 100)
-                : 100;
-
-            return {
-              studentId: student.id,
-              subjectCode,
-              attendanceRate: rate,
-            };
-          });
-
-        await fetch("/api/student-attendance", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(attendance),
-        });
-      } catch (err) {
-        console.error("Failed to save attendance:", err);
-      }
-    })();
-
-    setStudents(prevStudents =>
-      prevStudents.map(student => {
-        if (student.enrolledUnits.includes(subjectCode)) {
-          const studentSessions = updatedSessions.filter(
-            s =>
-              s.subjectCode === subjectCode &&
-              (s.presentStudents.includes(student.id) ||
-                s.absentStudents.includes(student.id))
-          );
-
-          if (studentSessions.length > 0) {
-            const presentCount = studentSessions.filter(s =>
-              s.presentStudents.includes(student.id)
-            ).length;
-
-            return {
-              ...student,
-              attendance: {
-                ...(student.attendance || {}),
-                [subjectCode]: Math.round(
-                  (presentCount / studentSessions.length) * 100
-                ),
-              },
-            };
-          }
-        }
-
-        return student;
-      })
-    );
-
-    return updatedSessions;
-  });
+    if (rates.length > 0) {
+      const rateMap = new Map(rates.map((r) => [r.studentId, r.attendanceRate]));
+      setStudents((prevStudents) =>
+        prevStudents.map((student) => {
+          if (!rateMap.has(student.id)) return student;
+          return {
+            ...student,
+            attendance: {
+              ...(student.attendance || {}),
+              [subjectCode]: rateMap.get(student.id) as number,
+            },
+          };
+        })
+      );
+    }
+  } catch (err) {
+    console.error("Failed to save attendance:", err);
+    throw err;
+  }
 };
-      // Recompute rolling rates for active class students
-      
-  
+ 
 
-  // 14. LECTURER LOG SESSION HOURS
-  const handleLogHours = (lecturerId: string, hours: number) => {
+  // 14. LECTURER LOG SESSION HOURS (absolute=true sets total from DB; otherwise increments)
+  const handleLogHours = (lecturerId: string, hours: number, absolute?: boolean) => {
     setLecturers(prev => prev.map(l => {
       if (l.id === lecturerId) {
         return {
           ...l,
-          loggedHours: (l.loggedHours || 0) + hours
+          loggedHours: absolute ? hours : (l.loggedHours || 0) + hours
         };
       }
       return l;
@@ -1570,7 +1532,12 @@ Zenti Library Services`;
           activeLecturerProfile ? (
             <LecturerDashboard
               lecturer={activeLecturerProfile}
-              students={students}
+              students={students.map((s) => ({
+                ...s,
+                // Lecturers never receive finance ledger/payment detail via client props
+                ledger: [],
+                payments: [],
+              }))}
               courses={courses}
               inventory={inventory}
               books={books}

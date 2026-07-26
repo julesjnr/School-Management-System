@@ -19,60 +19,35 @@ export default function DegreeProgress({
 }: DegreeProgressProps) {
   const [showDetailedAudit, setShowDetailedAudit] = useState(false);
 
-  // 1. Detect Degree Program
-  const getProgramInfo = (admissionNo: string) => {
-    const code = admissionNo.toUpperCase();
-    if (code.includes('CS')) {
-      return {
-        name: 'Bachelor of Science in Computer Science',
-        code: 'B.Sc. CS',
-        requiredCore: ['CS-101-Web', 'CS-101-Algo'],
-        totalRequiredUnits: 12, // 12 units required for graduation
-        creditsPerUnit: 4,
-        minGpaToGraduate: 2.0
-      };
+  const programMeta = (() => {
+    const code = student.admissionNo.toUpperCase();
+    if (code.includes('CS') && !code.includes('CYBER')) {
+      return { name: 'Bachelor of Science in Computer Science', code: 'B.Sc. CS' };
     }
     if (code.includes('EE')) {
-      return {
-        name: 'Bachelor of Engineering in Electrical & Electronics Engineering',
-        code: 'B.Eng. EE',
-        requiredCore: ['EE-201-Circuits', 'CS-101-Algo'],
-        totalRequiredUnits: 15,
-        creditsPerUnit: 4,
-        minGpaToGraduate: 2.0
-      };
+      return { name: 'Bachelor of Engineering in Electrical & Electronics Engineering', code: 'B.Eng. EE' };
     }
     if (code.includes('DS')) {
-      return {
-        name: 'Bachelor of Science in Data Science & Analytics',
-        code: 'B.Sc. DS',
-        requiredCore: ['DS-202-ML', 'DS-202-Stats'],
-        totalRequiredUnits: 12,
-        creditsPerUnit: 3,
-        minGpaToGraduate: 2.0
-      };
+      return { name: 'Bachelor of Science in Data Science & Analytics', code: 'B.Sc. DS' };
     }
     if (code.includes('CYBER')) {
-      return {
-        name: 'Bachelor of Science in Cybersecurity & Forensics',
-        code: 'B.Sc. CYBER',
-        requiredCore: ['CYBER-310-Crypto', 'CS-101-Algo'],
-        totalRequiredUnits: 12,
-        creditsPerUnit: 4,
-        minGpaToGraduate: 2.0
-      };
+      return { name: 'Bachelor of Science in Cybersecurity & Forensics', code: 'B.Sc. CYBER' };
     }
     return {
-      name: 'Bachelor of Science in Computer Science & Systems Engineering',
-      code: 'B.Sc. CSSE',
-      requiredCore: ['CS-101-Web', 'CS-101-Algo'],
-      totalRequiredUnits: 12,
-      creditsPerUnit: 4,
-      minGpaToGraduate: 2.0
+      name: 'Undergraduate Programme',
+      code: 'UG',
     };
-  };
+  })();
 
-  const program = getProgramInfo(student.admissionNo);
+  // Required units = active catalogue courses until a degree_requirements table exists
+  const activeCourseCount = allCourses.filter((c) => c.active !== false).length;
+  const program = {
+    ...programMeta,
+    requiredCore: [] as string[],
+    totalRequiredUnits: Math.max(activeCourseCount, 1),
+    creditsPerUnit: 3,
+    minGpaToGraduate: 2.0,
+  };
 
   // 2. Identify Academic States
   // A unit is completed if graded AND score (CAT + Exam) is >= 40
@@ -101,7 +76,7 @@ export default function DegreeProgress({
     const g = student.grades[code];
     return sum + (g.cat + g.exam);
   }, 0);
-  const avgScore = gradedList.length > 0 ? Math.round(gradedMarkSum / gradedList.length) : 60;
+  const avgScore = gradedList.length > 0 ? Math.round(gradedMarkSum / gradedList.length) : null;
 
   const getGPA = (mark: number): number => {
     if (mark >= 70) return 4.0;
@@ -248,14 +223,15 @@ export default function DegreeProgress({
         {showDetailedAudit && (
           <div className="bg-slate-50 rounded-xl border border-slate-200/60 p-4.5 space-y-4 animate-fade-in text-xs">
             
-            {/* Core Track Checklist */}
+            {/* Catalogue Track Checklist (proxies degree requirements until a dedicated table exists) */}
             <div className="space-y-2.5">
               <h4 className="text-[9.5px] font-black text-slate-400 uppercase tracking-widest block">
-                Required Core Track Specifications
+                Active Catalogue Modules
               </h4>
               
               <div className="grid sm:grid-cols-2 gap-3">
-                {program.requiredCore.map(code => {
+                {allCourses.filter((c) => c.active !== false).map((course) => {
+                  const code = course.code;
                   const isEnrolled = student.enrolledUnits.includes(code);
                   const isCompleted = completedUnits.includes(code);
                   const grade = student.grades[code];
@@ -273,8 +249,8 @@ export default function DegreeProgress({
                     >
                       <div className="space-y-0.5">
                         <span className="font-mono text-[9px] font-bold text-slate-450 block">{code}</span>
-                        <span className="font-extrabold text-slate-800 truncate block max-w-[150px] sm:max-w-xs text-[11px]" title={subjectMap[code]}>
-                          {subjectMap[code] || 'Elective Specification'}
+                        <span className="font-extrabold text-slate-800 truncate block max-w-[150px] sm:max-w-xs text-[11px]" title={course.title || subjectMap[code]}>
+                          {course.title || subjectMap[code] || code}
                         </span>
                       </div>
 
@@ -309,31 +285,21 @@ export default function DegreeProgress({
               </div>
             </div>
 
-            {/* General Electives & Capstone Tracking */}
+            {/* Supporting coursework summary */}
             <div className="border-t border-slate-150/60 pt-3.5 space-y-2.5">
               <h4 className="text-[9.5px] font-black text-slate-400 uppercase tracking-widest block">
-                Recommended Supporting Coursework
+                Progress Summary
               </h4>
 
               <div className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-100">
                 <div className="p-3 flex justify-between items-center">
                   <div className="space-y-0.5">
-                    <span className="font-semibold text-slate-700 block">General Supporting Elective Units</span>
-                    <span className="text-[10px] text-slate-400">Additional supplemental coursework to hit overall units total</span>
+                    <span className="font-semibold text-slate-700 block">Passed vs catalogue</span>
+                    <span className="text-[10px] text-slate-400">Based on grades ≥ 40% and active courses</span>
                   </div>
                   <div className="text-right font-mono font-bold text-slate-800">
-                    {completedUnits.length - completedUnits.filter(c => program.requiredCore.includes(c)).length} / {program.totalRequiredUnits - program.requiredCore.length} Completed
+                    {completedUnits.length} / {program.totalRequiredUnits} Completed
                   </div>
-                </div>
-
-                <div className="p-3 flex justify-between items-center">
-                  <div className="space-y-0.5 flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-slate-450"></div>
-                    <span className="font-semibold text-slate-700 block">Senior Final Capstone Project</span>
-                  </div>
-                  <span className="text-[9.5px] font-bold text-slate-400 uppercase tracking-widest bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
-                    Year 4 Requirement
-                  </span>
                 </div>
               </div>
             </div>
