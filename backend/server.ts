@@ -235,7 +235,7 @@ export async function loadFullDatabaseState(): Promise<any> {
 
     const matchedCachedStudent = oldStudents.find((cs: any) => cs.id === s.id);
     const cachedStatus = matchedCachedStudent?.accountStatus;
-    const accountStatus = cachedStatus || "Active";
+    const accountStatus = s.accountStatus || cachedStatus || "Active";
 
     return {
       id: s.id,
@@ -244,6 +244,8 @@ export async function loadFullDatabaseState(): Promise<any> {
       phone: s.phone,
       admissionNo: s.admissionNo,
       cohort: s.cohort,
+      programme: s.programme ?? undefined,
+      department: s.department ?? undefined,
       avatar: s.avatar ?? undefined,
       accountStatus,
       createdAt: s.createdAt ?? undefined,
@@ -664,7 +666,10 @@ async function performDatabaseSync(dbState: any): Promise<void> {
           phone: s.phone,
           admissionNo: s.admissionNo,
           cohort: s.cohort,
+          programme: s.programme || null,
+          department: s.department || null,
           avatar: s.avatar || null,
+          accountStatus: s.accountStatus || "Active",
         };
         await tx.insert(students).values(studentVal).onConflictDoUpdate({
           target: students.id,
@@ -2989,7 +2994,9 @@ app.get("/api/students", async (req, res) => {
           ilike(students.name, searchPattern),
           ilike(students.admissionNo, searchPattern),
           ilike(students.email, searchPattern),
-          ilike(students.cohort, searchPattern)
+          ilike(students.cohort, searchPattern),
+          ilike(students.programme, searchPattern),
+          ilike(students.department, searchPattern)
         )
       );
     }
@@ -3032,6 +3039,12 @@ app.get("/api/students", async (req, res) => {
         break;
       case "cohort":
         orderByClause = sortOrderParam === "desc" ? desc(students.cohort) : asc(students.cohort);
+        break;
+      case "programme":
+        orderByClause = sortOrderParam === "desc" ? desc(students.programme) : asc(students.programme);
+        break;
+      case "department":
+        orderByClause = sortOrderParam === "desc" ? desc(students.department) : asc(students.department);
         break;
       case "accountStatus":
       case "status":
@@ -3132,6 +3145,8 @@ app.get("/api/students", async (req, res) => {
         phone: s.phone,
         admissionNo: s.admissionNo,
         cohort: s.cohort,
+        programme: s.programme ?? undefined,
+        department: s.department ?? undefined,
         avatar: s.avatar ?? "",
         accountStatus: s.accountStatus,
         createdAt: s.createdAt,
@@ -3174,7 +3189,9 @@ app.get("/api/students", async (req, res) => {
           s.name?.toLowerCase().includes(searchParam) ||
           s.admissionNo?.toLowerCase().includes(searchParam) ||
           s.email?.toLowerCase().includes(searchParam) ||
-          s.cohort?.toLowerCase().includes(searchParam)
+          s.cohort?.toLowerCase().includes(searchParam) ||
+          s.programme?.toLowerCase().includes(searchParam) ||
+          s.department?.toLowerCase().includes(searchParam)
       );
     }
 
@@ -3213,6 +3230,14 @@ app.get("/api/students", async (req, res) => {
         case "cohort":
           valA = a.cohort || "";
           valB = b.cohort || "";
+          break;
+        case "programme":
+          valA = a.programme || "";
+          valB = b.programme || "";
+          break;
+        case "department":
+          valA = a.department || "";
+          valB = b.department || "";
           break;
         case "accountStatus":
           valA = a.accountStatus || "";
@@ -3293,6 +3318,8 @@ app.post("/api/students", async (req, res) => {
           phone: studentData.phone,
           admissionNo: studentData.admissionNo,
           cohort: studentData.cohort,
+          programme: studentData.programme ?? null,
+          department: studentData.department ?? null,
           avatar: studentData.avatar ?? null,
           accountStatus: "Pending Setup",
         })
@@ -3325,6 +3352,27 @@ app.post("/api/students", async (req, res) => {
     res.status(500).json({
       error: error.message,
     });
+  }
+});
+
+// Admin Route: archive a student without removing their academic record
+app.patch("/api/students/:id/status", checkRBAC(["admin"]), async (req: any, res) => {
+  try {
+    const accountStatus = String(req.body?.accountStatus || "").trim();
+    if (!accountStatus) return res.status(400).json({ error: "Account status is required" });
+
+    const [student] = await db.update(students)
+      .set({ accountStatus })
+      .where(eq(students.id, req.params.id))
+      .returning();
+    if (!student) return res.status(404).json({ error: "Student not found" });
+
+    const fullDb = await loadFullDatabaseState();
+    saveDatabase(fullDb);
+    res.json({ success: true, student });
+  } catch (error: any) {
+    console.error("Failed to update student status:", error);
+    res.status(500).json({ error: error.message || "Failed to update student status" });
   }
 });
 
@@ -3402,7 +3450,7 @@ app.delete(["/api/admin/users/:id", "/api/admin/users/[id]", "/api/students/:id"
 });
 
 // Admin Route: Generate temporary activation credentials / password reset
-app.post("/api/students/:id/reset-password", async (req, res) => {
+app.post("/api/students/:id/reset-password", checkRBAC(["admin"]), async (req, res) => {
   try {
     const studentId = req.params.id;
     if (!studentId) {

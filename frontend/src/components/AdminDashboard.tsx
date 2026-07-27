@@ -10,7 +10,6 @@ import {
   Shield, Lock, Fingerprint, Library, Link, Copy, KeyRound, RefreshCw,
   TrendingUp, Calendar, Clock, MapPin, UserCheck, AlertTriangle, Info, School, Landmark, Sliders, Award, Activity, User, LogOut, Menu
 } from 'lucide-react';
-import { subjectMap } from '../data';
 import GlobalSearchBar from './GlobalSearchBar';
 import FinanceSuite from './FinanceSuite';
 import LibraryHQ from './LibraryHQ';
@@ -32,7 +31,7 @@ interface AdminDashboardProps {
   inventory: StockItem[];
   requisitions: Requisition[];
   currentUserId?: string;
-  onAddCourse: (course: Omit<Course, 'id' | 'active'>) => void;
+  onAddCourse: (course: Omit<Course, 'id' | 'active'>) => Promise<void>;
   onToggleCourseActive: (courseId: string) => void;
   onAllocateSubject: (lecturerId: string, subjectCode: string) => void;
   onReconcilePayment: (paymentId: string) => void;
@@ -62,6 +61,8 @@ interface AdminDashboardProps {
   onTriggerGateLog?: (log: Omit<LibraryGateLog, 'id' | 'timestamp'>) => void;
   mockEmails?: MockEmail[];
   onTriggerOverdueScan?: () => number;
+  isAcademicsLoading?: boolean;
+  academicsLoadError?: string | null;
 }
 
 export default function AdminDashboard({
@@ -101,7 +102,9 @@ export default function AdminDashboard({
   isLibrarianView = false,
   currentUserId = '',
   mockEmails = [],
-  onTriggerOverdueScan
+  onTriggerOverdueScan,
+  isAcademicsLoading = false,
+  academicsLoadError = null
 }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'academics' | 'finances' | 'payroll' | 'inventory' | 'roles' | 'library' | 'diagnostics'>(() => {
     if (isLibrarianView) return 'library';
@@ -452,17 +455,37 @@ export default function AdminDashboard({
   const [regStudentEmail, setRegStudentEmail] = useState('');
   const [regStudentPhone, setRegStudentPhone] = useState('');
   const [regStudentAdmission, setRegStudentAdmission] = useState('');
-  const [regStudentCohort, setRegStudentCohort] = useState('2026 Intake');
-  const [regStudentPasscode, setRegStudentPasscode] = useState('');
+  const [regStudentCohort, setRegStudentCohort] = useState('');
+  const [regStudentProgramme, setRegStudentProgramme] = useState('');
+  const [regStudentDepartment, setRegStudentDepartment] = useState('');
+  const [isStudentFormOpen, setIsStudentFormOpen] = useState(false);
 
   // Academic form states
   const [newTitle, setNewTitle] = useState('');
   const [newCode, setNewCode] = useState('');
-  const [newDesc, setNewDesc] = useState('');
-  const [newDuration, setNewDuration] = useState('4 Years');
+  const [newDuration, setNewDuration] = useState('');
   const [newFees, setNewFees] = useState('');
-  const [newFaculty, setNewFaculty] = useState('School of Computing & AI');
-  const [newThumbnail, setNewThumbnail] = useState('https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&q=80&w=600');
+  const [newFaculty, setNewFaculty] = useState('');
+  const [isCreatingCourse, setIsCreatingCourse] = useState(false);
+  const [academicsView, setAcademicsView] = useState<'courses' | 'allocations'>('courses');
+  const [courseSearch, setCourseSearch] = useState('');
+  const [coursePage, setCoursePage] = useState(1);
+  const coursesPerPage = 8;
+  const filteredCourses = courses.filter((course) => {
+    const query = courseSearch.trim().toLowerCase();
+    return !query || [course.code, course.title, course.faculty, course.duration]
+      .some((value) => value.toLowerCase().includes(query));
+  });
+  const totalCoursePages = Math.max(1, Math.ceil(filteredCourses.length / coursesPerPage));
+  const visibleCourses = filteredCourses.slice((coursePage - 1) * coursesPerPage, coursePage * coursesPerPage);
+
+  useEffect(() => {
+    setCoursePage(1);
+  }, [courseSearch]);
+
+  useEffect(() => {
+    if (coursePage > totalCoursePages) setCoursePage(totalCoursePages);
+  }, [coursePage, totalCoursePages]);
 
   // Allocation subject states
   const [allocateLecturerId, setAllocateLecturerId] = useState('');
@@ -719,28 +742,35 @@ export default function AdminDashboard({
     downloadCSV(headers, rows, `institutional_expenses_ledger_${new Date().toLocaleDateString('en-CA')}.csv`);
   };
 
-  const handleCreateCourse = (e: React.FormEvent) => {
+  const handleCreateCourse = async (e: React.FormEvent) => {
     e.preventDefault();
     const parsedFees = parseInt(newFees);
-    if (!newTitle || !newCode || isNaN(parsedFees)) {
-      showWarning("Missing Required Fields", 'Syllabus title, duration fees, and degree code are strictly required.');
+    if (!newTitle.trim() || !newCode.trim() || !newDuration.trim() || !newFaculty.trim() || isNaN(parsedFees)) {
+      showWarning("Missing Required Fields", 'Complete all course fields before saving.');
       return;
     }
-    onAddCourse({
-      code: newCode,
-      title: newTitle,
-      description: newDesc || 'No course syllabus overview published.',
-      duration: newDuration,
-      fees: parsedFees,
-      thumbnail: newThumbnail,
-      faculty: newFaculty
-    });
-    // Clear fields
-    setNewTitle('');
-    setNewCode('');
-    setNewDesc('');
-    setNewFees('');
-    triggerToast(`Course "${newTitle}" registered successfully! It is now published live on the public landing page.`, 'success');
+    setIsCreatingCourse(true);
+    try {
+      await onAddCourse({
+        code: newCode.trim().toUpperCase(),
+        title: newTitle.trim(),
+        description: '',
+        duration: newDuration.trim(),
+        fees: parsedFees,
+        thumbnail: '',
+        faculty: newFaculty.trim()
+      });
+      setNewTitle('');
+      setNewCode('');
+      setNewDuration('');
+      setNewFees('');
+      setNewFaculty('');
+      triggerToast('Course created successfully.', 'success');
+    } catch {
+      triggerToast('Unable to create the course. Please try again.', 'error');
+    } finally {
+      setIsCreatingCourse(false);
+    }
   };
 
   const handleAllocateSubjectSubmit = (e: React.FormEvent) => {
@@ -775,12 +805,8 @@ export default function AdminDashboard({
 
   const handleAddStudentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!regStudentName || !regStudentEmail || !regStudentAdmission) {
-      triggerToast('Please fill out all student profile credentials.', 'error');
-      return;
-    }
-    if (!regStudentPasscode.trim()) {
-      showWarning('Passcode required', 'Enter a temporary passcode for the new student account.');
+    if (!regStudentName.trim() || !regStudentEmail.trim() || !regStudentPhone.trim() || !regStudentAdmission.trim() || !regStudentCohort.trim()) {
+      triggerToast('Complete the required student details.', 'error');
       return;
     }
     onAddStudent({
@@ -789,24 +815,19 @@ export default function AdminDashboard({
       phone: regStudentPhone,
       admissionNo: regStudentAdmission,
       cohort: regStudentCohort,
-      passcode: regStudentPasscode.trim()
+      programme: regStudentProgramme.trim() || undefined,
+      department: regStudentDepartment.trim() || undefined,
     });
     setRegStudentName('');
     setRegStudentEmail('');
     setRegStudentPhone('');
     setRegStudentAdmission('');
-    setRegStudentCohort('2026 Intake');
-    const issuedPasscode = regStudentPasscode.trim();
-    setRegStudentPasscode('');
+    setRegStudentCohort('');
+    setRegStudentProgramme('');
+    setRegStudentDepartment('');
+    setIsStudentFormOpen(false);
     setStudentTableRefetchTrigger(prev => prev + 1);
-    showRegistrationModal({
-      name: regStudentName,
-      idOrAdmissionNo: regStudentAdmission || 'STU-REG',
-      temporaryPasscode: issuedPasscode,
-      role: 'Student',
-      department: regStudentCohort,
-      email: regStudentEmail
-    });
+    triggerToast('Student created. An activation credential was generated by the authentication service.', 'success');
   };
 
   const handleAddLecturer = (e: React.FormEvent) => {
@@ -1417,306 +1438,67 @@ export default function AdminDashboard({
         {/* TAB 1: ACADEMICS WORKSPACE */}
         {activeTab === 'academics' && (
           <div className="space-y-8">
-            
-            <div className="grid md:grid-cols-2 gap-8 items-start">
-              
-              {/* Course Creator Form Component */}
-              <div className="space-y-4">
-                <div className="border-b border-slate-100 pb-3">
-                  <h3 className="text-base font-bold text-slate-800 flex items-center gap-1.5">
-                    <Plus className="w-5 h-5 text-blue-600" />
-                    Publish Live Course Syllabus
-                  </h3>
-                  <p className="text-xs text-slate-500">Creating a course here instantly lists the program inside the public landing page portfolio grid.</p>
-                </div>
-
-                <form onSubmit={handleCreateCourse} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label htmlFor="course-title" className="block text-[11px] font-bold text-slate-650">Course Program Name</label>
-                      <input
-                        id="course-title"
-                        type="text"
-                        placeholder="B.Sc. Mechanical Eng"
-                        value={newTitle}
-                        onChange={(e) => setNewTitle(e.target.value)}
-                        className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs text-slate-800 focus:outline-hidden"
-                        required
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label htmlFor="course-code" className="block text-[11px] font-bold text-slate-650">Program Subject Code</label>
-                      <input
-                        id="course-code"
-                        type="text"
-                        placeholder="MECH-401"
-                        value={newCode}
-                        onChange={(e) => setNewCode(e.target.value)}
-                        className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs text-slate-800 focus:outline-hidden"
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label htmlFor="course-desc" className="block text-[11px] font-bold text-slate-650">Syllabus Narrative Description</label>
-                    <textarea
-                      id="course-desc"
-                      placeholder="Comprehensive study of thermodynamics, physical fluids, machine mechanisms, CAD modeling..."
-                      value={newDesc}
-                      onChange={(e) => setNewDesc(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs text-slate-800 focus:outline-hidden h-20"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="space-y-1">
-                      <label htmlFor="course-dur" className="block text-[11px] font-bold text-slate-650">Duration Title</label>
-                      <select
-                        id="course-dur"
-                        value={newDuration}
-                        onChange={(e) => setNewDuration(e.target.value)}
-                        className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs text-slate-800 focus:outline-hidden"
-                      >
-                        <option>3 Years</option>
-                        <option>4 Years</option>
-                        <option>5 Years</option>
-                        <option>2 Years</option>
-                      </select>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label htmlFor="course-fees" className="block text-[11px] font-bold text-slate-650">Fees (KES)</label>
-                      <input
-                        id="course-fees"
-                        type="number"
-                        placeholder="160000"
-                        value={newFees}
-                        onChange={(e) => setNewFees(e.target.value)}
-                        className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs text-slate-800 focus:outline-hidden"
-                        required
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label htmlFor="course-fac" className="block text-[11px] font-bold text-slate-650">School Faculty</label>
-                      <select
-                        id="course-fac"
-                        value={newFaculty}
-                        onChange={(e) => setNewFaculty(e.target.value)}
-                        className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs text-slate-800 focus:outline-hidden"
-                      >
-                        <option>School of Computing & AI</option>
-                        <option>School of Engineering</option>
-                        <option>School of Science Studies</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-lg text-xs cursor-pointer"
-                  >
-                    Publish Course Live
-                  </button>
-                </form>
+            <div className="flex flex-col gap-4 border-b border-slate-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Academic allocation</h2>
+                <p className="text-sm text-slate-500">Manage courses and lecturer assignments.</p>
               </div>
+              <div className="flex rounded-lg bg-slate-100 p-1">
+                {(['courses', 'allocations'] as const).map((view) => (
+                  <button key={view} type="button" onClick={() => setAcademicsView(view)} className={`rounded-md px-3 py-2 text-xs font-bold capitalize ${academicsView === view ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600'}`}>
+                    {view === 'courses' ? 'Courses' : 'Lecturer allocation'}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-              {/* Subject Allocator Dropdown Engine */}
+            {academicsLoadError ? (
+              <div className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">Unable to load academic records: {academicsLoadError}</div>
+            ) : isAcademicsLoading ? (
+              <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">Loading academic records…</div>
+            ) : academicsView === 'courses' ? (
               <div className="space-y-6">
-                <div className="border-b border-slate-100 pb-3">
-                  <h3 className="text-base font-bold text-slate-800 flex items-center gap-1.5">
-                    <ClipboardCheck className="w-5 h-5 text-blue-600" />
-                    Class & Lecturer Unit Allocator
-                  </h3>
-                  <p className="text-xs text-slate-500">Assign corresponding classes and subjects directly to certified lecturers inside rosters.</p>
-                </div>
-
-                <form onSubmit={handleAllocateSubjectSubmit} className="space-y-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                  <div className="space-y-1.5">
-                    <label htmlFor="alloc-lecturer" className="block text-[11px] font-bold text-slate-650">Certified Lecturer</label>
-                    <select
-                      id="alloc-lecturer"
-                      value={allocateLecturerId}
-                      onChange={(e) => setAllocateLecturerId(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs text-slate-800 focus:outline-hidden"
-                      required
-                    >
-                      <option value="">-- Choose Lecturer profile --</option>
-                      {lecturers.map(l => (
-                        <option key={l.id} value={l.id}>{l.name} ({l.designatorCode})</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label htmlFor="alloc-subject" className="block text-[11px] font-bold text-slate-650">Subject Class Codes</label>
-                    <select
-                      id="alloc-subject"
-                      value={allocateSubjectCode}
-                      onChange={(e) => setAllocateSubjectCode(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs text-slate-800 focus:outline-hidden"
-                      required
-                    >
-                      <option value="">-- Choose Class code --</option>
-                      {Object.entries(subjectMap).map(([code, name]) => (
-                        <option key={code} value={code}>{code} - {name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="w-full bg-indigo-650 hover:bg-slate-900 text-white font-bold py-2 rounded-lg text-xs cursor-pointer transition-colors"
-                  >
-                    Allocate Lecturer Subject
-                  </button>
-                </form>
+                <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
+                  <h3 className="mb-5 flex items-center gap-2 text-base font-bold text-slate-900"><Plus className="h-5 w-5 text-blue-600" />Create course</h3>
+                  <form onSubmit={handleCreateCourse} className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+                    <label className="space-y-1"><span className="block text-xs font-semibold text-slate-700">Course name</span><input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} className="w-full rounded-lg border border-slate-300 p-2.5 text-sm" required /></label>
+                    <label className="space-y-1"><span className="block text-xs font-semibold text-slate-700">Course code</span><input value={newCode} onChange={(e) => setNewCode(e.target.value)} className="w-full rounded-lg border border-slate-300 p-2.5 text-sm" required /></label>
+                    <label className="space-y-1"><span className="block text-xs font-semibold text-slate-700">Faculty</span><input value={newFaculty} onChange={(e) => setNewFaculty(e.target.value)} className="w-full rounded-lg border border-slate-300 p-2.5 text-sm" required /></label>
+                    <label className="space-y-1"><span className="block text-xs font-semibold text-slate-700">Duration</span><input value={newDuration} onChange={(e) => setNewDuration(e.target.value)} className="w-full rounded-lg border border-slate-300 p-2.5 text-sm" required /></label>
+                    <label className="space-y-1"><span className="block text-xs font-semibold text-slate-700">Fees (KES)</span><input type="number" min="0" value={newFees} onChange={(e) => setNewFees(e.target.value)} className="w-full rounded-lg border border-slate-300 p-2.5 text-sm" required /></label>
+                    <div className="md:col-span-2 xl:col-span-5 flex justify-end"><button type="submit" disabled={isCreatingCourse || !newTitle.trim() || !newCode.trim() || !newFaculty.trim() || !newDuration.trim() || !newFees} className="rounded-lg bg-blue-600 px-4 py-2.5 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{isCreatingCourse ? 'Creating…' : 'Create course'}</button></div>
+                  </form>
+                </section>
+                <section className="rounded-xl border border-slate-200 bg-white">
+                  <div className="flex flex-col gap-3 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between"><h3 className="font-bold text-slate-900">Course catalogue</h3><input type="search" value={courseSearch} onChange={(e) => setCourseSearch(e.target.value)} placeholder="Search courses" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm sm:w-64" /></div>
+                  {filteredCourses.length === 0 ? <div className="p-8 text-center text-sm text-slate-500">{courseSearch ? 'No courses match your search.' : 'No courses have been created yet.'}</div> : <><div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-5 py-3">Code</th><th className="px-5 py-3">Course</th><th className="px-5 py-3">Faculty</th><th className="px-5 py-3">Duration</th><th className="px-5 py-3">Fees</th><th className="px-5 py-3">Status</th><th className="px-5 py-3 text-right">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{visibleCourses.map((course) => <tr key={course.id}><td className="px-5 py-4 font-mono font-semibold">{course.code}</td><td className="px-5 py-4 font-medium text-slate-900">{course.title}</td><td className="px-5 py-4 text-slate-600">{course.faculty}</td><td className="px-5 py-4 text-slate-600">{course.duration}</td><td className="px-5 py-4">KES {course.fees.toLocaleString()}</td><td className="px-5 py-4"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${course.active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{course.active ? 'Active' : 'Inactive'}</span></td><td className="px-5 py-4 text-right"><button type="button" onClick={() => onToggleCourseActive(course.id)} className="text-xs font-bold text-blue-700 hover:text-blue-900">{course.active ? 'Deactivate' : 'Activate'}</button></td></tr>)}</tbody></table></div><div className="flex items-center justify-between border-t border-slate-200 px-5 py-3 text-xs text-slate-500"><span>{filteredCourses.length} course{filteredCourses.length === 1 ? '' : 's'}</span><div className="flex items-center gap-2"><button type="button" disabled={coursePage === 1} onClick={() => setCoursePage((page) => page - 1)} className="rounded border border-slate-300 px-2 py-1 disabled:opacity-40">Previous</button><span>Page {coursePage} of {totalCoursePages}</span><button type="button" disabled={coursePage === totalCoursePages} onClick={() => setCoursePage((page) => page + 1)} className="rounded border border-slate-300 px-2 py-1 disabled:opacity-40">Next</button></div></div></>}</section>
               </div>
+            ) : (
+              <section className="max-w-2xl rounded-xl border border-slate-200 bg-white p-5 sm:p-6"><h3 className="mb-5 flex items-center gap-2 text-base font-bold text-slate-900"><ClipboardCheck className="h-5 w-5 text-blue-600" />Lecturer allocation</h3>{lecturers.length === 0 || courses.length === 0 ? <div className="rounded-lg bg-slate-50 p-5 text-sm text-slate-500">{lecturers.length === 0 ? 'Create a lecturer record before assigning a course.' : 'Create a course before making an allocation.'}</div> : <form onSubmit={handleAllocateSubjectSubmit} className="grid gap-4 sm:grid-cols-2"><label className="space-y-1"><span className="block text-xs font-semibold text-slate-700">Lecturer</span><select value={allocateLecturerId} onChange={(e) => setAllocateLecturerId(e.target.value)} className="w-full rounded-lg border border-slate-300 p-2.5 text-sm" required><option value="">Select lecturer</option>{lecturers.map((lecturer) => <option key={lecturer.id} value={lecturer.id}>{lecturer.name} ({lecturer.designatorCode})</option>)}</select></label><label className="space-y-1"><span className="block text-xs font-semibold text-slate-700">Course</span><select value={allocateSubjectCode} onChange={(e) => setAllocateSubjectCode(e.target.value)} className="w-full rounded-lg border border-slate-300 p-2.5 text-sm" required><option value="">Select course</option>{courses.map((course) => <option key={course.id} value={course.code}>{course.code} — {course.title}</option>)}</select></label><div className="sm:col-span-2 flex justify-end"><button type="submit" disabled={!allocateLecturerId || !allocateSubjectCode} className="rounded-lg bg-blue-600 px-4 py-2.5 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">Assign course</button></div></form>}</section>
+            )}
 
-            </div>
-
-            {/* Course Catalog list table */}
-            <div className="space-y-3 pt-4 border-t border-slate-100">
-              <h3 className="text-xs uppercase font-bold text-slate-400 tracking-wider">Course Catalog Database Status</h3>
-              <div className="overflow-x-auto border border-slate-100 rounded-xl">
-                <table className="w-full text-left font-sans text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider text-[11px] border-b border-slate-100">
-                      <th className="py-3 px-4">Subject Code</th>
-                      <th className="py-3 px-4">Syllabus Title</th>
-                      <th className="py-3 px-4">Duration</th>
-                      <th className="py-3 px-5">Fees</th>
-                      <th className="py-3 px-4">Portal Visibility status</th>
-                      <th className="py-3 px-4 text-center">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {courses.map((c) => (
-                      <tr key={c.id} className="hover:bg-slate-50/20">
-                        <td className="py-3.5 px-4 font-mono font-bold text-slate-700">{c.code}</td>
-                        <td className="py-3.5 px-4 font-semibold text-slate-900">{c.title}</td>
-                        <td className="py-3.5 px-4 text-slate-505">{c.duration}</td>
-                        <td className="py-3.5 px-5 font-bold text-slate-850">KES {c.fees.toLocaleString()}</td>
-                        <td className="py-3.5 px-4">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                            c.active 
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-100' 
-                              : 'bg-slate-100 text-slate-500 border-slate-200'
-                          }`}>
-                            {c.active ? 'Visible Landing Grid' : 'Hidden Archival'}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-4 text-center">
-                          <button
-                            type="button"
-                            onClick={() => onToggleCourseActive(c.id)}
-                            className={`text-[10px] font-bold px-3 py-1 rounded transition-colors cursor-pointer ${
-                              c.active 
-                                ? 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100' 
-                                : 'bg-slate-900 text-white hover:bg-slate-805'
-                            }`}
-                          >
-                            {c.active ? 'Disable Listing' : 'Set Active'}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            <section className="max-w-4xl rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex items-center justify-between gap-4">
+                <div><h3 className="text-sm font-bold text-slate-900">New student</h3><p className="text-xs text-slate-500">Credentials are generated securely by the authentication service.</p></div>
+                <button type="button" onClick={() => setIsStudentFormOpen((open) => !open)} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white">{isStudentFormOpen ? 'Close' : 'Add student'}</button>
               </div>
-            </div>
-
-            {/*  REGISTER NEW STUDENT ACCOUNT UNIT */}
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 space-y-4 shadow-sm animate-fadeIn mt-6">
-              <div className="flex items-center gap-2.5 border-b border-slate-100 dark:border-slate-800 pb-3">
-                <div className="p-2 bg-indigo-50 dark:bg-slate-820 text-indigo-600 dark:text-indigo-400 rounded-xl">
-                  <Plus className="w-5 h-5 animate-pulse" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-black text-slate-900 dark:text-slate-100">Enrol New Undergraduate Student Account</h3>
-                  <p className="text-[11px] text-slate-500">Newly added student records will instantly appear below, enabled for complete ledger tracking and instant credential lookup.</p>
-                </div>
-              </div>
-
-              <form onSubmit={handleAddStudentSubmit} className="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
-                <div className="space-y-1">
-                  <label htmlFor="reg-std-name" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Full Student Name</label>
-                  <input
-                    id="reg-std-name"
-                    type="text"
-                    placeholder="Mary Wambui"
-                    value={regStudentName}
-                    onChange={(e) => setRegStudentName(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-750 rounded-lg p-2 text-xs focus:outline-hidden text-slate-850 dark:text-slate-100"
-                    required
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label htmlFor="reg-std-email" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Email Address</label>
-                  <input
-                    id="reg-std-email"
-                    type="email"
-                    placeholder="m.wambui@student.edu"
-                    value={regStudentEmail}
-                    onChange={(e) => setRegStudentEmail(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-750 rounded-lg p-2 text-xs focus:outline-hidden text-slate-850 dark:text-slate-100"
-                    required
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label htmlFor="reg-std-adm" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Admission No (ED-X)</label>
-                  <input
-                    id="reg-std-adm"
-                    type="text"
-                    placeholder="ED-CS-2026-048"
-                    value={regStudentAdmission}
-                    onChange={(e) => setRegStudentAdmission(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-750 rounded-lg p-2 text-xs focus:outline-hidden text-slate-850 dark:text-slate-100"
-                    required
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label htmlFor="reg-std-cohort" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Intake Cohort</label>
-                  <select
-                    id="reg-std-cohort"
-                    value={regStudentCohort}
-                    onChange={(e) => setRegStudentCohort(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-750 rounded-lg p-2 text-xs focus:outline-hidden text-slate-850 dark:text-slate-100 h-9"
-                  >
-                    <option>2026 Intake</option>
-                    <option>2025 Intake</option>
-                    <option>2024 Intake</option>
-                    <option>Graduating cohort</option>
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label htmlFor="reg-std-passcode" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Account Passcode</label>
-                  <input
-                    id="reg-std-passcode"
-                    type="password"
-                    required
-                    value={regStudentPasscode}
-                    onChange={(e) => setRegStudentPasscode(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-750 rounded-lg p-2 text-xs focus:outline-hidden text-slate-850 dark:text-slate-100 font-mono"
-                  />
-                </div>
-                <div>
-                  <button
-                    type="submit"
-                    className="w-full bg-indigo-600 hover:bg-indigo-750 text-white font-extrabold py-2 px-3 rounded-lg text-xs tracking-wider uppercase transition-colors cursor-pointer"
-                  >
-                    Enrol Student
-                  </button>
-                </div>
-              </form>
-            </div>
+              {isStudentFormOpen && <form onSubmit={handleAddStudentSubmit} className="mt-4 grid grid-cols-1 gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2 lg:grid-cols-3">
+                <label className="text-xs font-semibold text-slate-700">Full name<input value={regStudentName} onChange={(e) => setRegStudentName(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" required /></label>
+                <label className="text-xs font-semibold text-slate-700">Email<input type="email" value={regStudentEmail} onChange={(e) => setRegStudentEmail(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" required /></label>
+                <label className="text-xs font-semibold text-slate-700">Phone<input value={regStudentPhone} onChange={(e) => setRegStudentPhone(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" required /></label>
+                <label className="text-xs font-semibold text-slate-700">Admission number<input value={regStudentAdmission} onChange={(e) => setRegStudentAdmission(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" required /></label>
+                <label className="text-xs font-semibold text-slate-700">Cohort<input value={regStudentCohort} onChange={(e) => setRegStudentCohort(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" required /></label>
+                <label className="text-xs font-semibold text-slate-700">Programme<input value={regStudentProgramme} onChange={(e) => setRegStudentProgramme(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" /></label>
+                <label className="text-xs font-semibold text-slate-700">Department<input value={regStudentDepartment} onChange={(e) => setRegStudentDepartment(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" /></label>
+                <div className="flex items-end"><button type="submit" disabled={!regStudentName.trim() || !regStudentEmail.trim() || !regStudentPhone.trim() || !regStudentAdmission.trim() || !regStudentCohort.trim()} className="w-full rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">Create student</button></div>
+              </form>}
+            </section>
 
             {/* Registered Student Records Section with Server-Side Pagination, Filters & Sorting */}
             <StudentRecordsTable
-              onDeleteStudent={onDeleteStudent}
               onUpdateStudent={onUpdateStudent}
               refetchTrigger={studentTableRefetchTrigger}
+              canManageRecords={!isAccountantView && !isLibrarianView}
             />
 
           </div>

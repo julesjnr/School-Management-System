@@ -172,6 +172,7 @@ export default function App() {
   }, []);
 
   const [isBooting, setIsBooting] = useState<boolean>(true);
+  const [academicsLoadError, setAcademicsLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -196,6 +197,7 @@ export default function App() {
         return res.json();
       })
       .then((db) => {
+        setAcademicsLoadError(null);
         if (db) {
           if (db.courses) {
             setCourses(db.courses);
@@ -260,6 +262,7 @@ export default function App() {
       })
       .catch((err) => {
         console.error("Failed to connect to backend server API, using local fallback databases:", err);
+        setAcademicsLoadError('The academic records service is unavailable.');
       })
       .finally(() => {
         setIsBooting(false);
@@ -511,6 +514,7 @@ Zenti Library Services`;
   } catch (err) {
     console.error(err);
     showError("Course Creation Error", "Failed to create course.");
+    throw err;
   }
 };
 
@@ -1602,6 +1606,8 @@ Zenti Library Services`;
             onUpdateStudent={handleUpdateStudentProfile}
             mockEmails={mockEmails}
             onTriggerOverdueScan={scanOverdueLoansAndAlert}
+            isAcademicsLoading={isBooting}
+            academicsLoadError={academicsLoadError}
           />
         ) : (currentUserRole === 'accountant' && currentPath !== '/landing') ? (
           <AdminDashboard

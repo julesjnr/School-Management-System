@@ -359,6 +359,8 @@ export const students = pgTable("students", {
 	phone: varchar({ length: 30 }).notNull(),
 	admissionNo: varchar("admission_no", { length: 50 }).notNull(),
 	cohort: varchar({ length: 50 }).notNull(),
+	programme: varchar({ length: 255 }),
+	department: varchar({ length: 255 }),
 	avatar: text(),
 	accountStatus: varchar("account_status", { length: 50 }).default('Active').notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
@@ -774,4 +776,3 @@ export const classAttendanceSessions = pgTable("attendance_sessions", {
 		name: "attendance_sessions_lecturer_id_fkey",
 	}).onDelete("cascade"),
 ]);
-

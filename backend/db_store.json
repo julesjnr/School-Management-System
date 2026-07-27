@@ -97,13 +97,14 @@
       "accountStatus": "Pending Setup",
       "createdAt": "2026-07-26 08:55:24.008457+00",
       "enrolledUnits": [
-        "BCS"
+        "BCS",
+        "BDS"
       ],
       "grades": {
         "BCS": {
           "cat": 25,
           "exam": 68,
-          "gradedAt": "2026-07-26 14:38:24.293499+00"
+          "gradedAt": "2026-07-27 07:39:46.991312+00"
         }
       },
       "ledger": [
@@ -141,7 +142,8 @@
       "isLibrarian": false,
       "subjects": [
         "BCS",
-        "BSE"
+        "BSE",
+        "BDS"
       ],
       "publications": [],
       "researchInterests": [],
@@ -156,15 +158,6 @@
   "requisitions": [],
   "reservations": [],
   "notifications": [
-    {
-      "id": "e13d5169-2a31-40df-b1ad-77575fd765b2",
-      "targetUserRole": "all",
-      "type": "library",
-      "title": " [Grade Posted] New Grade for Unit BCS",
-      "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
-      "status": "unread",
-      "dateTime": "2026-07-26 13:15:08+00"
-    },
     {
       "id": "afce5cd0-a3a8-4a63-8b91-a385e021c89e",
       "targetUserRole": "all",
@@ -182,6 +175,15 @@
       "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
       "status": "unread",
       "dateTime": "2026-07-26 12:15:21+00"
+    },
+    {
+      "id": "e13d5169-2a31-40df-b1ad-77575fd765b2",
+      "targetUserRole": "all",
+      "type": "library",
+      "title": " [Grade Posted] New Grade for Unit BCS",
+      "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
+      "status": "unread",
+      "dateTime": "2026-07-26 13:15:08+00"
     }
   ],
   "libraryGateLogs": [],

@@ -3,21 +3,17 @@ import { useNotification } from './notifications';
 import { Student } from '../types';
 import { 
   FileText, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, 
-  ChevronUp, ChevronDown, ArrowUpDown, RefreshCw, AlertCircle, Users, X, KeyRound, Check
+  ChevronUp, ChevronDown, ArrowUpDown, RefreshCw, AlertCircle, Users, X, KeyRound, MoreHorizontal
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 interface StudentRecordsTableProps {
-  onDeleteStudent?: (studentId: string) => void;
   onUpdateStudent?: (studentId: string, updatedFields: Partial<Student>) => void;
   refetchTrigger?: number;
+  canManageRecords?: boolean;
 }
 
-export default function StudentRecordsTable({
-  onDeleteStudent,
-  onUpdateStudent,
-  refetchTrigger = 0
-}: StudentRecordsTableProps) {
+export default function StudentRecordsTable({ onUpdateStudent, refetchTrigger = 0, canManageRecords = false }: StudentRecordsTableProps) {
   const { showConfirm } = useNotification();
   // State for paginated data
   const [students, setStudents] = useState<Student[]>([]);
@@ -41,6 +37,7 @@ export default function StudentRecordsTable({
   const [loading, setLoading] = useState<boolean>(true);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [filterOptions, setFilterOptions] = useState<{ cohorts: string[]; statuses: string[] }>({ cohorts: [], statuses: [] });
 
   // Password Reset Modal state
   const [resetModal, setResetModal] = useState<{
@@ -157,6 +154,16 @@ export default function StudentRecordsTable({
     };
   }, [fetchStudents, refetchTrigger]);
 
+  useEffect(() => {
+    fetch('/api/students?all=true')
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Unable to load filters')))
+      .then((records: Student[]) => setFilterOptions({
+        cohorts: [...new Set(records.map((student) => student.cohort).filter(Boolean))].sort(),
+        statuses: [...new Set(records.map((student) => student.accountStatus).filter(Boolean))].sort(),
+      }))
+      .catch(() => setFilterOptions({ cohorts: [], statuses: [] }));
+  }, [refetchTrigger]);
+
   // Handle column header click sorting
   const handleSort = (column: string) => {
     if (sortBy === column) {
@@ -172,12 +179,14 @@ export default function StudentRecordsTable({
     try {
       const res = await fetch(`/api/students/${studentId}/reset-password`, {
         method: 'POST',
+        headers: { 'x-user-role': 'admin' },
       });
       if (!res.ok) {
         throw new Error('Failed to reset passcode');
       }
       const data = await res.json();
-      const code = data.temporaryPasscode || data.passcode || 'ZENTI-TEMP-PASS';
+      const code = data.temporaryPasscode || data.passcode;
+      if (!code) throw new Error('The authentication service did not issue a temporary credential.');
       
       setResetModal({
         isOpen: true,
@@ -193,44 +202,37 @@ export default function StudentRecordsTable({
     }
   };
 
-  // Purge Student Account Action
-  const handlePurgeAccount = async (studentId: string, studentName: string, admissionNo: string) => {
+  const handleArchiveAccount = async (studentId: string, studentName: string, admissionNo: string) => {
     const confirmed = await showConfirm({
-      title: 'Dismiss Academic File',
-      message: `Are you absolutely sure you want to dismiss the academic file for ${studentName} (${admissionNo}) from Zenti systems? This cannot be undone.`,
-      confirmText: 'Dismiss Student Record',
-      variant: 'danger'
+      title: 'Archive student record',
+      message: `Archive ${studentName} (${admissionNo})? The record will remain available for audit and can be restored later.`,
+      confirmText: 'Archive record',
+      variant: 'warning'
     });
     if (!confirmed) {
       return;
     }
 
     try {
-      const res = await fetch(`/api/students/${studentId}`, {
-        method: 'DELETE',
+      const res = await fetch(`/api/students/${studentId}/status`, {
+        method: 'PATCH',
         headers: {
+          'Content-Type': 'application/json',
           'x-user-role': 'admin',
         },
+        body: JSON.stringify({ accountStatus: 'Archived' }),
       });
 
       if (!res.ok) {
-        throw new Error('Failed to purge student record');
+        throw new Error('Failed to archive student record');
       }
 
-      toast.success(`Account for ${studentName} (${admissionNo}) purged.`);
-      if (onDeleteStudent) {
-        onDeleteStudent(studentId);
-      }
-
-      // Adjust page if deleting last item on current page
-      if (students.length === 1 && page > 1) {
-        setPage(p => p - 1);
-      } else {
-        fetchStudents();
-      }
+      onUpdateStudent?.(studentId, { accountStatus: 'Archived' });
+      toast.success(`${studentName}'s record was archived.`);
+      fetchStudents();
     } catch (err: any) {
       console.error(err);
-      toast.error(err.message || 'Failed to purge student account.');
+      toast.error(err.message || 'Failed to archive student record.');
     }
   };
 
@@ -259,31 +261,26 @@ export default function StudentRecordsTable({
         'Email Address',
         'Phone Contact',
         'Cohort Group',
+        'Programme',
+        'Department',
         'Account Status',
         'Registered Units Count',
         'Registered Units List',
-        'Total Invoiced (KES)',
-        'Paid Fees (KES)',
-        'Pending Balance (KES)',
         'Registration Date'
       ];
 
       const rows = exportList.map(stud => {
-        const totalInvoiced = (stud.ledger || []).reduce((sum, inv) => sum + inv.amount, 0);
-        const totalPaid = (stud.ledger || []).filter(i => i.status === 'paid').reduce((sum, inv) => sum + inv.amount, 0);
-        const outstandingBal = totalInvoiced - totalPaid;
         return [
           stud.admissionNo || '',
           stud.name || '',
           stud.email || '',
           stud.phone || '',
           stud.cohort || '',
+          stud.programme || '',
+          stud.department || '',
           stud.accountStatus || 'Active',
           String((stud.enrolledUnits || []).length),
           (stud.enrolledUnits || []).join('; '),
-          String(totalInvoiced),
-          String(totalPaid),
-          String(outstandingBal),
           stud.createdAt || ''
         ];
       });
@@ -398,7 +395,7 @@ export default function StudentRecordsTable({
             type="button"
             onClick={handleExportCSV}
             disabled={isExporting}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-9 text-xs px-3.5 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap transition-all hover:shadow-md disabled:opacity-50"
+            className="bg-blue-600 hover:bg-blue-700 text-white font-bold h-9 text-xs px-3.5 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap transition-all hover:shadow-md disabled:opacity-50"
           >
             <FileText className="w-3.5 h-3.5" />
             <span>{isExporting ? 'Exporting...' : 'Export to CSV'}</span>
@@ -413,7 +410,7 @@ export default function StudentRecordsTable({
           <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
-            placeholder="Search by Name, Adm No, Email, or Cohort..."
+            placeholder="Search by name, admission number, email, or cohort"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="bg-white border border-slate-200 rounded-xl py-1.5 pl-9 pr-8 text-xs text-slate-850 focus:outline-hidden focus:border-blue-500 w-full"
@@ -436,12 +433,8 @@ export default function StudentRecordsTable({
             onChange={(e) => handleCohortChange(e.target.value)}
             className="bg-white border border-slate-200 rounded-xl py-1.5 px-3 text-xs text-slate-750 focus:outline-hidden focus:border-blue-500 cursor-pointer"
           >
-            <option value="all">All Cohorts</option>
-            <option value="Class of 2024">Class of 2024</option>
-            <option value="Class of 2025">Class of 2025</option>
-            <option value="Class of 2026">Class of 2026</option>
-            <option value="Class of 2027">Class of 2027</option>
-            <option value="Class of 2028">Class of 2028</option>
+            <option value="all">All cohorts</option>
+            {filterOptions.cohorts.map((cohort) => <option key={cohort} value={cohort}>{cohort}</option>)}
           </select>
 
           {/* Account Status Filter */}
@@ -450,10 +443,8 @@ export default function StudentRecordsTable({
             onChange={(e) => handleStatusChange(e.target.value)}
             className="bg-white border border-slate-200 rounded-xl py-1.5 px-3 text-xs text-slate-750 focus:outline-hidden focus:border-blue-500 cursor-pointer"
           >
-            <option value="all">All Statuses</option>
-            <option value="Active">Active</option>
-            <option value="Pending Setup">Pending Setup</option>
-            <option value="Suspended">Suspended</option>
+            <option value="all">All statuses</option>
+            {filterOptions.statuses.map((status) => <option key={status} value={status}>{status}</option>)}
           </select>
 
           {/* Registered Units Filter */}
@@ -511,19 +502,19 @@ export default function StudentRecordsTable({
               {renderSortableHeader('Admission No', 'admissionNo', 'left')}
               {renderSortableHeader('Full Name', 'name', 'left')}
               {renderSortableHeader('Cohort', 'cohort', 'left')}
+              {renderSortableHeader('Programme', 'programme', 'left')}
+              {renderSortableHeader('Department', 'department', 'left')}
               {renderSortableHeader('Account Status', 'accountStatus', 'left')}
               {renderSortableHeader('Registered Units', 'registeredUnits', 'left')}
-              <th className="py-3 px-4 text-right text-[11px] font-bold text-slate-500 uppercase tracking-wider">Invoiced (KES)</th>
-              <th className="py-3 px-4 text-right text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Paid (KES)</th>
-              <th className="py-3 px-4 text-right text-[11px] font-bold text-slate-500 uppercase tracking-wider">Outstanding Debt</th>
-              <th className="py-3 px-4 text-center text-[11px] font-bold text-slate-500 uppercase tracking-wider">System Action</th>
+              {renderSortableHeader('Registration date', 'createdAt', 'left')}
+              <th className="py-3 px-4 text-center text-[11px] font-bold text-slate-500 uppercase tracking-wider">Actions</th>
             </tr>
           </thead>
 
           <tbody className="divide-y divide-slate-100">
             {error ? (
               <tr>
-                <td colSpan={9} className="py-12 px-4 text-center">
+                <td colSpan={10} className="py-12 px-4 text-center">
                   <div className="flex flex-col items-center justify-center space-y-2 text-rose-600">
                     <AlertCircle className="w-8 h-8" />
                     <p className="text-xs font-bold">{error}</p>
@@ -540,7 +531,7 @@ export default function StudentRecordsTable({
               </tr>
             ) : students.length === 0 && !loading ? (
               <tr>
-                <td colSpan={9} className="py-12 px-4 text-center">
+                <td colSpan={10} className="py-12 px-4 text-center">
                   <div className="flex flex-col items-center justify-center space-y-2">
                     <Users className="w-10 h-10 text-slate-300" />
                     <p className="text-sm font-semibold text-slate-700">No students found</p>
@@ -561,9 +552,6 @@ export default function StudentRecordsTable({
               </tr>
             ) : (
               students.map((stud) => {
-                const totalInvoiced = (stud.ledger || []).reduce((sum, inv) => sum + inv.amount, 0);
-                const totalPaid = (stud.ledger || []).filter(i => i.status === 'paid').reduce((sum, inv) => sum + inv.amount, 0);
-                const outstandingBal = totalInvoiced - totalPaid;
                 const enrolledUnitsList = stud.enrolledUnits || [];
 
                 return (
@@ -571,6 +559,8 @@ export default function StudentRecordsTable({
                     <td className="py-3 px-4 font-mono font-bold text-blue-700">{stud.admissionNo}</td>
                     <td className="py-3 px-4 font-semibold text-slate-900">{stud.name}</td>
                     <td className="py-3 px-4 text-slate-600 font-medium">{stud.cohort}</td>
+                    <td className="py-3 px-4 text-slate-600">{stud.programme || '—'}</td>
+                    <td className="py-3 px-4 text-slate-600">{stud.department || '—'}</td>
                     <td className="py-3 px-4">
                       <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
                         stud.accountStatus === 'Active'
@@ -585,34 +575,9 @@ export default function StudentRecordsTable({
                         {enrolledUnitsList.length} Units ({enrolledUnitsList.join(', ') || 'None'})
                       </span>
                     </td>
-                    <td className="py-3 px-4 text-right font-mono font-semibold text-slate-750">
-                      KES {totalInvoiced.toLocaleString()}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono font-bold text-emerald-600">
-                      KES {totalPaid.toLocaleString()}
-                    </td>
-                    <td className={`py-3 px-4 text-right font-mono font-black ${outstandingBal > 0 ? 'text-rose-650' : 'text-slate-400'}`}>
-                      KES {outstandingBal.toLocaleString()}
-                    </td>
+                    <td className="py-3 px-4 text-slate-600">{stud.createdAt ? new Date(stud.createdAt).toLocaleDateString() : '—'}</td>
                     <td className="py-3 px-4 text-center">
-                      <div className="flex justify-center items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleResetPassword(stud.id, stud.name)}
-                          className="bg-indigo-50 hover:bg-indigo-100 text-indigo-650 hover:text-indigo-800 text-[9px] font-black uppercase tracking-wider py-1 px-2 rounded-lg border border-indigo-200 transition-colors cursor-pointer"
-                          title="Generate temporary passcode"
-                        >
-                          Reset Password
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handlePurgeAccount(stud.id, stud.name, stud.admissionNo)}
-                          className="bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-750 text-[9px] font-black uppercase tracking-wider py-1 px-2 rounded-lg border border-rose-200 transition-colors cursor-pointer"
-                          title="Dismiss active record"
-                        >
-                          Purge Account
-                        </button>
-                      </div>
+                      {canManageRecords ? <details className="relative inline-block text-left"><summary className="list-none cursor-pointer rounded-lg border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50"><MoreHorizontal className="h-4 w-4" /><span className="sr-only">More actions</span></summary><div className="absolute right-0 z-20 mt-1 w-40 rounded-lg border border-slate-200 bg-white p-1 shadow-lg"><button type="button" onClick={() => handleResetPassword(stud.id, stud.name)} className="w-full rounded px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50">Reset password</button><button type="button" onClick={() => handleArchiveAccount(stud.id, stud.name, stud.admissionNo)} className="w-full rounded px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50">Archive record</button></div></details> : <span className="text-xs text-slate-400">Restricted</span>}
                     </td>
                   </tr>
                 );

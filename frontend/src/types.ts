@@ -176,6 +176,8 @@ export interface Student {
   phone: string;
   admissionNo: string;
   cohort: string; // e.g., "2024 Intake"
+  programme?: string;
+  department?: string;
   enrolledUnits: string[]; // Code list
   grades: Record<string, Grade>; // subjectCode -> Grade
   ledger: Invoice[];
@@ -526,4 +528,3 @@ export interface LecturerStudentDirectoryItem {
   cohort: string;
   avatar: string | null;
 }
-
