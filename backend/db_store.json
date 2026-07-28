@@ -29,6 +29,28 @@
   "loans": [],
   "courses": [
     {
+      "id": "cfccd04f-89dd-45ac-977c-ab782636626a",
+      "code": "BSE",
+      "title": "Bachelor of Software Engineering",
+      "description": "A programme specializing in software architecture, software testing, DevOps, mobile development, and enterprise systems.",
+      "duration": "4 Years",
+      "fees": 500000,
+      "thumbnail": "",
+      "faculty": "School of Computing and Informatics",
+      "active": true
+    },
+    {
+      "id": "430353d5-bbf6-4f75-ba73-3e4b47681c9f",
+      "code": "BCS",
+      "title": "Bachelor of Computer Science",
+      "description": "A degree focusing on software engineering, artificial intelligence, databases, networking, cybersecurity, and computer systems.",
+      "duration": "4 Years",
+      "fees": 480000,
+      "thumbnail": "",
+      "faculty": "School of Computing and Informatics",
+      "active": true
+    },
+    {
       "id": "3515c26b-f0bd-4494-8ba0-e70f53affd73",
       "code": "BDS",
       "title": "Bachelor of Data Science",
@@ -60,67 +82,27 @@
       "thumbnail": "",
       "faculty": "School of Business and Computing",
       "active": true
-    },
-    {
-      "id": "cfccd04f-89dd-45ac-977c-ab782636626a",
-      "code": "BSE",
-      "title": "Bachelor of Software Engineering",
-      "description": "A programme specializing in software architecture, software testing, DevOps, mobile development, and enterprise systems.",
-      "duration": "4 Years",
-      "fees": 500000,
-      "thumbnail": "",
-      "faculty": "School of Computing and Informatics",
-      "active": true
-    },
-    {
-      "id": "430353d5-bbf6-4f75-ba73-3e4b47681c9f",
-      "code": "BCS",
-      "title": "Bachelor of Computer Science",
-      "description": "A degree focusing on software engineering, artificial intelligence, databases, networking, cybersecurity, and computer systems.",
-      "duration": "4 Years",
-      "fees": 480000,
-      "thumbnail": "",
-      "faculty": "School of Computing and Informatics",
-      "active": true
     }
   ],
   "reviews": [],
   "expenses": [],
   "students": [
     {
-      "id": "351d378f-ce47-4f2f-bfa8-a8956982d577",
-      "name": "Julius Ochieng",
-      "email": "julius@gmail.com",
-      "phone": "",
+      "id": "b2b275e6-d090-4896-a631-46256f153527",
+      "name": "james maina",
+      "email": "maina@zenti.edu",
+      "phone": "079816465",
       "admissionNo": "ADM001",
-      "cohort": "2025 Intake",
+      "cohort": "2026",
+      "programme": "Data Science",
+      "department": "Information Technology",
       "accountStatus": "Pending Setup",
-      "createdAt": "2026-07-26 08:55:24.008457+00",
-      "enrolledUnits": [
-        "BCS",
-        "BDS"
-      ],
-      "grades": {
-        "BCS": {
-          "cat": 25,
-          "exam": 68,
-          "gradedAt": "2026-07-27 07:39:46.991312+00"
-        }
-      },
-      "ledger": [
-        {
-          "id": "a3cc2b24-278a-4190-980e-e0b996fddd65",
-          "invoiceNo": "INV-8830",
-          "description": "[Boarding] Semester Tuition and Accommodation Fees",
-          "amount": 45000,
-          "date": "2026-07-26",
-          "status": "unpaid"
-        }
-      ],
+      "createdAt": "2026-07-28 08:42:09.006988+00",
+      "enrolledUnits": [],
+      "grades": {},
+      "ledger": [],
       "payments": [],
-      "attendance": {
-        "BCS": 100
-      }
+      "attendance": {}
     }
   ],
   "inventory": [],
@@ -159,6 +141,15 @@
   "reservations": [],
   "notifications": [
     {
+      "id": "e13d5169-2a31-40df-b1ad-77575fd765b2",
+      "targetUserRole": "all",
+      "type": "library",
+      "title": " [Grade Posted] New Grade for Unit BCS",
+      "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
+      "status": "unread",
+      "dateTime": "2026-07-26 13:15:08+00"
+    },
+    {
       "id": "afce5cd0-a3a8-4a63-8b91-a385e021c89e",
       "targetUserRole": "all",
       "type": "payment",
@@ -175,15 +166,6 @@
       "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
       "status": "unread",
       "dateTime": "2026-07-26 12:15:21+00"
-    },
-    {
-      "id": "e13d5169-2a31-40df-b1ad-77575fd765b2",
-      "targetUserRole": "all",
-      "type": "library",
-      "title": " [Grade Posted] New Grade for Unit BCS",
-      "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
-      "status": "unread",
-      "dateTime": "2026-07-26 13:15:08+00"
     }
   ],
   "libraryGateLogs": [],

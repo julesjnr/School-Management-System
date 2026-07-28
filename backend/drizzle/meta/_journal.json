@@ -22,6 +22,27 @@
       "when": 1785000000000,
       "tag": "0002_must_change_password",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785239200000,
+      "tag": "0003_lecturer_dashboard_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785239300000,
+      "tag": "0004_student_registry_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785239400000,
+      "tag": "0005_student_account_status",
+      "breakpoints": true
     }
   ]
 }

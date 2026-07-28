@@ -11,6 +11,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { createCorsMiddleware } from "./src/cors.ts";
 import { db } from "./src/db/index.ts";
+import { runMigrations } from "./src/db/migrate.ts";
 import {
   systemState,
   students,
@@ -5222,6 +5223,7 @@ async function startServer() {
   }
 
   startupPromise = (async () => {
+    await runMigrations();
     // Initialize the PostgreSQL database state (or fallback store if offline)
     await initPostgresDB();
     const dbStateForAuth = getDatabase();

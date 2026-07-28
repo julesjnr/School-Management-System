@@ -123,8 +123,10 @@ CREATE TABLE students (
     phone VARCHAR(30) NOT NULL,
     admission_no VARCHAR(50) UNIQUE NOT NULL,
     cohort VARCHAR(50) NOT NULL, -- e.g. '2024 Intake'
+    programme VARCHAR(255),
+    department VARCHAR(255),
     avatar TEXT,
-    passcode VARCHAR(100) DEFAULT 'student123' NOT NULL,
+    account_status VARCHAR(50) DEFAULT 'Active' NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
