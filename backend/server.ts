@@ -2968,6 +2968,552 @@ app.post("/api/finance/reconcile", async (req, res) => {
   }
 });
 
+// 5. GET /api/finance/payments & PATCH /api/finance/payments/:id/reconcile
+app.get("/api/finance/payments", async (req, res) => {
+  try {
+    const paymentRows = await db.select().from(payments);
+    const studentRows = await db.select().from(students);
+
+    const result = paymentRows.map(p => {
+      const student = studentRows.find(s => s.id === p.studentId);
+      return {
+        id: p.id,
+        studentId: p.studentId,
+        studentName: student ? student.name : "Unknown Student",
+        studentAdmissionNo: student ? student.admissionNo : "",
+        invoiceId: p.invoiceId ?? "",
+        amount: Number(p.amount),
+        paymentMethod: p.paymentMethod,
+        transactionId: p.transactionId,
+        date: p.date,
+        status: p.status
+      };
+    });
+
+    res.json(result);
+  } catch (err: any) {
+    console.error("Failed to fetch payments from PostgreSQL:", err);
+    res.status(500).json({ error: "Failed to fetch payments" });
+  }
+});
+
+app.patch("/api/finance/payments/:id/reconcile", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [updatedPayment] = await db
+      .update(payments)
+      .set({ status: 'reconciled' })
+      .where(eq(payments.id, id))
+      .returning();
+
+    if (updatedPayment && updatedPayment.invoiceId) {
+      await db.update(invoices)
+        .set({ status: 'paid' })
+        .where(eq(invoices.id, updatedPayment.invoiceId));
+
+      await db.insert(studentLedger).values({
+        studentId: updatedPayment.studentId,
+        entryType: 'CREDIT',
+        voteHead: 'Tuition',
+        amount: String(updatedPayment.amount),
+        description: `Manual Reconciled Payment Ref: ${updatedPayment.transactionId}`
+      });
+    }
+
+    res.json({ success: true, payment: updatedPayment });
+  } catch (err: any) {
+    console.error("Failed to reconcile payment in PostgreSQL:", err);
+    res.status(500).json({ error: "Failed to reconcile payment" });
+  }
+});
+
+// 6. GET /api/finance/expenses & POST /api/finance/expenses
+app.get("/api/finance/expenses", async (req, res) => {
+  try {
+    const expenseRows = await db.select().from(expenses);
+    const result = expenseRows.map(e => ({
+      id: e.id,
+      description: e.description,
+      category: e.category,
+      amount: Number(e.amount),
+      date: e.date
+    }));
+    res.json(result);
+  } catch (err: any) {
+    console.error("Failed to fetch expenses from PostgreSQL:", err);
+    res.status(500).json({ error: "Failed to fetch expenses" });
+  }
+});
+
+app.post("/api/finance/expenses", async (req, res) => {
+  const { description, category, amount, date } = req.body;
+  if (!description || !category || !amount || isNaN(Number(amount))) {
+    return res.status(400).json({ error: "Invalid expense parameters" });
+  }
+  try {
+    const dateStr = date || new Date().toISOString().substring(0, 10);
+    const [newExpense] = await db.insert(expenses).values({
+      description,
+      category,
+      amount: String(amount),
+      date: dateStr
+    }).returning();
+
+    res.status(201).json({
+      id: newExpense.id,
+      description: newExpense.description,
+      category: newExpense.category,
+      amount: Number(newExpense.amount),
+      date: newExpense.date
+    });
+  } catch (err: any) {
+    console.error("Failed to insert expense into PostgreSQL:", err);
+    res.status(500).json({ error: "Failed to create expense" });
+  }
+});
+
+// 7. GET /api/finance/budgets & POST /api/finance/budgets
+app.get("/api/finance/budgets", async (req, res) => {
+  try {
+    const defaultBudgets = {
+      'Operations & IT': 180000,
+      'Estates & Facilities': 140000,
+      'Admissions & Outreach': 150000,
+      'Academic Affairs': 600000,
+      'General Administration': 95000
+    };
+
+    const dbState = await loadFullDatabaseState();
+    const budgets = dbState.budgets || defaultBudgets;
+    res.json(budgets);
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to fetch budgets" });
+  }
+});
+
+app.post("/api/finance/budgets", async (req, res) => {
+  const { department, amount } = req.body;
+  if (!department || isNaN(Number(amount))) {
+    return res.status(400).json({ error: "Invalid budget payload" });
+  }
+  try {
+    const dbState = await loadFullDatabaseState();
+    dbState.budgets = dbState.budgets || {
+      'Operations & IT': 180000,
+      'Estates & Facilities': 140000,
+      'Admissions & Outreach': 150000,
+      'Academic Affairs': 600000,
+      'General Administration': 95000
+    };
+    dbState.budgets[department] = Number(amount);
+    
+    await db.insert(systemState)
+      .values({ id: 1, data: dbState, updatedAt: new Date().toISOString() })
+      .onConflictDoUpdate({ target: systemState.id, set: { data: dbState, updatedAt: new Date().toISOString() } });
+
+    res.json({ success: true, budgets: dbState.budgets });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to update budget ceiling" });
+  }
+});
+
+// 8. VOUCHERS API: GET, POST, PATCH approve
+app.get("/api/finance/vouchers", async (req, res) => {
+  try {
+    const dbState = await loadFullDatabaseState();
+    res.json(dbState.vouchers || []);
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to fetch vouchers" });
+  }
+});
+
+app.post("/api/finance/vouchers", async (req, res) => {
+  const { voucherNo, type, category, description, amount, date, approvedBy, status } = req.body;
+  if (!type || !category || !amount || isNaN(Number(amount))) {
+    return res.status(400).json({ error: "Invalid voucher fields" });
+  }
+  try {
+    const newVoucher = {
+      id: `v-${Date.now()}`,
+      voucherNo: voucherNo || `VOU-${Math.floor(100 + Math.random() * 900)}`,
+      type,
+      category,
+      description: description || "",
+      amount: Number(amount),
+      date: date || new Date().toISOString().substring(0, 10),
+      approvedBy: approvedBy || "Grace Wanjiku (Accountant)",
+      status: status || "Approved"
+    };
+
+    const dbState = await loadFullDatabaseState();
+    dbState.vouchers = [newVoucher, ...(dbState.vouchers || [])];
+
+    await db.insert(systemState)
+      .values({ id: 1, data: dbState, updatedAt: new Date().toISOString() })
+      .onConflictDoUpdate({ target: systemState.id, set: { data: dbState, updatedAt: new Date().toISOString() } });
+
+    // Insert into PostgreSQL expenses table if approved debit
+    if (type === 'Debit' && newVoucher.status === 'Approved') {
+      await db.insert(expenses).values({
+        description: `[Voucher ${newVoucher.voucherNo}] ${newVoucher.description}`,
+        category: newVoucher.category,
+        amount: String(newVoucher.amount),
+        date: newVoucher.date
+      });
+    }
+
+    res.status(201).json(newVoucher);
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to create voucher" });
+  }
+});
+
+app.patch("/api/finance/vouchers/:id/approve", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const dbState = await loadFullDatabaseState();
+    dbState.vouchers = (dbState.vouchers || []).map((v: any) => {
+      if (v.id === id) {
+        return { ...v, status: 'Approved', approvedBy: 'System Admin' };
+      }
+      return v;
+    });
+
+    await db.insert(systemState)
+      .values({ id: 1, data: dbState, updatedAt: new Date().toISOString() })
+      .onConflictDoUpdate({ target: systemState.id, set: { data: dbState, updatedAt: new Date().toISOString() } });
+
+    const updatedVoucher = dbState.vouchers.find((v: any) => v.id === id);
+    if (updatedVoucher && updatedVoucher.type === 'Debit') {
+      await db.insert(expenses).values({
+        description: `[Voucher ${updatedVoucher.voucherNo}] ${updatedVoucher.description} (Approved by Admin)`,
+        category: updatedVoucher.category,
+        amount: String(updatedVoucher.amount),
+        date: updatedVoucher.date
+      });
+    }
+
+    res.json({ success: true, voucher: updatedVoucher });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to approve voucher" });
+  }
+});
+
+// 9. IMPRESTS API: GET, POST, PATCH status
+app.get("/api/finance/imprests", async (req, res) => {
+  try {
+    const dbState = await loadFullDatabaseState();
+    res.json(dbState.imprests || []);
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to fetch imprests" });
+  }
+});
+
+app.post("/api/finance/imprests", async (req, res) => {
+  const { staffName, amount, purpose } = req.body;
+  if (!staffName || !amount || isNaN(Number(amount))) {
+    return res.status(400).json({ error: "Invalid imprest fields" });
+  }
+  try {
+    const newImprest = {
+      id: `imp-${Date.now()}`,
+      staffName,
+      amount: Number(amount),
+      purpose: purpose || "",
+      status: 'pending',
+      date: new Date().toISOString().substring(0, 10)
+    };
+    const dbState = await loadFullDatabaseState();
+    dbState.imprests = [...(dbState.imprests || []), newImprest];
+
+    await db.insert(systemState)
+      .values({ id: 1, data: dbState, updatedAt: new Date().toISOString() })
+      .onConflictDoUpdate({ target: systemState.id, set: { data: dbState, updatedAt: new Date().toISOString() } });
+
+    res.status(201).json(newImprest);
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to create imprest" });
+  }
+});
+
+app.patch("/api/finance/imprests/:id/status", async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+  try {
+    const dbState = await loadFullDatabaseState();
+    let targetImp: any = null;
+
+    dbState.imprests = (dbState.imprests || []).map((imp: any) => {
+      if (imp.id === id) {
+        targetImp = { ...imp, status };
+        return targetImp;
+      }
+      return imp;
+    });
+
+    if (status === 'approved' && targetImp) {
+      const vouNo = `VOU-${Math.floor(100 + Math.random() * 900)}`;
+      const autoVoucher = {
+        id: `v-${Date.now()}`,
+        voucherNo: vouNo,
+        type: 'Debit',
+        category: 'General Administration',
+        description: `[Automatic Petty Cash Allocation] Dispatched KES ${targetImp.amount.toLocaleString()} petty cash to ${targetImp.staffName}. Purpose: ${targetImp.purpose}`,
+        amount: targetImp.amount,
+        date: new Date().toISOString().substring(0, 10),
+        approvedBy: 'Grace Wanjiku (Accountant)',
+        status: 'Approved'
+      };
+      dbState.vouchers = [autoVoucher, ...(dbState.vouchers || [])];
+      targetImp.voucherId = autoVoucher.id;
+
+      await db.insert(expenses).values({
+        description: `[Petty cash ${vouNo}] Allocated to ${targetImp.staffName}`,
+        category: 'General Administration',
+        amount: String(targetImp.amount),
+        date: new Date().toISOString().substring(0, 10)
+      });
+    }
+
+    await db.insert(systemState)
+      .values({ id: 1, data: dbState, updatedAt: new Date().toISOString() })
+      .onConflictDoUpdate({ target: systemState.id, set: { data: dbState, updatedAt: new Date().toISOString() } });
+
+    res.json({ success: true, imprest: targetImp });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to update imprest status" });
+  }
+});
+
+// 10. SUPPLIERS API: GET, POST, POST po, PATCH po status
+app.get("/api/finance/suppliers", async (req, res) => {
+  try {
+    const dbState = await loadFullDatabaseState();
+    res.json(dbState.suppliers || []);
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to fetch suppliers" });
+  }
+});
+
+app.post("/api/finance/suppliers", async (req, res) => {
+  const { companyName, contactPerson } = req.body;
+  if (!companyName) return res.status(400).json({ error: "Supplier company name is required" });
+
+  try {
+    const newSup = {
+      id: `sup-${Date.now()}`,
+      companyName,
+      contactPerson: contactPerson || "General Partner",
+      status: "Active",
+      balance: 0,
+      purchaseOrders: []
+    };
+    const dbState = await loadFullDatabaseState();
+    dbState.suppliers = [...(dbState.suppliers || []), newSup];
+
+    await db.insert(systemState)
+      .values({ id: 1, data: dbState, updatedAt: new Date().toISOString() })
+      .onConflictDoUpdate({ target: systemState.id, set: { data: dbState, updatedAt: new Date().toISOString() } });
+
+    res.status(201).json(newSup);
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to add supplier" });
+  }
+});
+
+app.post("/api/finance/suppliers/po", async (req, res) => {
+  const { supplierId, itemName, amount } = req.body;
+  if (!supplierId || !itemName || !amount || isNaN(Number(amount))) {
+    return res.status(400).json({ error: "Invalid PO fields" });
+  }
+  try {
+    const val = Number(amount);
+    const newPO = {
+      id: `po-${Date.now()}`,
+      poNo: `PO-${Math.floor(8000 + Math.random() * 1999)}`,
+      itemName,
+      amount: val,
+      status: 'pending',
+      date: new Date().toISOString().substring(0, 10)
+    };
+
+    const dbState = await loadFullDatabaseState();
+    dbState.suppliers = (dbState.suppliers || []).map((sup: any) => {
+      if (sup.id === supplierId) {
+        return {
+          ...sup,
+          balance: (sup.balance || 0) + val,
+          purchaseOrders: [...(sup.purchaseOrders || []), newPO]
+        };
+      }
+      return sup;
+    });
+
+    await db.insert(systemState)
+      .values({ id: 1, data: dbState, updatedAt: new Date().toISOString() })
+      .onConflictDoUpdate({ target: systemState.id, set: { data: dbState, updatedAt: new Date().toISOString() } });
+
+    res.status(201).json(newPO);
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to raise PO" });
+  }
+});
+
+app.patch("/api/finance/suppliers/po/:id", async (req, res) => {
+  const poId = req.params.id;
+  const { supplierId, action } = req.body; // action: 'approve' | 'settle'
+  try {
+    const dbState = await loadFullDatabaseState();
+    dbState.suppliers = (dbState.suppliers || []).map((sup: any) => {
+      if (sup.id === supplierId) {
+        const updatedPOs = (sup.purchaseOrders || []).map((po: any) => {
+          if (po.id === poId) {
+            if (action === 'approve') {
+              return { ...po, status: 'approved' };
+            } else if (action === 'settle') {
+              return { ...po, status: 'paid' };
+            }
+          }
+          return po;
+        });
+
+        let newBalance = sup.balance || 0;
+        if (action === 'settle') {
+          const poObj = sup.purchaseOrders?.find((p: any) => p.id === poId);
+          if (poObj) newBalance = Math.max(0, newBalance - poObj.amount);
+        }
+
+        return { ...sup, balance: newBalance, purchaseOrders: updatedPOs };
+      }
+      return sup;
+    });
+
+    await db.insert(systemState)
+      .values({ id: 1, data: dbState, updatedAt: new Date().toISOString() })
+      .onConflictDoUpdate({ target: systemState.id, set: { data: dbState, updatedAt: new Date().toISOString() } });
+
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to update PO" });
+  }
+});
+
+// 11. BANK STATEMENTS & MANUAL MATCHING API
+app.get("/api/finance/bank-statements", async (req, res) => {
+  try {
+    const allTx = await db.select().from(transactions);
+    const dbState = await loadFullDatabaseState();
+    const savedStatements = dbState.bankStatements || [];
+
+    const statementsFromTx = allTx.map(tx => ({
+      id: tx.id,
+      date: new Date(tx.createdAt).toISOString().substring(0, 10),
+      reference: tx.referenceNo,
+      details: `${tx.description} (${tx.recipientSender})`,
+      amount: Number(tx.amount),
+      isMatched: savedStatements.find((s: any) => s.id === tx.id)?.isMatched || false,
+      matchedTxId: savedStatements.find((s: any) => s.id === tx.id)?.matchedTxId
+    }));
+
+    res.json(statementsFromTx);
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to fetch bank statements" });
+  }
+});
+
+app.post("/api/finance/bank-statements/match", async (req, res) => {
+  const { statementId, studentId, invoiceId } = req.body;
+  if (!statementId || !studentId || !invoiceId) {
+    return res.status(400).json({ error: "Missing matching payload" });
+  }
+
+  try {
+    const allTx = await db.select().from(transactions);
+    const statement = allTx.find(t => t.id === statementId);
+    const txAmount = statement ? Number(statement.amount) : 0;
+    const txRef = statement ? statement.referenceNo : `TX-${Date.now()}`;
+
+    // 1. Update invoice status in PostgreSQL
+    await db.update(invoices)
+      .set({ status: 'paid' })
+      .where(eq(invoices.id, invoiceId));
+
+    // 2. Create payment record in PostgreSQL
+    await db.insert(payments).values({
+      studentId,
+      invoiceId,
+      amount: String(txAmount),
+      paymentMethod: txRef.toLowerCase().includes('mpesa') ? 'M-Pesa' : 'Bank Transfer',
+      transactionId: txRef,
+      date: new Date().toISOString().substring(0, 10),
+      status: 'reconciled'
+    });
+
+    // 3. Create credit ledger entry in PostgreSQL
+    await db.insert(studentLedger).values({
+      studentId,
+      entryType: 'CREDIT',
+      voteHead: 'Tuition',
+      amount: String(txAmount),
+      description: `Manual Bank Statement Reconciled Ref: ${txRef}`
+    });
+
+    // 4. Record matched status in system state
+    const dbState = await loadFullDatabaseState();
+    dbState.bankStatements = dbState.bankStatements || [];
+    dbState.bankStatements.push({ id: statementId, isMatched: true, matchedTxId: txRef });
+
+    await db.insert(systemState)
+      .values({ id: 1, data: dbState, updatedAt: new Date().toISOString() })
+      .onConflictDoUpdate({ target: systemState.id, set: { data: dbState, updatedAt: new Date().toISOString() } });
+
+    res.json({ success: true, message: "Bank statement matched successfully" });
+  } catch (err: any) {
+    console.error("Failed to match bank statement in PostgreSQL:", err);
+    res.status(500).json({ error: "Failed to match bank statement" });
+  }
+});
+
+// 12. AUDITS API: GET & POST
+app.get("/api/finance/audits", async (req, res) => {
+  try {
+    const dbState = await loadFullDatabaseState();
+    res.json(dbState.audits || []);
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to fetch audit logs" });
+  }
+});
+
+app.post("/api/finance/audits", async (req, res) => {
+  const { action, resource, status, user, role } = req.body;
+  if (!action || !resource) {
+    return res.status(400).json({ error: "Action and resource are required" });
+  }
+  try {
+    const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const newLog = {
+      id: `aud-${Date.now()}`,
+      timestamp,
+      user: user || 'Grace Wanjiku (Accountant)',
+      role: role || 'Accountant',
+      action,
+      resource,
+      status: status || 'Success'
+    };
+
+    const dbState = await loadFullDatabaseState();
+    dbState.audits = [newLog, ...(dbState.audits || [])];
+
+    await db.insert(systemState)
+      .values({ id: 1, data: dbState, updatedAt: new Date().toISOString() })
+      .onConflictDoUpdate({ target: systemState.id, set: { data: dbState, updatedAt: new Date().toISOString() } });
+
+    res.status(201).json(newLog);
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to log audit" });
+  }
+});
+
 // 6. REST Resource: Students with Server-Side Pagination, Filtering, Sorting, and Search
 app.get("/api/students", async (req, res) => {
   try {

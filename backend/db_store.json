@@ -29,28 +29,6 @@
   "loans": [],
   "courses": [
     {
-      "id": "cfccd04f-89dd-45ac-977c-ab782636626a",
-      "code": "BSE",
-      "title": "Bachelor of Software Engineering",
-      "description": "A programme specializing in software architecture, software testing, DevOps, mobile development, and enterprise systems.",
-      "duration": "4 Years",
-      "fees": 500000,
-      "thumbnail": "",
-      "faculty": "School of Computing and Informatics",
-      "active": true
-    },
-    {
-      "id": "430353d5-bbf6-4f75-ba73-3e4b47681c9f",
-      "code": "BCS",
-      "title": "Bachelor of Computer Science",
-      "description": "A degree focusing on software engineering, artificial intelligence, databases, networking, cybersecurity, and computer systems.",
-      "duration": "4 Years",
-      "fees": 480000,
-      "thumbnail": "",
-      "faculty": "School of Computing and Informatics",
-      "active": true
-    },
-    {
       "id": "3515c26b-f0bd-4494-8ba0-e70f53affd73",
       "code": "BDS",
       "title": "Bachelor of Data Science",
@@ -82,10 +60,43 @@
       "thumbnail": "",
       "faculty": "School of Business and Computing",
       "active": true
+    },
+    {
+      "id": "cfccd04f-89dd-45ac-977c-ab782636626a",
+      "code": "BSE",
+      "title": "Bachelor of Software Engineering",
+      "description": "A programme specializing in software architecture, software testing, DevOps, mobile development, and enterprise systems.",
+      "duration": "4 Years",
+      "fees": 500000,
+      "thumbnail": "",
+      "faculty": "School of Computing and Informatics",
+      "active": true
+    },
+    {
+      "id": "430353d5-bbf6-4f75-ba73-3e4b47681c9f",
+      "code": "BCS",
+      "title": "Bachelor of Computer Science",
+      "description": "A degree focusing on software engineering, artificial intelligence, databases, networking, cybersecurity, and computer systems.",
+      "duration": "4 Years",
+      "fees": 480000,
+      "thumbnail": "",
+      "faculty": "School of Computing and Informatics",
+      "active": true
     }
   ],
   "reviews": [],
   "expenses": [],
+  "invoices": [
+    {
+      "id": "accd6a7a-e84b-a83f-6d19-9369899bb7ce",
+      "date": "2026-07-28",
+      "amount": -20000,
+      "status": "paid",
+      "invoiceNo": "CRD-360460",
+      "studentId": "b2b275e6-d090-4896-a631-46256f153527",
+      "description": "[Scholarship Approved] Bursary Award"
+    }
+  ],
   "students": [
     {
       "id": "b2b275e6-d090-4896-a631-46256f153527",
@@ -98,8 +109,16 @@
       "department": "Information Technology",
       "accountStatus": "Pending Setup",
       "createdAt": "2026-07-28 08:42:09.006988+00",
-      "enrolledUnits": [],
-      "grades": {},
+      "enrolledUnits": [
+        "BDS"
+      ],
+      "grades": {
+        "BDS": {
+          "cat": 23,
+          "exam": 54,
+          "gradedAt": "2026-07-28 11:05:25.018452+00"
+        }
+      },
       "ledger": [],
       "payments": [],
       "attendance": {}
@@ -112,9 +131,9 @@
       "name": "Mercy Mueni",
       "email": "mueni@zenti.edu.ke",
       "phone": "+25477664651",
-      "hourlyRate": 50,
-      "loggedHours": 4,
-      "bankDetails": "Equity Bank Kenya - 8673652897465 (Nairobi Central)",
+      "hourlyRate": 2000,
+      "loggedHours": 8,
+      "bankDetails": "Equity Bank Kenya - 054-9063468513 (Nairobi Central)",
       "contractLength": "Permanent",
       "designatorCode": "STF-2026-001",
       "bio": "",
@@ -141,6 +160,24 @@
   "reservations": [],
   "notifications": [
     {
+      "id": "2fe609d8-12d2-44a3-b6fb-0e0d5e80a812",
+      "targetUserRole": "all",
+      "type": "library",
+      "title": " [Grade Posted] New Grade for Unit BDS",
+      "message": "james maina (james.maina@zenti.edu): Dear james maina,",
+      "status": "unread",
+      "dateTime": "2026-07-28 11:05:19+00"
+    },
+    {
+      "id": "56ce593d-d574-4eaa-bd39-3e0088504fa6",
+      "targetUserRole": "all",
+      "type": "payment",
+      "title": " [Invoice Generated] New Billing Invoice #INV-1194",
+      "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
+      "status": "unread",
+      "dateTime": "2026-07-26 12:15:21+00"
+    },
+    {
       "id": "e13d5169-2a31-40df-b1ad-77575fd765b2",
       "targetUserRole": "all",
       "type": "library",
@@ -157,15 +194,17 @@
       "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
       "status": "unread",
       "dateTime": "2026-07-26 12:15:22+00"
-    },
+    }
+  ],
+  "student_ledger": [
     {
-      "id": "56ce593d-d574-4eaa-bd39-3e0088504fa6",
-      "targetUserRole": "all",
-      "type": "payment",
-      "title": " [Invoice Generated] New Billing Invoice #INV-1194",
-      "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
-      "status": "unread",
-      "dateTime": "2026-07-26 12:15:21+00"
+      "id": "bc55c061-ff9c-87be-ad4a-90613c493f59",
+      "amount": 20000,
+      "voteHead": "Scholarship",
+      "createdAt": "2026-07-28T10:47:53.567Z",
+      "entryType": "CREDIT",
+      "studentId": "b2b275e6-d090-4896-a631-46256f153527",
+      "description": "[Scholarship Approved] Bursary Award"
     }
   ],
   "libraryGateLogs": [],

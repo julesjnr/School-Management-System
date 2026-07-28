@@ -194,33 +194,45 @@ export default function FinanceSuite({
     return defaults;
   })();
 
-  // --- PERSISTENT STATE MANAGEMENT via LocalStorage ---
-  
+  // --- STATE MANAGEMENT CONNECTED TO EXPRESS & POSTGRESQL ---
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [dataError, setDataError] = useState<string | null>(null);
+
   // Department Budgets
-  const [budgets, setBudgets] = useState<Record<string, number>>(() => {
-    const saved = localStorage.getItem('zenti_budgets');
-    return saved ? JSON.parse(saved) : {
-      'Operations & IT': 180000,
-      'Estates & Facilities': 140000,
-      'Admissions & Outreach': 150000,
-      'Academic Affairs': 600000,
-      'General Administration': 95000
-    };
+  const [budgets, setBudgets] = useState<Record<string, number>>({
+    'Operations & IT': 180000,
+    'Estates & Facilities': 140000,
+    'Admissions & Outreach': 150000,
+    'Academic Affairs': 600000,
+    'General Administration': 95000
   });
 
-  useEffect(() => {
-    localStorage.setItem('zenti_budgets', JSON.stringify(budgets));
-  }, [budgets]);
+  const fetchBudgets = async () => {
+    try {
+      const res = await fetch("/api/finance/budgets");
+      if (res.ok) {
+        const data = await res.json();
+        setBudgets(data);
+      }
+    } catch (e) {
+      console.error("Failed to fetch budgets from PostgreSQL:", e);
+    }
+  };
 
   // Vouchers
-  const [vouchers, setVouchers] = useState<Voucher[]>(() => {
-    const saved = localStorage.getItem('zenti_vouchers');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [vouchers, setVouchers] = useState<Voucher[]>([]);
 
-  useEffect(() => {
-    localStorage.setItem('zenti_vouchers', JSON.stringify(vouchers));
-  }, [vouchers]);
+  const fetchVouchers = async () => {
+    try {
+      const res = await fetch("/api/finance/vouchers");
+      if (res.ok) {
+        const data = await res.json();
+        setVouchers(data);
+      }
+    } catch (e) {
+      console.error("Failed to fetch vouchers from PostgreSQL:", e);
+    }
+  };
 
   // Customizable Payroll Configuration State
   const [payrollConfig, setPayrollConfig] = useState(() => {
@@ -237,89 +249,124 @@ export default function FinanceSuite({
     localStorage.setItem('zenti_payroll_config', JSON.stringify(payrollConfig));
   }, [payrollConfig]);
 
-  // Handler to approve high-value vouchers (Admin Action)
-  const handleApproveVoucher = (voucherId: string) => {
-    setVouchers(prev => prev.map(v => {
-      if (v.id === voucherId) {
-        const updated = { 
-          ...v, 
-          status: 'Approved' as const, 
-          approvedBy: 'System Admin' 
-        };
-        // Log as expense if it's a Debit voucher
-        if (updated.type === 'Debit') {
-          onAddExpense({
-            description: `[Voucher ${updated.voucherNo}] ${updated.description} (Approved by Admin)`,
-            category: updated.category,
-            amount: updated.amount,
-            date: updated.date
-          });
-        }
-        logAudit('APPROVE_VOUCHER', `Approved High-Value ${updated.type} Voucher ${updated.voucherNo} of KES ${updated.amount.toLocaleString()}`);
-        return updated;
+  const handleApproveVoucher = async (voucherId: string) => {
+    try {
+      const res = await fetch(`/api/finance/vouchers/${voucherId}/approve`, { method: "PATCH" });
+      if (res.ok) {
+        await Promise.all([fetchVouchers(), fetchExpenses(), fetchAudits()]);
+        showToast('Voucher approved successfully and ledger balances synchronized.', 'success');
+      } else {
+        throw new Error("Failed to approve voucher");
       }
-      return v;
-    }));
-    showToast('Voucher approved successfully and ledger balances synchronized.', 'success');
+    } catch (e) {
+      showToast('Failed to approve voucher. Please try again.', 'error');
+    }
   };
 
   // Imprests
-  const [imprests, setImprests] = useState<Imprest[]>(() => {
-    const saved = localStorage.getItem('zenti_imprests');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [imprests, setImprests] = useState<Imprest[]>([]);
 
-  useEffect(() => {
-    localStorage.setItem('zenti_imprests', JSON.stringify(imprests));
-  }, [imprests]);
-
-  // Suppliers
-  const [suppliers, setSuppliers] = useState<Supplier[]>(() => {
-    const saved = localStorage.getItem('zenti_suppliers');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  useEffect(() => {
-    localStorage.setItem('zenti_suppliers', JSON.stringify(suppliers));
-  }, [suppliers]);
-
-  // Bank statements for manual/automatic bank reconciliations
-  const [bankStatements, setBankStatements] = useState<BankStatement[]>(() => {
-    const saved = localStorage.getItem('zenti_bank_statements');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  useEffect(() => {
-    localStorage.setItem('zenti_bank_statements', JSON.stringify(bankStatements));
-  }, [bankStatements]);
-
-  // Audit Trails
-  const [audits, setAudits] = useState<AuditLog[]>(() => {
-    const saved = localStorage.getItem('zenti_audit_trails');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  useEffect(() => {
-    localStorage.setItem('zenti_audit_trails', JSON.stringify(audits));
-  }, [audits]);
-
-  // Log audit helper
-  const logAudit = (action: string, resource: string, status: 'Success' | 'Warning' | 'Error' = 'Success') => {
-    const now = new Date();
-    const timestamp = now.toISOString().replace('T', ' ').substring(0, 19);
-    const newLog: AuditLog = {
-      id: `aud-${Date.now()}`,
-      timestamp,
-      user: 'Grace Wanjiku (Accountant)',
-      role: 'Accountant',
-      action,
-      resource,
-      status
-    };
-    setAudits(prev => [newLog, ...prev]);
+  const fetchImprests = async () => {
+    try {
+      const res = await fetch("/api/finance/imprests");
+      if (res.ok) {
+        const data = await res.json();
+        setImprests(data);
+      }
+    } catch (e) {
+      console.error("Failed to fetch imprests from PostgreSQL:", e);
+    }
   };
 
-  // Local state for finance students loaded from GET /api/finance/students
+  // Suppliers
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+
+  const fetchSuppliers = async () => {
+    try {
+      const res = await fetch("/api/finance/suppliers");
+      if (res.ok) {
+        const data = await res.json();
+        setSuppliers(data);
+      }
+    } catch (e) {
+      console.error("Failed to fetch suppliers from PostgreSQL:", e);
+    }
+  };
+
+  // Bank statements for manual/automatic bank reconciliations
+  const [bankStatements, setBankStatements] = useState<BankStatement[]>([]);
+
+  const fetchBankStatements = async () => {
+    try {
+      const res = await fetch("/api/finance/bank-statements");
+      if (res.ok) {
+        const data = await res.json();
+        setBankStatements(data);
+      }
+    } catch (e) {
+      console.error("Failed to fetch bank statements from PostgreSQL:", e);
+    }
+  };
+
+  // Audit Trails
+  const [audits, setAudits] = useState<AuditLog[]>([]);
+
+  const fetchAudits = async () => {
+    try {
+      const res = await fetch("/api/finance/audits");
+      if (res.ok) {
+        const data = await res.json();
+        setAudits(data);
+      }
+    } catch (e) {
+      console.error("Failed to fetch audits from PostgreSQL:", e);
+    }
+  };
+
+  const logAudit = async (action: string, resource: string, status: 'Success' | 'Warning' | 'Error' = 'Success') => {
+    try {
+      const res = await fetch("/api/finance/audits", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, resource, status, user: 'Grace Wanjiku (Accountant)', role: 'Accountant' })
+      });
+      if (res.ok) fetchAudits();
+    } catch (e) {
+      console.error("Failed to log audit", e);
+    }
+  };
+
+  // Payments from PostgreSQL
+  const [dbPayments, setDbPayments] = useState<any[]>([]);
+
+  const fetchPayments = async () => {
+    try {
+      const res = await fetch("/api/finance/payments");
+      if (res.ok) {
+        const data = await res.json();
+        setDbPayments(data);
+      }
+    } catch (e) {
+      console.error("Failed to fetch payments from PostgreSQL:", e);
+    }
+  };
+
+  // Operational Expenses from PostgreSQL
+  const [dbExpenses, setDbExpenses] = useState<Expense[]>([]);
+
+  const fetchExpenses = async () => {
+    try {
+      const res = await fetch("/api/finance/expenses");
+      if (res.ok) {
+        const data = await res.json();
+        setDbExpenses(data);
+      }
+    } catch (e) {
+      console.error("Failed to fetch expenses from PostgreSQL:", e);
+    }
+  };
+
+  // Finance Students Profile from PostgreSQL
   const [financeStudents, setFinanceStudents] = useState<FinanceStudentProfile[]>([]);
 
   const fetchFinanceStudents = async () => {
@@ -330,7 +377,6 @@ export default function FinanceSuite({
       setFinanceStudents(data);
     } catch (err) {
       console.error("Failed to load finance students dropdown data:", err);
-      // Fallback: construct from parent students list
       const fallback = students.map(s => {
         const debits = (s.ledger || [])
           .filter(inv => inv.amount > 0)
@@ -354,7 +400,28 @@ export default function FinanceSuite({
   };
 
   useEffect(() => {
-    fetchFinanceStudents();
+    const fetchAllData = async () => {
+      setIsLoading(true);
+      setDataError(null);
+      try {
+        await Promise.all([
+          fetchFinanceStudents(),
+          fetchPayments(),
+          fetchExpenses(),
+          fetchBudgets(),
+          fetchVouchers(),
+          fetchImprests(),
+          fetchSuppliers(),
+          fetchBankStatements(),
+          fetchAudits()
+        ]);
+      } catch (err: any) {
+        setDataError("Failed to fetch live PostgreSQL data");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchAllData();
   }, [students]);
 
   // --- FORM STATES ---
@@ -381,7 +448,7 @@ export default function FinanceSuite({
     }
   }, [financeStudents]);
 
-  // Single-entry Expense Logging (synchronized with parent state)
+  // Single-entry Expense Logging
   const [expenseDesc, setExpenseDesc] = useState('');
   const [expenseCategory, setExpenseCategory] = useState('Utility Bills');
   const [expenseAmount, setExpenseAmount] = useState('');
@@ -418,7 +485,7 @@ export default function FinanceSuite({
   const [auditSearch, setAuditSearch] = useState('');
 
   // --- STATS & COMPUTATIONS ---
-  const allPayments = students.flatMap(s => s.payments || []);
+  const allPayments = dbPayments.length > 0 ? dbPayments : students.flatMap(s => s.payments || []);
   const unreconciledPayments = allPayments.filter(p => p.status === 'unreconciled');
   const matchedStatementsCount = bankStatements.filter(statement => statement.isMatched).length;
   const totalStatementsCount = bankStatements.length;
@@ -511,14 +578,15 @@ export default function FinanceSuite({
     }
   };
 
-  const departmentTotals = expenses.reduce((acc, exp) => {
+  const allExpensesList = dbExpenses.length > 0 ? dbExpenses : expenses;
+  const departmentTotals = allExpensesList.reduce((acc, exp) => {
     const dept = getDeptForCategory(exp.category);
     acc[dept] = (acc[dept] || 0) + exp.amount;
     return acc;
   }, {} as Record<string, number>);
 
   // Current Month Total Outlays
-  const currentMonthExpensesTotal = expenses.reduce((sum, e) => sum + e.amount, 0) + 
+  const currentMonthExpensesTotal = allExpensesList.reduce((sum, e) => sum + e.amount, 0) + 
     vouchers.filter(v => v.type === 'Debit').reduce((sum, v) => sum + v.amount, 0);
 
   // Chart data for seasonal values
@@ -549,44 +617,33 @@ export default function FinanceSuite({
       return;
     }
 
-    const student = students.find((s) => s.id === billingStudentId);
-    if (!student) {
-      showToast('The selected student could not be found.', 'error', { title: 'Invoice error' });
-      return;
-    }
-
     setIsCreatingInvoice(true);
     try {
-      const res = await fetch("/api/invoices", {
+      const res = await fetch("/api/finance/bill", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           studentId: billingStudentId,
-          invoiceNo: `INV-${Math.floor(1000 + Math.random() * 9000)}`,
-          description: `[${billingVoteHead}] ${billingDescription.trim()}`,
+          voteHead: billingVoteHead,
           amount: Number(billingAmount),
-          date: new Date().toISOString().substring(0, 10),
-          status: "unpaid",
+          description: billingDescription.trim()
         }),
       });
 
       if (!res.ok) {
-        throw new Error("Failed to create invoice");
+        throw new Error("Failed to create billing debit entry");
       }
 
-      const invoice = await res.json();
-      const updatedLedger = [...(student.ledger || []), invoice];
-      onUpdateStudent?.(student.id, { ledger: updatedLedger });
+      const data = await res.json();
+      await Promise.all([fetchFinanceStudents(), fetchAudits(), fetchPayments()]);
       logAudit(
         "CREATE_INVOICE",
-        `Billed KES ${invoice.amount.toLocaleString()} to ${student.name} (${invoice.invoiceNo})`
+        `Billed KES ${Number(billingAmount).toLocaleString()} to student ID ${billingStudentId} (${data.invoiceNo})`
       );
 
       setBillingAmount("");
       setBillingDescription("");
-      showToast(`Invoice ${invoice.invoiceNo} created successfully.`, 'success', { title: 'Invoice created' });
+      showToast(`Invoice ${data.invoiceNo || ''} created successfully.`, 'success', { title: 'Invoice created' });
     } catch (err) {
       console.error(err);
       showToast('Failed to create invoice. Please try again.', 'error', { title: 'Invoice error' });
@@ -610,31 +667,28 @@ export default function FinanceSuite({
       showToast('Please correct the scholarship form errors and try again.', 'error', { title: 'Validation error' });
       return;
     }
-    const student = students.find(s => s.id === waiverStudentId);
-    if (!student) {
-      showToast('The selected student could not be found.', 'error', { title: 'Scholarship error' });
-      return;
-    }
 
     setIsAwardingScholarship(true);
     try {
       const discountValue = Number(waiverAmount);
-      const waiverInvoice: Invoice = {
-        id: `waiver-${Date.now()}`,
-        invoiceNo: `CRD-${Math.floor(1000 + Math.random() * 9000)}`,
-        description: `[${waiverType} Approved] ${waiverDescription.trim()}`,
-        amount: -discountValue,
-        date: new Date().toISOString().substring(0, 10),
-        status: 'paid'
-      };
+      const res = await fetch("/api/finance/grant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          studentId: waiverStudentId,
+          discountTypology: waiverType,
+          amount: discountValue,
+          description: waiverDescription.trim()
+        })
+      });
 
-      const updatedLedger = [...(student.ledger || []), waiverInvoice];
-      onUpdateStudent?.(student.id, { ledger: updatedLedger });
+      if (!res.ok) throw new Error("Failed to grant scholarship");
 
-      logAudit('WAIVER_GRANTED', `Approved KES ${discountValue.toLocaleString()} ${waiverType} for student ${student.name}`);
+      await Promise.all([fetchFinanceStudents(), fetchAudits()]);
+      logAudit('WAIVER_GRANTED', `Approved KES ${discountValue.toLocaleString()} ${waiverType} for student ID ${waiverStudentId}`);
       setWaiverAmount('');
       setWaiverDescription('');
-      showToast(`Awarded KES ${discountValue.toLocaleString()} to ${student.name}.`, 'success', { title: 'Scholarship awarded' });
+      showToast(`Awarded KES ${discountValue.toLocaleString()} scholarship successfully.`, 'success', { title: 'Scholarship awarded' });
     } catch (err) {
       console.error(err);
       showToast('Failed to award scholarship. Please try again.', 'error', { title: 'Scholarship error' });
@@ -669,21 +723,39 @@ export default function FinanceSuite({
       }
     }
 
-    onAddExpense({
-      description: expenseDesc,
-      category: expenseCategory,
-      amount: parsedAmount,
-      date: new Date().toISOString().substring(0, 10)
-    });
-
-    logAudit('LOG_EXPENSE', `Logged Operational cost of KES ${parsedAmount.toLocaleString()} for ${expenseDesc}`);
-    setExpenseDesc('');
-    setExpenseAmount('');
-    showToast('Operational College Expense logged and allocated successfully.', 'success');
+    try {
+      const res = await fetch("/api/finance/expenses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          description: expenseDesc,
+          category: expenseCategory,
+          amount: parsedAmount,
+          date: new Date().toISOString().substring(0, 10)
+        })
+      });
+      if (res.ok) {
+        await Promise.all([fetchExpenses(), fetchAudits()]);
+        onAddExpense({
+          description: expenseDesc,
+          category: expenseCategory,
+          amount: parsedAmount,
+          date: new Date().toISOString().substring(0, 10)
+        });
+        logAudit('LOG_EXPENSE', `Logged Operational cost of KES ${parsedAmount.toLocaleString()} for ${expenseDesc}`);
+        setExpenseDesc('');
+        setExpenseAmount('');
+        showToast('Operational College Expense logged and allocated successfully.', 'success');
+      } else {
+        throw new Error("Failed to log expense");
+      }
+    } catch (err) {
+      showToast('Failed to log expense. Please try again.', 'error');
+    }
   };
 
   // Submit Multi-Entry Journal Voucher
-  const handleAddVoucher = (e: React.FormEvent) => {
+  const handleAddVoucher = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!vouDesc || !vouAmount || isNaN(Number(vouAmount))) {
       showWarning("Voucher Form Error", 'Please fill out descriptions and voucher costs accurately.');
@@ -692,314 +764,267 @@ export default function FinanceSuite({
     const val = Number(vouAmount);
     const isHighValue = val > 50000;
     const initialStatus = isHighValue ? 'Pending Admin Approval' : 'Approved';
-    const newVou: Voucher = {
-      id: `v-${Date.now()}`,
-      voucherNo: `VOU-${Math.floor(100 + Math.random() * 900)}`,
-      type: vouType,
-      category: vouCategory,
-      description: vouDesc,
-      amount: val,
-      date: vouDate,
-      approvedBy: isHighValue ? 'Pending Admin Review' : 'Grace Wanjiku (Accountant)',
-      status: initialStatus
-    };
 
-    setVouchers(prev => [newVou, ...prev]);
-
-    // If it is operational debit and is immediately approved, we also log it directly as a system expense under corporate outlays
-    if (vouType === 'Debit' && !isHighValue) {
-      onAddExpense({
-        description: `[Voucher ${newVou.voucherNo}] ${vouDesc} (Payee: ${vouPayee || 'Internal'})`,
-        category: vouCategory,
-        amount: val,
-        date: vouDate
+    try {
+      const res = await fetch("/api/finance/vouchers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          voucherNo: `VOU-${Math.floor(100 + Math.random() * 900)}`,
+          type: vouType,
+          category: vouCategory,
+          description: vouDesc,
+          amount: val,
+          date: vouDate,
+          approvedBy: isHighValue ? 'Pending Admin Review' : 'Grace Wanjiku (Accountant)',
+          status: initialStatus
+        })
       });
-    }
 
-    if (isHighValue) {
-      logAudit('CREATE_VOUCHER_PENDING', `Created High-Value ${vouType} Voucher ${newVou.voucherNo} of KES ${val.toLocaleString()} awaiting Admin authorization`, 'Warning');
-      showInfo("Admin Dual-Authorization", `Voucher ${newVou.voucherNo} logged. Since the amount exceeds KES 50,000, it has been submitted for Admin Dual-Authorization.`);
-    } else {
-      logAudit('CREATE_VOUCHER', `Created ${vouType} Voucher ${newVou.voucherNo} for KES ${val.toLocaleString()} (${catLabel(vouCategory)})`);
-      showToast(`Success: Multi-entry Journal Voucher ${newVou.voucherNo} finalized and cross-balanced.`, 'success');
+      if (res.ok) {
+        const newVou = await res.json();
+        await Promise.all([fetchVouchers(), fetchExpenses(), fetchAudits()]);
+
+        if (isHighValue) {
+          logAudit('CREATE_VOUCHER_PENDING', `Created High-Value ${vouType} Voucher ${newVou.voucherNo} of KES ${val.toLocaleString()} awaiting Admin authorization`, 'Warning');
+          showInfo("Admin Dual-Authorization", `Voucher ${newVou.voucherNo} logged. Since the amount exceeds KES 50,000, it has been submitted for Admin Dual-Authorization.`);
+        } else {
+          logAudit('CREATE_VOUCHER', `Created ${vouType} Voucher ${newVou.voucherNo} for KES ${val.toLocaleString()} (${vouCategory})`);
+          showToast(`Success: Multi-entry Journal Voucher ${newVou.voucherNo} finalized and cross-balanced.`, 'success');
+        }
+        setVouDesc('');
+        setVouAmount('');
+        setVouPayee('');
+      } else {
+        throw new Error("Failed to create voucher");
+      }
+    } catch (err) {
+      showToast('Failed to create voucher. Please try again.', 'error');
     }
-    setVouDesc('');
-    setVouAmount('');
-    setVouPayee('');
   };
 
   const catLabel = (c: string) => c;
 
   // Imprest Petty Cash Workflow
-  const handleRequestImprest = (e: React.FormEvent) => {
+  const handleRequestImprest = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!impStaff || !impAmount || isNaN(Number(impAmount))) {
       showWarning("Imprest Request Error", 'Provide Staff identifier and valid petty amount.');
       return;
     }
     const val = Number(impAmount);
-    const newImp: Imprest = {
-      id: `imp-${Date.now()}`,
-      staffName: impStaff,
-      amount: val,
-      purpose: impPurpose,
-      status: 'pending',
-      date: new Date().toISOString().substring(0, 10)
-    };
-    setImprests(prev => [...prev, newImp]);
-    logAudit('IMPREST_REQUESTED', `Petty cash requisition of KES ${val.toLocaleString()} submitted by ${impStaff}`);
-    setImpStaff('');
-    setImpAmount('');
-    setImpPurpose('');
-    showToast('Petty cash dispatch proposal logged.', 'success');
+    try {
+      const res = await fetch("/api/finance/imprests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          staffName: impStaff,
+          amount: val,
+          purpose: impPurpose
+        })
+      });
+
+      if (res.ok) {
+        await Promise.all([fetchImprests(), fetchAudits()]);
+        logAudit('IMPREST_REQUESTED', `Petty cash requisition of KES ${val.toLocaleString()} submitted by ${impStaff}`);
+        setImpStaff('');
+        setImpAmount('');
+        setImpPurpose('');
+        showToast('Petty cash dispatch proposal logged.', 'success');
+      } else {
+        throw new Error("Failed to request imprest");
+      }
+    } catch (err) {
+      showToast('Failed to request imprest. Please try again.', 'error');
+    }
   };
 
-  const handleUpdateImprestStatus = (id: string, newStatus: 'approved' | 'rejected' | 'surrendered') => {
-    setImprests(prev => prev.map(imp => {
-      if (imp.id === id) {
-        if (newStatus === 'approved') {
-          // generate an automatic counter Debit voucher
-          const vouNo = `VOU-${Math.floor(100 + Math.random() * 900)}`;
-          const autoVou: Voucher = {
-            id: `v-${Date.now()}`,
-            voucherNo: vouNo,
-            type: 'Debit',
-            category: 'General Administration',
-            description: `[Automatic Petty Cash Allocation] Dispatched KES ${imp.amount.toLocaleString()} petty cash to ${imp.staffName}. Reason: ${imp.purpose}`,
-            amount: imp.amount,
-            date: new Date().toISOString().substring(0, 10),
-            approvedBy: 'Grace Wanjiku (Accountant)'
-          };
-          setVouchers(v => [autoVou, ...v]);
-          onAddExpense({
-            description: `[Petty cash ${vouNo}] Allocated to ${imp.staffName}`,
-            category: 'General Administration',
-            amount: imp.amount,
-            date: new Date().toISOString().substring(0, 10)
-          });
-          logAudit('IMPREST_APPROVED', `Dispatched imprest KES ${imp.amount.toLocaleString()} to ${imp.staffName}`, 'Success');
-          return { ...imp, status: 'approved', voucherId: autoVou.id };
-        } else if (newStatus === 'surrendered') {
-          logAudit('IMPREST_SURRENDERED', `${imp.staffName} returned unutilized balance from imprest. Audited matching records.`);
-        } else {
-          logAudit('IMPREST_REJECTED', `Declined petty cash requisition for ${imp.staffName}`, 'Warning');
-        }
-        return { ...imp, status: newStatus };
+  const handleUpdateImprestStatus = async (id: string, newStatus: 'approved' | 'rejected' | 'surrendered') => {
+    try {
+      const res = await fetch(`/api/finance/imprests/${id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus })
+      });
+      if (res.ok) {
+        await Promise.all([fetchImprests(), fetchVouchers(), fetchExpenses(), fetchAudits()]);
+        showToast(`Imprest updated to ${newStatus}.`, 'success');
+      } else {
+        throw new Error("Failed to update imprest status");
       }
-      return imp;
-    }));
+    } catch (err) {
+      showToast('Failed to update imprest status.', 'error');
+    }
   };
 
   // Supplier & PO Management
-  const handleAddSupplier = (e: React.FormEvent) => {
+  const handleAddSupplier = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSupName) return;
-    const newSup: Supplier = {
-      id: `sup-${Date.now()}`,
-      companyName: newSupName,
-      contactPerson: newSupContact || 'General Partner',
-      status: 'Active',
-      balance: 0,
-      purchaseOrders: []
-    };
-    setSuppliers(prev => [...prev, newSup]);
-    logAudit('ADD_SUPPLIER', `Registered partner supplier: ${newSupName}`);
-    setNewSupName('');
-    setNewSupContact('');
-    showToast(`Registered supplier ${newSup.companyName} successfully.`, 'success');
+    try {
+      const res = await fetch("/api/finance/suppliers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyName: newSupName,
+          contactPerson: newSupContact || 'General Partner'
+        })
+      });
+
+      if (res.ok) {
+        const newSup = await res.json();
+        await Promise.all([fetchSuppliers(), fetchAudits()]);
+        logAudit('ADD_SUPPLIER', `Registered partner supplier: ${newSupName}`);
+        setNewSupName('');
+        setNewSupContact('');
+        showToast(`Registered supplier ${newSup.companyName} successfully.`, 'success');
+      } else {
+        throw new Error("Failed to add supplier");
+      }
+    } catch (err) {
+      showToast('Failed to add supplier. Please try again.', 'error');
+    }
   };
 
-  const handleRaisePO = (e: React.FormEvent) => {
+  const handleRaisePO = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeSupplierId || !poItem || !poAmt || isNaN(Number(poAmt))) {
       showWarning("Purchase Order Error", 'Select direct partner supplier and correct balance value.');
       return;
     }
     const val = Number(poAmt);
-    const newPO = {
-      id: `po-${Date.now()}`,
-      poNo: `PO-${Math.floor(8000 + Math.random() * 1999)}`,
-      itemName: poItem,
-      amount: val,
-      status: 'pending' as const,
-      date: new Date().toISOString().substring(0, 10)
-    };
+    try {
+      const res = await fetch("/api/finance/suppliers/po", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          supplierId: activeSupplierId,
+          itemName: poItem,
+          amount: val
+        })
+      });
 
-    setSuppliers(prev => prev.map(sup => {
-      if (sup.id === activeSupplierId) {
-        return {
-          ...sup,
-          balance: sup.balance + val,
-          purchaseOrders: [...sup.purchaseOrders, newPO]
-        };
+      if (res.ok) {
+        const newPO = await res.json();
+        await Promise.all([fetchSuppliers(), fetchAudits()]);
+        logAudit('CREATE_PO', `Raised Purchase Order ${newPO.poNo} (KES ${val.toLocaleString()}) for ${poItem}`);
+        setPoItem('');
+        setPoAmt('');
+        showToast(`Successfully registered Purchase order ${newPO.poNo} and credited supplier ledger.`, 'success');
+      } else {
+        throw new Error("Failed to raise PO");
       }
-      return sup;
-    }));
-
-    logAudit('CREATE_PO', `Raised Purchase Order ${newPO.poNo} (KES ${val.toLocaleString()}) for ${poItem}`);
-    setPoItem('');
-    setPoAmt('');
-    showToast(`Successfully registered Purchase order ${newPO.poNo} and credited supplier ledger.`, 'success');
+    } catch (err) {
+      showToast('Failed to raise PO. Please try again.', 'error');
+    }
   };
 
-  const handleApprovePO = (supId: string, poId: string) => {
-    setSuppliers(prev => prev.map(sup => {
-      if (sup.id === supId) {
-        const updatedPOs = sup.purchaseOrders.map(po => {
-          if (po.id === poId) {
-            logAudit('PO_APPROVED', `Authorized Supplier PO ${po.poNo} for delivery matching.`);
-            return { ...po, status: 'approved' as const };
-          }
-          return po;
-        });
-        return { ...sup, purchaseOrders: updatedPOs };
+  const handleApprovePO = async (supId: string, poId: string) => {
+    try {
+      const res = await fetch(`/api/finance/suppliers/po/${poId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ supplierId: supId, action: 'approve' })
+      });
+      if (res.ok) {
+        await Promise.all([fetchSuppliers(), fetchAudits()]);
+        showToast('Approved PO successfully.', 'success');
       }
-      return sup;
-    }));
+    } catch (err) {
+      showToast('Failed to approve PO.', 'error');
+    }
   };
 
-  const handleSettleSupplierPO = (supId: string, poId: string) => {
-    setSuppliers(prev => prev.map(sup => {
-      if (sup.id === supId) {
-        const updatedPOs = sup.purchaseOrders.map(po => {
-          if (po.id === poId) {
-            // Deduct supplier balance sheet
-            // Generate counter Debit payment voucher matching PO settle
-            const journalNo = `VOU-${Math.floor(100 + Math.random() * 900)}`;
-            const isHighValue = po.amount > 50000;
-            const initialStatus = isHighValue ? 'Pending Admin Approval' : 'Approved';
-            const paymentVoucher: Voucher = {
-              id: `v-${Date.now()}`,
-              voucherNo: journalNo,
-              type: 'Debit',
-              category: 'Utility Bills',
-              description: `[Supplier PO Settlement] Paid KES ${po.amount.toLocaleString()} to ${sup.companyName} for invoice matching ${po.poNo}`,
-              amount: po.amount,
-              date: new Date().toISOString().substring(0, 10),
-              approvedBy: isHighValue ? 'Pending Admin Review' : 'Grace Wanjiku (Accountant)',
-              status: initialStatus
-            };
-            setVouchers(v => [paymentVoucher, ...v]);
-
-            if (!isHighValue) {
-              onAddExpense({
-                description: `[PO Payee ${po.poNo}] Cleared Apex/Labs supplier contract`,
-                category: 'Utility Bills',
-                amount: po.amount,
-                date: new Date().toISOString().substring(0, 10)
-              });
-            }
-
-            if (isHighValue) {
-              logAudit('SETTLE_SUPPLIER_ACCOUNT_PENDING', `Drafted payout KES ${po.amount.toLocaleString()} matching PO ${po.poNo} awaiting Admin authorization`, 'Warning');
-            } else {
-              logAudit('SETTLE_SUPPLIER_ACCOUNT', `Issued cash ledger payout KES ${po.amount.toLocaleString()} matching PO ${po.poNo}`, 'Success');
-            }
-            return { ...po, status: 'paid' as const };
-          }
-          return po;
-        });
-        
-        // Calculate new outstanding balance
-        const poObj = sup.purchaseOrders.find(p => p.id === poId);
-        const reduction = poObj ? poObj.amount : 0;
-
-        return { ...sup, balance: Math.max(0, sup.balance - reduction), purchaseOrders: updatedPOs };
+  const handleSettleSupplierPO = async (supId: string, poId: string) => {
+    try {
+      const res = await fetch(`/api/finance/suppliers/po/${poId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ supplierId: supId, action: 'settle' })
+      });
+      if (res.ok) {
+        await Promise.all([fetchSuppliers(), fetchVouchers(), fetchExpenses(), fetchAudits()]);
+        showToast('Settled supplier purchase order.', 'success');
       }
-      return sup;
-    }));
-    alert('Settled supplier purchase order and drafted instant payment voucher documentation.');
+    } catch (err) {
+      showToast('Failed to settle supplier PO.', 'error');
+    }
   };
 
   // Adjust Budget Ceilings
-  const handleUpdateBudgetCeiling = (e: React.FormEvent) => {
+  const handleUpdateBudgetCeiling = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editBudgetLimit || isNaN(Number(editBudgetLimit))) {
       showWarning("Budget Form Error", 'Provide authorized ceiling numerical value.');
       return;
     }
     const val = Number(editBudgetLimit);
-    setBudgets(prev => ({
-      ...prev,
-      [editBudgetDept]: val
-    }));
-    logAudit('REALLOCATE_BUDGET', `Adjusted ${editBudgetDept} budget ceiling to KES ${val.toLocaleString()}`);
-    setEditBudgetLimit('');
-    showToast(`Successfully configured direct budget ceiling guidelines.`, 'success');
+    try {
+      const res = await fetch("/api/finance/budgets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ department: editBudgetDept, amount: val })
+      });
+      if (res.ok) {
+        await Promise.all([fetchBudgets(), fetchAudits()]);
+        logAudit('REALLOCATE_BUDGET', `Adjusted ${editBudgetDept} budget ceiling to KES ${val.toLocaleString()}`);
+        setEditBudgetLimit('');
+        showToast(`Successfully configured direct budget ceiling guidelines.`, 'success');
+      } else {
+        throw new Error("Failed to update budget");
+      }
+    } catch (err) {
+      showToast('Failed to update budget ceiling.', 'error');
+    }
   };
 
   // Bank statement manual matching logic
-  const handleMatchBankStatement = (statementId: string, studentId: string, invoiceId: string) => {
-    const statement = bankStatements.find(b => b.id === statementId);
-    const student = students.find(s => s.id === studentId);
-    if (!statement || !student) return;
-
-    // 1. Mark transaction in statement matched
-    setBankStatements(prev => prev.map(s => {
-      if (s.id === statementId) {
-        return { ...s, isMatched: true, matchedTxId: statement.reference };
+  const handleMatchBankStatement = async (statementId: string, studentId: string, invoiceId: string) => {
+    try {
+      const res = await fetch("/api/finance/bank-statements/match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ statementId, studentId, invoiceId })
+      });
+      if (res.ok) {
+        await Promise.all([fetchBankStatements(), fetchFinanceStudents(), fetchPayments(), fetchAudits()]);
+        showSuccess("Bank Deposit Matched", `Successfully matched bank deposit! Student invoice marked PAID and payment record logged.`);
+      } else {
+        throw new Error("Failed to match statement");
       }
-      return s;
-    }));
+    } catch (err) {
+      showToast('Failed to match bank statement. Please try again.', 'error');
+    }
+  };
 
-    // 2. Mark student invoice paid
-    const updatedLedger = student.ledger.map(inv => {
-      if (inv.id === invoiceId) {
-        return { ...inv, status: 'paid' as const };
+  // Single payment reconcile action
+  const handleReconcileSinglePayment = async (paymentId: string) => {
+    try {
+      const res = await fetch(`/api/finance/payments/${paymentId}/reconcile`, { method: "PATCH" });
+      if (res.ok) {
+        await Promise.all([fetchPayments(), fetchFinanceStudents(), fetchAudits()]);
+        showToast('Payment approved & reconciled successfully.', 'success', { title: 'Payment reconciled' });
+      } else {
+        throw new Error("Failed to reconcile payment");
       }
-      return inv;
-    });
-
-    // 3. Create a reconciled payment entry on student records
-    const newPaymentObj: Payment = {
-      id: `pay-${Date.now()}`,
-      amount: statement.amount,
-      invoiceId: invoiceId,
-      studentId: studentId,
-      paymentMethod: statement.reference.includes('MPESA') ? 'M-Pesa' : 'Bank Transfer',
-      transactionId: statement.reference,
-      date: statement.date,
-      status: 'reconciled'
-    };
-
-    const updatedPayments = [...(student.payments || []), newPaymentObj];
-    onUpdateStudent?.(student.id, { 
-      ledger: updatedLedger,
-      payments: updatedPayments
-    });
-
-    logAudit('BANK_STATEMENT_MATCH', `Manually reconciled Statement Ref ${statement.reference} for Student ${student.name} KES ${statement.amount.toLocaleString()}`, 'Success');
-    showSuccess("Bank Deposit Matched", `Successfully matched bank deposit! Student ${student.name}'s invoice marked PAID and payment record logged.`);
+    } catch (err) {
+      showToast('Failed to reconcile payment. Please try again.', 'error');
+    }
   };
 
   // Run automated bulk reconciliation matching
   const handleRunAutoReconciliation = async () => {
     setIsSyncingPayments(true);
     try {
-      let matchCount = 0;
-      
-      // Check unmatched bank statements against unpaid invoices or open payments
-      const updatedStatements = bankStatements.map(statement => {
-        if (statement.isMatched) return statement;
-
-        // Try matching by amount against unreconciled student payments
-        const matchingPayment = unreconciledPayments.find(p => p.amount === statement.amount);
-        if (matchingPayment) {
-          onReconcilePayment(matchingPayment.id);
-          matchCount++;
-          return { ...statement, isMatched: true, matchedTxId: matchingPayment.transactionId };
-        }
-        return statement;
-      });
-
-      if (matchCount === 0) {
-        showToast('No new payment matches were found during sync.', 'info', { title: 'Payments sync complete' });
-        return;
+      const res = await fetch("/api/finance/reconcile", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        await Promise.all([fetchBankStatements(), fetchFinanceStudents(), fetchPayments(), fetchAudits()]);
+        logAudit('RUN_AUTO_RECON', data.message || `Automated reconciliation completed`, 'Success');
+        showToast(data.message || `Automated reconciliation completed.`, 'success', { title: 'Payments synced' });
+      } else {
+        throw new Error("Failed to run reconciliation");
       }
-  
-      setBankStatements(updatedStatements);
-      logAudit('RUN_AUTO_RECON', `Bulk matched ${matchCount} payments against live bank statement streams automatically.`, 'Success');
-      showToast(`Matched ${matchCount} payment${matchCount === 1 ? '' : 's'} successfully.`, 'success', { title: 'Payments synced' });
     } catch (err) {
       console.error(err);
       showToast('Failed to sync payments. Please try again.', 'error', { title: 'Payments sync error' });
@@ -1061,6 +1086,19 @@ export default function FinanceSuite({
 
   return (
     <div className="space-y-6 font-sans text-slate-800 animate-fadeIn" id="finance-suite-modular">
+      {isLoading && (
+        <div className="flex items-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm font-medium text-blue-700 shadow-sm">
+          <Activity className="h-4 w-4 animate-spin text-blue-600" />
+          <span>Loading live PostgreSQL finance data...</span>
+        </div>
+      )}
+
+      {dataError && (
+        <div className="flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700 shadow-sm" role="alert">
+          <AlertCircle className="h-4 w-4 text-red-600" />
+          <span>{dataError}</span>
+        </div>
+      )}
       
       {/* SECTION NAV BAR */}
       <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/70">
@@ -1172,7 +1210,7 @@ export default function FinanceSuite({
       )}
 
       {subTab === 'revenue' && (
-        <div className="grid gap-6 xl:grid-cols-3">
+        <div className="grid gap-6 xl:grid-cols-3 items-start">
           <FinanceSectionCard
             title="Student Billing"
             description="Create invoices for students and apply the selected fee category to their ledger."
@@ -1474,9 +1512,7 @@ export default function FinanceSuite({
                               <button
                                 type="button"
                                 onClick={() => {
-                                  onReconcilePayment(payment.id);
-                                  logAudit('RECONCILE_PAYMENT', `Manually reconciled matching payload for ${student?.name || 'unknown'}`);
-                                  showToast('Payment approved successfully.', 'success', { title: 'Payment reconciled' });
+                                  handleReconcileSinglePayment(payment.id);
                                 }}
                                 className="inline-flex items-center justify-center rounded-xl bg-orange-100 px-3 py-2 text-xs font-semibold text-orange-800 transition hover:bg-orange-200 focus:outline-none focus:ring-4 focus:ring-orange-100"
                                 aria-label={`Approve matching payment ${payment.transactionId}`}
@@ -1510,7 +1546,7 @@ export default function FinanceSuite({
       )}
 
       {subTab === 'vouchers' && (
-        <div className="grid lg:grid-cols-3 gap-6">
+        <div className="grid lg:grid-cols-3 gap-6 items-start">
 
           {/* COLUMN 1: CORPORATE JOURNAL VOUCHERS */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4 shadow-sm font-sans">
@@ -1973,7 +2009,7 @@ export default function FinanceSuite({
         <div className="space-y-6 font-sans">
           
           {/* STATS PROGRESS BARS */}
-          <div className="grid lg:grid-cols-3 gap-6">
+          <div className="grid lg:grid-cols-3 gap-6 items-start">
             
             {/* COLUMN 1 & 2: RECHARTS BUDGET LIMIT LINE PLOT/VISUALS */}
             <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-5 space-y-4 shadow-sm">
@@ -1992,7 +2028,7 @@ export default function FinanceSuite({
                 </button>
               </div>
 
-              <div className="grid md:grid-cols-2 gap-6">
+              <div className="grid md:grid-cols-2 gap-6 items-start">
                 
                 {/* PART A: THE PROGRESS BAR TRACKS */}
                 <div className="space-y-4">
@@ -2130,7 +2166,7 @@ export default function FinanceSuite({
               </span>
             </div>
 
-            <div className="grid md:grid-cols-2 gap-6 pt-2">
+            <div className="grid md:grid-cols-2 gap-6 pt-2 items-start">
               
               {/* UNLINKED DEPOSITS */}
               <div className="space-y-3">
