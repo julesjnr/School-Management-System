@@ -83,6 +83,80 @@ interface BankStatement {
   matchedTxId?: string;
 }
 
+interface FinanceStudentProfile {
+  id: string;
+  name: string;
+  admissionNo?: string;
+  cohort?: string;
+  outstandingBalance: number;
+  status: string;
+}
+
+interface RevenueFormErrors {
+  billingStudentId?: string;
+  billingVoteHead?: string;
+  billingAmount?: string;
+  billingDescription?: string;
+  waiverStudentId?: string;
+  waiverType?: string;
+  waiverAmount?: string;
+  waiverDescription?: string;
+}
+
+interface FinanceSectionCardProps {
+  title: string;
+  description: string;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+  accentClassName?: string;
+}
+
+function FinanceSectionCard({
+  title,
+  description,
+  icon,
+  children,
+  accentClassName = 'text-blue-600 bg-blue-50'
+}: FinanceSectionCardProps) {
+  return (
+    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/70 sm:p-6">
+      <div className="mb-5 flex items-start gap-3 border-b border-slate-100 pb-4">
+        <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${accentClassName}`}>
+          {icon}
+        </div>
+        <div className="min-w-0">
+          <h3 className="text-base font-semibold tracking-tight text-slate-950">{title}</h3>
+          <p className="mt-1 text-sm leading-6 text-slate-500">{description}</p>
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+interface FinanceFieldProps {
+  id: string;
+  label: string;
+  error?: string;
+  children: React.ReactNode;
+}
+
+function FinanceField({ id, label, error, children }: FinanceFieldProps) {
+  return (
+    <div className="space-y-2">
+      <label htmlFor={id} className="block text-sm font-medium text-slate-700">
+        {label}
+      </label>
+      {children}
+      {error ? (
+        <p id={`${id}-error`} className="text-sm font-medium text-red-600" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export default function FinanceSuite({
   students,
   lecturers,
@@ -246,7 +320,7 @@ export default function FinanceSuite({
   };
 
   // Local state for finance students loaded from GET /api/finance/students
-  const [financeStudents, setFinanceStudents] = useState<any[]>([]);
+  const [financeStudents, setFinanceStudents] = useState<FinanceStudentProfile[]>([]);
 
   const fetchFinanceStudents = async () => {
     try {
@@ -289,12 +363,16 @@ export default function FinanceSuite({
   const [billingVoteHead, setBillingVoteHead] = useState<'Tuition' | 'Boarding' | 'Transport' | 'Lab Fee'>('Tuition');
   const [billingAmount, setBillingAmount] = useState('');
   const [billingDescription, setBillingDescription] = useState('');
+  const [isCreatingInvoice, setIsCreatingInvoice] = useState(false);
 
   // Discount/Waiver Application
   const [waiverStudentId, setWaiverStudentId] = useState(students[0]?.id || '');
   const [waiverType, setWaiverType] = useState<'Scholarship' | 'Sibling Discount' | 'Bursary'>('Bursary');
   const [waiverAmount, setWaiverAmount] = useState('');
   const [waiverDescription, setWaiverDescription] = useState('Bursary Award');
+  const [isAwardingScholarship, setIsAwardingScholarship] = useState(false);
+  const [isSyncingPayments, setIsSyncingPayments] = useState(false);
+  const [revenueFormErrors, setRevenueFormErrors] = useState<RevenueFormErrors>({});
 
   useEffect(() => {
     if (financeStudents.length > 0) {
@@ -342,6 +420,86 @@ export default function FinanceSuite({
   // --- STATS & COMPUTATIONS ---
   const allPayments = students.flatMap(s => s.payments || []);
   const unreconciledPayments = allPayments.filter(p => p.status === 'unreconciled');
+  const matchedStatementsCount = bankStatements.filter(statement => statement.isMatched).length;
+  const totalStatementsCount = bankStatements.length;
+  const reconciliationHealth = totalStatementsCount === 0
+    ? 'No statements imported'
+    : `${matchedStatementsCount} of ${totalStatementsCount} statements matched`;
+  const latestAudit = audits[0];
+
+  const fieldClassName =
+    'w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500';
+
+  const feeCategoryOptions: Array<{ value: 'Tuition' | 'Boarding' | 'Transport' | 'Lab Fee'; label: string }> = [
+    { value: 'Tuition', label: 'Tuition Fees' },
+    { value: 'Boarding', label: 'Boarding / Hostels' },
+    { value: 'Transport', label: 'Transport Levy' },
+    { value: 'Lab Fee', label: 'Lab & Research Levy' }
+  ];
+
+  const scholarshipTypeOptions: Array<{ value: 'Scholarship' | 'Sibling Discount' | 'Bursary'; label: string }> = [
+    { value: 'Bursary', label: 'CDF / Government Bursary' },
+    { value: 'Scholarship', label: 'Academic Merit Scholarship' },
+    { value: 'Sibling Discount', label: 'Family Sibling Discount' }
+  ];
+
+  const getStudentBalance = (studentId: string) => {
+    const financeProfile = financeStudents.find(student => student.id === studentId);
+    if (financeProfile) return financeProfile.outstandingBalance;
+
+    const student = students.find(item => item.id === studentId);
+    if (!student) return 0;
+    const debits = (student.ledger || []).filter(entry => entry.amount > 0).reduce((sum, entry) => sum + entry.amount, 0);
+    const credits = (student.ledger || []).filter(entry => entry.amount < 0).reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
+    return debits - credits;
+  };
+
+  const getStudentStatus = (studentId: string) => {
+    const student = students.find(item => item.id === studentId);
+    return student?.accountStatus || 'Active';
+  };
+
+  const getStudentDisplayName = (studentId: string) => {
+    const financeProfile = financeStudents.find(student => student.id === studentId);
+    if (financeProfile) {
+      return `${financeProfile.name} (${financeProfile.admissionNo || 'N/A'})`;
+    }
+    const student = students.find(item => item.id === studentId);
+    if (!student) return 'No student selected';
+    return `${student.name} (${student.admissionNo})`;
+  };
+
+  const validateBillingForm = () => {
+    const nextErrors: RevenueFormErrors = {};
+
+    if (!billingStudentId) nextErrors.billingStudentId = 'Select a student.';
+    if (!billingVoteHead) nextErrors.billingVoteHead = 'Select a fee category.';
+    if (!billingAmount) {
+      nextErrors.billingAmount = 'Enter an amount.';
+    } else if (isNaN(Number(billingAmount)) || Number(billingAmount) <= 0) {
+      nextErrors.billingAmount = 'Enter a valid amount greater than 0.';
+    }
+    if (!billingDescription.trim()) nextErrors.billingDescription = 'Enter an invoice description.';
+
+    setRevenueFormErrors(prev => ({ ...prev, ...nextErrors }));
+    return Object.keys(nextErrors).length === 0;
+  };
+
+  const validateWaiverForm = () => {
+    const nextErrors: RevenueFormErrors = {};
+
+    if (!waiverStudentId) nextErrors.waiverStudentId = 'Select a student.';
+    if (!waiverType) nextErrors.waiverType = 'Select a scholarship type.';
+    if (!waiverAmount) {
+      nextErrors.waiverAmount = 'Enter an award amount.';
+    } else if (isNaN(Number(waiverAmount)) || Number(waiverAmount) <= 0) {
+      nextErrors.waiverAmount = 'Enter a valid amount greater than 0.';
+    }
+    if (!waiverDescription.trim()) nextErrors.waiverDescription = 'Enter a reason.';
+
+    setRevenueFormErrors(prev => ({ ...prev, ...nextErrors }));
+    return Object.keys(nextErrors).length === 0;
+  };
 
   const getDeptForCategory = (cat: string): string => {
     switch (cat) {
@@ -377,90 +535,112 @@ export default function FinanceSuite({
 
   // Generate Fees / Student Bill
   const handleGenerateInvoice = async (e: React.FormEvent) => {
-  e.preventDefault();
+    e.preventDefault();
+    setRevenueFormErrors(prev => ({
+      ...prev,
+      billingStudentId: undefined,
+      billingVoteHead: undefined,
+      billingAmount: undefined,
+      billingDescription: undefined
+    }));
 
-  if (!billingStudentId || !billingAmount || isNaN(Number(billingAmount))) {
-    showWarning("Billing Error", "Please select a student and input a valid bill amount.");
-    return;
-  }
-
-  const student = students.find((s) => s.id === billingStudentId);
-  if (!student) return;
-
-  try {
-    const res = await fetch("/api/invoices", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        studentId: billingStudentId,
-        invoiceNo: `INV-${Math.floor(1000 + Math.random() * 9000)}`,
-        description: `[${billingVoteHead}] ${
-          billingDescription || "Semester Tuition and Accommodation Fees"
-        }`,
-        amount: Number(billingAmount),
-        date: new Date().toISOString().substring(0, 10),
-        status: "unpaid",
-      }),
-    });
-
-    if (!res.ok) {
-      throw new Error("Failed to create invoice");
+    if (!validateBillingForm()) {
+      showToast('Please correct the billing form errors and try again.', 'error', { title: 'Validation error' });
+      return;
     }
 
-    const invoice = await res.json();
+    const student = students.find((s) => s.id === billingStudentId);
+    if (!student) {
+      showToast('The selected student could not be found.', 'error', { title: 'Invoice error' });
+      return;
+    }
 
-console.log("Invoice returned from API:", invoice);
+    setIsCreatingInvoice(true);
+    try {
+      const res = await fetch("/api/invoices", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          studentId: billingStudentId,
+          invoiceNo: `INV-${Math.floor(1000 + Math.random() * 9000)}`,
+          description: `[${billingVoteHead}] ${billingDescription.trim()}`,
+          amount: Number(billingAmount),
+          date: new Date().toISOString().substring(0, 10),
+          status: "unpaid",
+        }),
+      });
 
-const updatedLedger = [...(student.ledger || []), invoice];
-onUpdateStudent?.(student.id, { ledger: updatedLedger });
-    logAudit(
-      "CREATE_INVOICE",
-      `Billed KES ${invoice.amount.toLocaleString()} to ${student.name} (${invoice.invoiceNo})`
-    );
+      if (!res.ok) {
+        throw new Error("Failed to create invoice");
+      }
 
-    setBillingAmount("");
-    setBillingDescription("");
+      const invoice = await res.json();
+      const updatedLedger = [...(student.ledger || []), invoice];
+      onUpdateStudent?.(student.id, { ledger: updatedLedger });
+      logAudit(
+        "CREATE_INVOICE",
+        `Billed KES ${invoice.amount.toLocaleString()} to ${student.name} (${invoice.invoiceNo})`
+      );
 
-    showToast(`Invoice ${invoice.invoiceNo} created successfully.`, 'success');
-  } catch (err) {
-    console.error(err);
-    showError("Invoice Creation Error", "Failed to create invoice.");
-  }
-};
+      setBillingAmount("");
+      setBillingDescription("");
+      showToast(`Invoice ${invoice.invoiceNo} created successfully.`, 'success', { title: 'Invoice created' });
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to create invoice. Please try again.', 'error', { title: 'Invoice error' });
+    } finally {
+      setIsCreatingInvoice(false);
+    }
+  };
 
   // Record Waivers, Discounts, Bursaries
-  const handleApplyWaiver = (e: React.FormEvent) => {
+  const handleApplyWaiver = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!waiverStudentId || !waiverAmount || isNaN(Number(waiverAmount))) {
-      showWarning("Waiver Error", 'Must select student and specify a correct discount credit.');
+    setRevenueFormErrors(prev => ({
+      ...prev,
+      waiverStudentId: undefined,
+      waiverType: undefined,
+      waiverAmount: undefined,
+      waiverDescription: undefined
+    }));
+
+    if (!validateWaiverForm()) {
+      showToast('Please correct the scholarship form errors and try again.', 'error', { title: 'Validation error' });
       return;
     }
     const student = students.find(s => s.id === waiverStudentId);
-    if (!student) return;
+    if (!student) {
+      showToast('The selected student could not be found.', 'error', { title: 'Scholarship error' });
+      return;
+    }
 
-    const discountValue = Number(waiverAmount);
-    
-    // To record scholarship or bursary directly, we make a ledger entry representing a negative amount
-    // or credit towards their outstanding balance.
-    const waiverInvoice: Invoice = {
-      id: `waiver-${Date.now()}`,
-      invoiceNo: `CRD-${Math.floor(1000 + Math.random() * 9000)}`,
-      description: `[${waiverType} Approved] ${waiverDescription || 'Bursary Aid allocation'}`,
-      amount: -discountValue, // negative to credit the ledger!
-      date: new Date().toISOString().substring(0, 10),
-      status: 'paid'
-    };
+    setIsAwardingScholarship(true);
+    try {
+      const discountValue = Number(waiverAmount);
+      const waiverInvoice: Invoice = {
+        id: `waiver-${Date.now()}`,
+        invoiceNo: `CRD-${Math.floor(1000 + Math.random() * 9000)}`,
+        description: `[${waiverType} Approved] ${waiverDescription.trim()}`,
+        amount: -discountValue,
+        date: new Date().toISOString().substring(0, 10),
+        status: 'paid'
+      };
 
-    const updatedLedger = [...(student.ledger || []), waiverInvoice];
-    onUpdateStudent?.(student.id, { ledger: updatedLedger });
+      const updatedLedger = [...(student.ledger || []), waiverInvoice];
+      onUpdateStudent?.(student.id, { ledger: updatedLedger });
 
-    logAudit('WAIVER_GRANTED', `Approved KES ${discountValue.toLocaleString()} ${waiverType} for student ${student.name}`);
-    
-    setWaiverAmount('');
-    setWaiverDescription('');
-    showSuccess("Credit Aid Granted", `Account Ledger Credited: Successfully issued KES ${discountValue.toLocaleString()} in credit aid for ${student.name}.`);
+      logAudit('WAIVER_GRANTED', `Approved KES ${discountValue.toLocaleString()} ${waiverType} for student ${student.name}`);
+      setWaiverAmount('');
+      setWaiverDescription('');
+      showToast(`Awarded KES ${discountValue.toLocaleString()} to ${student.name}.`, 'success', { title: 'Scholarship awarded' });
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to award scholarship. Please try again.', 'error', { title: 'Scholarship error' });
+    } finally {
+      setIsAwardingScholarship(false);
+    }
   };
 
   // Add Operational Expense
@@ -793,31 +973,39 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
   };
 
   // Run automated bulk reconciliation matching
-  const handleRunAutoReconciliation = () => {
-    let matchCount = 0;
-    
-    // Check unmatched bank statements against unpaid invoices or open payments
-    const updatedStatements = bankStatements.map(statement => {
-      if (statement.isMatched) return statement;
+  const handleRunAutoReconciliation = async () => {
+    setIsSyncingPayments(true);
+    try {
+      let matchCount = 0;
+      
+      // Check unmatched bank statements against unpaid invoices or open payments
+      const updatedStatements = bankStatements.map(statement => {
+        if (statement.isMatched) return statement;
 
-      // Try matching by amount against unreconciled student payments
-      const matchingPayment = unreconciledPayments.find(p => p.amount === statement.amount);
-      if (matchingPayment) {
-        onReconcilePayment(matchingPayment.id);
-        matchCount++;
-        return { ...statement, isMatched: true, matchedTxId: matchingPayment.transactionId };
+        // Try matching by amount against unreconciled student payments
+        const matchingPayment = unreconciledPayments.find(p => p.amount === statement.amount);
+        if (matchingPayment) {
+          onReconcilePayment(matchingPayment.id);
+          matchCount++;
+          return { ...statement, isMatched: true, matchedTxId: matchingPayment.transactionId };
+        }
+        return statement;
+      });
+
+      if (matchCount === 0) {
+        showToast('No new payment matches were found during sync.', 'info', { title: 'Payments sync complete' });
+        return;
       }
-      return statement;
-    });
-
-    if (matchCount === 0) {
-      showInfo("Auto-Reconciliation", 'Double matching executed. No new automatic statement patterns matched exact financial values.');
-      return;
+  
+      setBankStatements(updatedStatements);
+      logAudit('RUN_AUTO_RECON', `Bulk matched ${matchCount} payments against live bank statement streams automatically.`, 'Success');
+      showToast(`Matched ${matchCount} payment${matchCount === 1 ? '' : 's'} successfully.`, 'success', { title: 'Payments synced' });
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to sync payments. Please try again.', 'error', { title: 'Payments sync error' });
+    } finally {
+      setIsSyncingPayments(false);
     }
-
-    setBankStatements(updatedStatements);
-    logAudit('RUN_AUTO_RECON', `Bulk matched ${matchCount} payments against live bank statement streams automatically.`, 'Success');
-    showSuccess("Auto-Reconciliation Complete", `Successfully linked and matched ${matchCount} outstanding financial deposits.`);
   };
 
   // --- CSV EXPORT CAPABILITY ---
@@ -875,54 +1063,66 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
     <div className="space-y-6 font-sans text-slate-800 animate-fadeIn" id="finance-suite-modular">
       
       {/* SECTION NAV BAR */}
-      <div className="bg-slate-900 text-white rounded-2xl p-4 flex flex-wrap gap-2 justify-between items-center shadow-md">
+      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/70">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-bold">
-            
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+            <DollarSign className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-base font-bold tracking-tight">Financial & Accounts Headquarters</h2>
-            <p className="text-[10px] text-slate-400">Institutional Revenue Ledger, Double-Entry Vouchers, Statutory Payroll, and Compliance Auditing</p>
+            <h2 className="text-lg font-semibold tracking-tight text-slate-950">Ledger & Finances</h2>
+            <p className="text-sm text-slate-500">Manage student billing, scholarships, reconciliation, budgets, vouchers, payroll, and audit workflows.</p>
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-1 bg-slate-800 p-1.5 rounded-xl border border-slate-700">
+        <div className="flex flex-wrap gap-2 rounded-2xl bg-slate-100 p-2">
           <button
             type="button"
             onClick={() => setSubTab('revenue')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${subTab === 'revenue' ? 'bg-emerald-500 text-slate-950 shadow-sm' : 'text-slate-300 hover:text-white'}`}
+            className={`rounded-xl px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-4 focus:ring-blue-100 cursor-pointer ${
+              subTab === 'revenue' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900'
+            }`}
           >
-            Fees & Revenue
+            Student Finance
           </button>
           <button
             type="button"
             onClick={() => setSubTab('vouchers')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${subTab === 'vouchers' ? 'bg-emerald-500 text-slate-950 shadow-sm' : 'text-slate-300 hover:text-white'}`}
+            className={`rounded-xl px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-4 focus:ring-blue-100 cursor-pointer ${
+              subTab === 'vouchers' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900'
+            }`}
           >
             Vouchers & Petty Cash
           </button>
           <button
             type="button"
             onClick={() => setSubTab('budgets')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${subTab === 'budgets' ? 'bg-emerald-500 text-slate-950 shadow-sm' : 'text-slate-300 hover:text-white'}`}
+            className={`rounded-xl px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-4 focus:ring-blue-100 cursor-pointer ${
+              subTab === 'budgets' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900'
+            }`}
           >
-            Ceilings & Reconciled Bank
+            Budgets & Bank
           </button>
           <button
             type="button"
             onClick={() => setSubTab('payroll')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${subTab === 'payroll' ? 'bg-emerald-500 text-slate-950 shadow-sm' : 'text-slate-300 hover:text-white'}`}
+            className={`rounded-xl px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-4 focus:ring-blue-100 cursor-pointer ${
+              subTab === 'payroll' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900'
+            }`}
           >
             Payroll Compliance
           </button>
           <button
             type="button"
             onClick={() => setSubTab('audit')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${subTab === 'audit' ? 'bg-emerald-500 text-slate-950 shadow-sm' : 'text-slate-300 hover:text-white'}`}
+            className={`rounded-xl px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-4 focus:ring-blue-100 cursor-pointer ${
+              subTab === 'audit' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900'
+            }`}
           >
             Audit Trail
           </button>
         </div>
+      </div>
       </div>
 
       {isAccountantView && (
@@ -972,231 +1172,340 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
       )}
 
       {subTab === 'revenue' && (
-        <div className="grid lg:grid-cols-3 gap-6">
-          
-          {/* COLUMN 1: STUDENT INVOICING / BILLING */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4 shadow-sm">
-            <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
-              <DollarSign className="w-5 h-5 text-emerald-500" />
-              <div>
-                <h3 className="text-sm font-bold text-slate-900">Generate Student Bill</h3>
-                <p className="text-[10px] text-slate-400">Debit personalized vote-heads on student accounts.</p>
-              </div>
-            </div>
-
-            <form onSubmit={handleGenerateInvoice} className="space-y-3.5 text-xs">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase">Target College Student</label>
+        <div className="grid gap-6 xl:grid-cols-3">
+          <FinanceSectionCard
+            title="Student Billing"
+            description="Create invoices for students and apply the selected fee category to their ledger."
+            icon={<DollarSign className="h-5 w-5" />}
+          >
+            <form onSubmit={handleGenerateInvoice} className="space-y-5">
+              <FinanceField id="billing-student" label="Student" error={revenueFormErrors.billingStudentId}>
                 <select
+                  id="billing-student"
                   value={billingStudentId}
-                  onChange={(e) => setBillingStudentId(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 outline-none font-medium focus:border-slate-400"
+                  onChange={(e) => {
+                    setBillingStudentId(e.target.value);
+                    setRevenueFormErrors(prev => ({ ...prev, billingStudentId: undefined }));
+                  }}
+                  className={fieldClassName}
+                  aria-invalid={Boolean(revenueFormErrors.billingStudentId)}
+                  aria-describedby={revenueFormErrors.billingStudentId ? 'billing-student-error' : undefined}
                 >
-                  <option value="">-- Choose Student Recipient --</option>
-                  {students.map(s => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.admissionNo}) - Outstanding Debt
+                  <option value="">Select a student</option>
+                  {financeStudents.map(student => (
+                    <option key={student.id} value={student.id}>
+                      {student.name} ({student.admissionNo || 'N/A'})
                     </option>
                   ))}
                 </select>
+              </FinanceField>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                <p><span className="font-semibold text-slate-900">Account Status:</span> {getStudentStatus(billingStudentId)}</p>
+                <p className="mt-1"><span className="font-semibold text-slate-900">Outstanding Balance:</span> KES {getStudentBalance(billingStudentId).toLocaleString()}</p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase">Vote-Head Allocation</label>
+              <div className="grid gap-5 sm:grid-cols-2">
+                <FinanceField id="billing-category" label="Fee Category" error={revenueFormErrors.billingVoteHead}>
                   <select
+                    id="billing-category"
                     value={billingVoteHead}
-                    onChange={(e) => setBillingVoteHead(e.target.value as any)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 outline-none font-medium text-xs focus:border-slate-400"
+                    onChange={(e) => {
+                      setBillingVoteHead(e.target.value as 'Tuition' | 'Boarding' | 'Transport' | 'Lab Fee');
+                      setRevenueFormErrors(prev => ({ ...prev, billingVoteHead: undefined }));
+                    }}
+                    className={fieldClassName}
+                    aria-invalid={Boolean(revenueFormErrors.billingVoteHead)}
+                    aria-describedby={revenueFormErrors.billingVoteHead ? 'billing-category-error' : undefined}
                   >
-                    <option value="Tuition">Tuition Fees</option>
-                    <option value="Boarding">Boarding / Hostels</option>
-                    <option value="Transport">Transport Levy</option>
-                    <option value="Lab Fee">Lab & Research Levy</option>
+                    {feeCategoryOptions.map(option => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
                   </select>
-                </div>
+                </FinanceField>
 
-                <div className="space-y-1 border border-transparent">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase">Billing Amount (KES)</label>
+                <FinanceField id="billing-amount" label="Amount (KES)" error={revenueFormErrors.billingAmount}>
                   <input
+                    id="billing-amount"
                     type="number"
-                    placeholder="e.g. 45000"
+                    min="0"
+                    step="0.01"
+                    placeholder="Enter amount"
                     value={billingAmount}
-                    onChange={(e) => setBillingAmount(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 outline-none text-slate-900 font-bold focus:border-slate-400"
-                    required
+                    onChange={(e) => {
+                      setBillingAmount(e.target.value);
+                      setRevenueFormErrors(prev => ({ ...prev, billingAmount: undefined }));
+                    }}
+                    className={fieldClassName}
+                    aria-invalid={Boolean(revenueFormErrors.billingAmount)}
+                    aria-describedby={revenueFormErrors.billingAmount ? 'billing-amount-error' : undefined}
                   />
-                </div>
+                </FinanceField>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase">Billing Invoice Description</label>
+              <FinanceField id="billing-description" label="Description" error={revenueFormErrors.billingDescription}>
                 <textarea
-                  placeholder="Details for invoice reporting..."
+                  id="billing-description"
+                  placeholder="Enter invoice description..."
                   value={billingDescription}
-                  onChange={(e) => setBillingDescription(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 outline-none min-h-[60px] focus:border-slate-400"
+                  onChange={(e) => {
+                    setBillingDescription(e.target.value);
+                    setRevenueFormErrors(prev => ({ ...prev, billingDescription: undefined }));
+                  }}
+                  className={`${fieldClassName} min-h-[120px] resize-y`}
+                  aria-invalid={Boolean(revenueFormErrors.billingDescription)}
+                  aria-describedby={revenueFormErrors.billingDescription ? 'billing-description-error' : undefined}
                 />
-              </div>
+              </FinanceField>
 
               <button
                 type="submit"
-                className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
+                disabled={isCreatingInvoice}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-blue-300"
+                aria-label="Create invoice"
               >
-                <Plus className="w-4 h-4 text-emerald-400" />
-                <span>Debit Student Ledger Account</span>
+                {isCreatingInvoice ? (
+                  <>
+                    <Activity className="h-4 w-4 animate-spin" />
+                    <span>Creating Invoice...</span>
+                  </>
+                ) : (
+                  <>
+                    <Plus className="h-4 w-4" />
+                    <span>Create Invoice</span>
+                  </>
+                )}
               </button>
             </form>
-          </div>
+          </FinanceSectionCard>
 
-          {/* COLUMN 2: DISCOUNTS & WAIVERS */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4 shadow-sm">
-            <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
-              <Award className="w-5 h-5 text-indigo-500" />
-              <div>
-                <h3 className="text-sm font-bold text-slate-900">Scholarships & Discounts</h3>
-                <p className="text-[10px] text-slate-400">Award bursaries, grants and adjusted school waivers.</p>
-              </div>
-            </div>
-
-            <form onSubmit={handleApplyWaiver} className="space-y-3.5 text-xs">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase">Select Target Student Portfolio</label>
+          <FinanceSectionCard
+            title="Scholarships & Discounts"
+            description="Apply scholarships, bursaries, and discounts as ledger credits for the selected student."
+            icon={<Award className="h-5 w-5" />}
+            accentClassName="bg-green-50 text-green-600"
+          >
+            <form onSubmit={handleApplyWaiver} className="space-y-5">
+              <FinanceField id="waiver-student" label="Student" error={revenueFormErrors.waiverStudentId}>
                 <select
+                  id="waiver-student"
                   value={waiverStudentId}
-                  onChange={(e) => setWaiverStudentId(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 outline-none font-medium focus:border-slate-400"
+                  onChange={(e) => {
+                    setWaiverStudentId(e.target.value);
+                    setRevenueFormErrors(prev => ({ ...prev, waiverStudentId: undefined }));
+                  }}
+                  className={fieldClassName}
+                  aria-invalid={Boolean(revenueFormErrors.waiverStudentId)}
+                  aria-describedby={revenueFormErrors.waiverStudentId ? 'waiver-student-error' : undefined}
                 >
-                  <option value="">-- Choose Student Portfolio --</option>
-                  {students.map(s => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.cohort})
+                  <option value="">Select a student</option>
+                  {financeStudents.map(student => (
+                    <option key={student.id} value={student.id}>
+                      {student.name} ({student.admissionNo || 'N/A'})
                     </option>
                   ))}
                 </select>
+              </FinanceField>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                <p><span className="font-semibold text-slate-900">Account Status:</span> {getStudentStatus(waiverStudentId)}</p>
+                <p className="mt-1"><span className="font-semibold text-slate-900">Outstanding Balance:</span> KES {getStudentBalance(waiverStudentId).toLocaleString()}</p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase">Discount Typology</label>
+              <div className="grid gap-5 sm:grid-cols-2">
+                <FinanceField id="waiver-type" label="Scholarship Type" error={revenueFormErrors.waiverType}>
                   <select
+                    id="waiver-type"
                     value={waiverType}
-                    onChange={(e) => setWaiverType(e.target.value as any)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 outline-none font-medium focus:border-slate-400"
+                    onChange={(e) => {
+                      setWaiverType(e.target.value as 'Scholarship' | 'Sibling Discount' | 'Bursary');
+                      setRevenueFormErrors(prev => ({ ...prev, waiverType: undefined }));
+                    }}
+                    className={fieldClassName}
+                    aria-invalid={Boolean(revenueFormErrors.waiverType)}
+                    aria-describedby={revenueFormErrors.waiverType ? 'waiver-type-error' : undefined}
                   >
-                    <option value="Bursary">CDF / Government Bursary</option>
-                    <option value="Scholarship">Academic Merit Scholarship</option>
-                    <option value="Sibling Discount">Family Sibling Discount</option>
+                    {scholarshipTypeOptions.map(option => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
                   </select>
-                </div>
+                </FinanceField>
 
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase">Credit Value (KES)</label>
+                <FinanceField id="waiver-amount" label="Award Amount (KES)" error={revenueFormErrors.waiverAmount}>
                   <input
+                    id="waiver-amount"
                     type="number"
-                    placeholder="e.g. 15000"
+                    min="0"
+                    step="0.01"
+                    placeholder="Enter amount"
                     value={waiverAmount}
-                    onChange={(e) => setWaiverAmount(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 outline-none text-indigo-700 font-bold focus:border-slate-400"
-                    required
+                    onChange={(e) => {
+                      setWaiverAmount(e.target.value);
+                      setRevenueFormErrors(prev => ({ ...prev, waiverAmount: undefined }));
+                    }}
+                    className={fieldClassName}
+                    aria-invalid={Boolean(revenueFormErrors.waiverAmount)}
+                    aria-describedby={revenueFormErrors.waiverAmount ? 'waiver-amount-error' : undefined}
                   />
-                </div>
+                </FinanceField>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase">Waiver Allocation Narrative</label>
+              <FinanceField id="waiver-description" label="Reason" error={revenueFormErrors.waiverDescription}>
                 <textarea
-                  placeholder="Record of approval/reason index..."
+                  id="waiver-description"
+                  placeholder="Enter scholarship reason..."
                   value={waiverDescription}
-                  onChange={(e) => setWaiverDescription(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 outline-none min-h-[60px] focus:border-slate-400"
+                  onChange={(e) => {
+                    setWaiverDescription(e.target.value);
+                    setRevenueFormErrors(prev => ({ ...prev, waiverDescription: undefined }));
+                  }}
+                  className={`${fieldClassName} min-h-[120px] resize-y`}
+                  aria-invalid={Boolean(revenueFormErrors.waiverDescription)}
+                  aria-describedby={revenueFormErrors.waiverDescription ? 'waiver-description-error' : undefined}
                 />
-              </div>
+              </FinanceField>
 
               <button
                 type="submit"
-                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-750 text-white font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
+                disabled={isAwardingScholarship}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-blue-300"
+                aria-label="Award scholarship"
               >
-                <CheckCircle2 className="w-4 h-4 text-emerald-300" />
-                <span>Authorize Disbursal Grant</span>
+                {isAwardingScholarship ? (
+                  <>
+                    <Activity className="h-4 w-4 animate-spin" />
+                    <span>Awarding Scholarship...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span>Award Scholarship</span>
+                  </>
+                )}
               </button>
             </form>
-          </div>
+          </FinanceSectionCard>
 
-          {/* COLUMN 3: AUTOMATED PAYMENTS SYNC & LIVE STATS */}
-          <div className="bg-slate-50 rounded-2xl border border-slate-200 p-5 space-y-4">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                <Activity className="w-4 h-4 text-emerald-500 animate-pulse" />
-                Payments Stream Matching
-              </h3>
-              <p className="text-[10px] text-slate-400">Validate real-time student M-Pesa & Card matches.</p>
-            </div>
-
-            <div className="bg-white p-3.5 rounded-xl border border-slate-150 space-y-3 text-xs shadow-3xs">
-              <div className="flex justify-between items-center text-[10px]">
-                <span className="text-slate-500 font-semibold uppercase">Pending Portal Approvals</span>
-                <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full font-black">
-                  {unreconciledPayments.length} Items Open
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-500 leading-relaxed">
-                Reconciliation engine links physical bank statement references with student billing logs instantly.
-              </p>
-              <button
-                type="button"
-                onClick={activePermissions.canReconcile ? handleRunAutoReconciliation : () => showError("Permission Denied", "Your accountant role does not have authorization to reconcile payments.")}
-                disabled={!activePermissions.canReconcile}
-                className={`w-full font-bold py-2 rounded-lg cursor-pointer flex items-center justify-center gap-2 transition-transform ${
-                  activePermissions.canReconcile 
-                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white active:scale-95' 
-                    : 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed'
-                }`}
-              >
-                {activePermissions.canReconcile ? <Check className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
-                <span>{activePermissions.canReconcile ? 'Run Broad Matching Sync' : 'Reconciliation Locked'}</span>
-              </button>
-            </div>
-
-            <div className="space-y-2 max-h-[190px] overflow-y-auto pr-1">
-              <span className="text-[10px] font-bold text-slate-400 uppercase block tracking-wider">Unresolved Student Audits</span>
-              
-              {unreconciledPayments.length === 0 ? (
-                <div className="p-4 bg-white rounded-lg text-center border">
-                  <p className="text-xs text-slate-400 italic">No unreconciled student ledger audits flagged.</p>
+          <FinanceSectionCard
+            title="Payments & Reconciliation"
+            description="Sync payments, review pending approvals, and track reconciliation progress from one place."
+            icon={<Activity className="h-5 w-5" />}
+            accentClassName="bg-orange-50 text-orange-500"
+          >
+            <div className="space-y-5">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm font-medium text-slate-500">Pending Approvals</p>
+                  <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">{unreconciledPayments.length}</p>
+                  <span className="mt-3 inline-flex rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-orange-700">
+                    {unreconciledPayments.length === 0 ? 'All caught up' : 'Needs review'}
+                  </span>
                 </div>
-              ) : (
-                unreconciledPayments.map(p => {
-                  const s = students.find(stud => stud.id === p.studentId);
-                  return (
-                    <div key={p.id} className="p-2.5 bg-white rounded-lg border border-slate-150 flex justify-between items-center text-[11px] hover:border-slate-350 transition-colors">
-                      <div className="space-y-0.5">
-                        <span className="font-bold block text-slate-900">{s?.name || 'Student Profile'}</span>
-                        <span className="text-[10px] text-slate-400 font-mono">Ref: {p.transactionId} • {p.paymentMethod}</span>
-                      </div>
-                      <div className="text-right">
-                        <span className="font-mono font-bold block text-slate-800">KES {p.amount.toLocaleString()}</span>
-                        {!activePermissions.canReconcile ? (
-                          <span className="text-[9px] font-black bg-slate-100 text-slate-400 border border-slate-200 px-1.5 py-0.5 rounded cursor-not-allowed inline-flex items-center gap-1" title="Locked by Administrator Permissions">
-                            <Lock className="w-2.5 h-2.5" /> Locked
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => { onReconcilePayment(p.id); logAudit('RECONCILE_PAYMENT', `Manually reconciled matching payload for ${s?.name || 'unknown'}`); }}
-                            className="text-[10px] bg-amber-100 hover:bg-amber-150 text-amber-900 font-extrabold px-1.5 py-0.5 rounded cursor-pointer"
-                          >
-                            Approve Matching
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm font-medium text-slate-500">Reconciliation Status</p>
+                  <p className="mt-2 text-lg font-semibold text-slate-950">{reconciliationHealth}</p>
+                  <p className="mt-3 text-sm text-slate-500">Matched statements are kept separate from unresolved student payments.</p>
+                </div>
+              </div>
 
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-950">Sync Payments</h4>
+                    <p className="mt-1 text-sm text-slate-500">Run payment matching against unreconciled records and imported bank statements.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={activePermissions.canReconcile ? handleRunAutoReconciliation : () => showToast('Your accountant role does not have permission to sync payments.', 'error', { title: 'Permission denied' })}
+                    disabled={!activePermissions.canReconcile || isSyncingPayments}
+                    className={`inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 text-sm font-semibold transition focus:outline-none focus:ring-4 focus:ring-blue-100 ${
+                      activePermissions.canReconcile && !isSyncingPayments
+                        ? 'bg-blue-600 text-white hover:bg-blue-700'
+                        : 'cursor-not-allowed bg-slate-200 text-slate-500'
+                    }`}
+                  >
+                    {isSyncingPayments ? (
+                      <>
+                        <Activity className="h-4 w-4 animate-spin" />
+                        <span>Syncing Payments...</span>
+                      </>
+                    ) : (
+                      <>
+                        {activePermissions.canReconcile ? <Check className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+                        <span>{activePermissions.canReconcile ? 'Sync Payments' : 'Reconciliation Locked'}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white">
+                <div className="border-b border-slate-100 px-4 py-3">
+                  <h4 className="text-sm font-semibold text-slate-950">Pending Approvals</h4>
+                  <p className="mt-1 text-sm text-slate-500">Review unreconciled student payments individually when needed.</p>
+                </div>
+
+                <div className="max-h-[320px] space-y-3 overflow-y-auto p-4">
+                  {unreconciledPayments.length === 0 ? (
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-center text-sm text-slate-500">
+                      No pending payment approvals.
+                    </div>
+                  ) : (
+                    unreconciledPayments.map(payment => {
+                      const student = students.find(item => item.id === payment.studentId);
+                      return (
+                        <div key={payment.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-950">{student ? getStudentDisplayName(student.id) : 'Student not found'}</p>
+                            <p className="mt-1 text-sm text-slate-500">Reference: {payment.transactionId} • {payment.paymentMethod}</p>
+                          </div>
+                          <div className="flex items-center justify-between gap-3 sm:justify-end">
+                            <p className="text-sm font-semibold text-slate-950">KES {payment.amount.toLocaleString()}</p>
+                            {!activePermissions.canReconcile ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-600">
+                                <Lock className="h-3 w-3" />
+                                Locked
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onReconcilePayment(payment.id);
+                                  logAudit('RECONCILE_PAYMENT', `Manually reconciled matching payload for ${student?.name || 'unknown'}`);
+                                  showToast('Payment approved successfully.', 'success', { title: 'Payment reconciled' });
+                                }}
+                                className="inline-flex items-center justify-center rounded-xl bg-orange-100 px-3 py-2 text-xs font-semibold text-orange-800 transition hover:bg-orange-200 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                                aria-label={`Approve matching payment ${payment.transactionId}`}
+                              >
+                                Approve Matching
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <h4 className="text-sm font-semibold text-slate-950">Audit Summary</h4>
+                {latestAudit ? (
+                  <div className="mt-3 space-y-1 text-sm text-slate-600">
+                    <p><span className="font-semibold text-slate-900">Latest action:</span> {latestAudit.action}</p>
+                    <p><span className="font-semibold text-slate-900">Resource:</span> {latestAudit.resource}</p>
+                    <p><span className="font-semibold text-slate-900">Status:</span> {latestAudit.status}</p>
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm text-slate-500">No audit events have been logged yet.</p>
+                )}
+              </div>
+            </div>
+          </FinanceSectionCard>
         </div>
       )}
 
@@ -1361,7 +1670,7 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
 
               <button
                 type="submit"
-                className="w-full py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-lg cursor-pointer"
+                className="w-full py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg cursor-pointer"
               >
                 Log Imprest Requisition
               </button>
@@ -1417,7 +1726,7 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
                           <button
                             type="button"
                             onClick={() => handleUpdateImprestStatus(imp.id, 'surrendered')}
-                            className="bg-sky-600 hover:bg-sky-700 text-white text-[9px] p-1 rounded font-bold cursor-pointer"
+                              className="bg-blue-600 hover:bg-blue-700 text-white text-[9px] p-1 rounded font-bold cursor-pointer"
                             title="Reconcile accounts"
                           >
                             Audited Return
@@ -1482,7 +1791,7 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
               ) : (
                 <button
                   type="submit"
-                  className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-1 rounded text-[10px] cursor-pointer"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 rounded text-[10px] cursor-pointer"
                 >
                   Add Corporate Supplier Account
                 </button>
@@ -1533,7 +1842,7 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
               ) : (
                 <button
                   type="submit"
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1.5 rounded-lg cursor-pointer transition-colors"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 rounded-lg cursor-pointer transition-colors"
                 >
                   Settle PO Contract Agreement
                 </button>
@@ -1638,7 +1947,7 @@ onUpdateStudent?.(student.id, { ledger: updatedLedger });
                             <button
                               type="button"
                               onClick={() => handleApproveVoucher(v.id)}
-                              className="bg-emerald-600 hover:bg-emerald-750 text-white font-bold px-2 py-1 rounded text-[10px] cursor-pointer shadow-3xs"
+                              className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-2 py-1 rounded text-[10px] cursor-pointer shadow-3xs"
                             >
                               Approve
                             </button>
