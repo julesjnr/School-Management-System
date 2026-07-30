@@ -51,6 +51,9 @@ import {
   syllabusTopics,
   academicRanks,
   classAttendanceSessions,
+  departments,
+  archiveRecords,
+  archiveAuditLogs,
 } from "./src/db/schema.ts";
 import { eq, notInArray, and, or, desc, asc, count, ilike, inArray, sql, gte } from "drizzle-orm";
 import { supabase } from "./src/db/supabaseClient.ts";
@@ -97,6 +100,80 @@ const DB_FILE = path.join(process.cwd(), "db_store.json");
 // Local cache for Postgres DB state to support synchronous access inside existing API controllers
 let cachedDb: any = null;
 
+type ArchivableResource = "student" | "lecturer" | "course" | "department" | "book" | "user";
+
+const archiveResourceTables: Record<ArchivableResource, any> = {
+  student: students,
+  lecturer: lecturers,
+  course: courses,
+  department: departments,
+  book: books,
+  user: users,
+};
+
+function activeResourceCondition(resourceType: ArchivableResource, idColumn: any) {
+  return sql`NOT EXISTS (
+    SELECT 1 FROM archive_records
+    WHERE resource_type = ${resourceType} AND resource_id = ${idColumn}::text
+  )`;
+}
+
+async function activeStudentExists(studentId: string): Promise<boolean> {
+  const rows = await db.select({ id: students.id })
+    .from(students)
+    .where(and(eq(students.id, studentId), activeResourceCondition("student", students.id)))
+    .limit(1);
+  return rows.length === 1;
+}
+
+function archiveDisplayName(resourceType: ArchivableResource, record: any): string {
+  switch (resourceType) {
+    case "student": return `${record.name} (${record.admissionNo})`;
+    case "lecturer": return `${record.name} (${record.designatorCode})`;
+    case "course": return `${record.code} — ${record.title}`;
+    case "department": return `${record.code} — ${record.name}`;
+    case "book": return `${record.title} — ${record.author}`;
+    case "user": return record.username || record.email || record.uid;
+  }
+}
+
+async function getArchivableRecord(resourceType: ArchivableResource, resourceId: string) {
+  const table = archiveResourceTables[resourceType];
+  if (resourceType === "user") {
+    const userId = Number(resourceId);
+    return Number.isInteger(userId) ? (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0] : undefined;
+  }
+  return (await db.select().from(table).where(eq(table.id, resourceId)).limit(1))[0];
+}
+
+async function dependencySummary(resourceType: ArchivableResource, resourceId: string): Promise<string[]> {
+  const countRows = async (table: any, condition: any) => Number((await db.select({ total: count() }).from(table).where(condition))[0]?.total || 0);
+  const dependencies: string[] = [];
+  if (resourceType === "student") {
+    const checks = [[studentEnrollments, studentEnrollments.studentId, "enrollments"], [grades, grades.studentId, "grades"], [invoices, invoices.studentId, "invoices"], [payments, payments.studentId, "payments"], [studentLedger, studentLedger.studentId, "ledger entries"], [studentAttendance, studentAttendance.studentId, "attendance records"]] as const;
+    for (const [table, column, label] of checks) { const total = await countRows(table, eq(column, resourceId)); if (total) dependencies.push(`${total} ${label}`); }
+  } else if (resourceType === "lecturer") {
+    const checks = [[lecturerSubjects, lecturerSubjects.lecturerId, "subject allocations"], [officeHourSlots, officeHourSlots.lecturerId, "office-hour slots"], [readingLists, readingLists.lecturerId, "reading lists"]] as const;
+    for (const [table, column, label] of checks) { const total = await countRows(table, eq(column, resourceId)); if (total) dependencies.push(`${total} ${label}`); }
+  } else if (resourceType === "book") {
+    const checks = [[loans, loans.bookId, "loan records"], [reservations, reservations.bookId, "reservations"], [bookReviews, bookReviews.bookId, "reviews"]] as const;
+    for (const [table, column, label] of checks) { const total = await countRows(table, eq(column, resourceId)); if (total) dependencies.push(`${total} ${label}`); }
+  } else if (resourceType === "course") {
+    const record = await getArchivableRecord(resourceType, resourceId);
+    const reviews = await countRows(courseReviews, eq(courseReviews.courseId, resourceId));
+    const enrollments = record ? await countRows(studentEnrollments, eq(studentEnrollments.courseCode, (record as any).code)) : 0;
+    if (reviews) dependencies.push(`${reviews} reviews`);
+    if (enrollments) dependencies.push(`${enrollments} enrollments`);
+  } else if (resourceType === "department") {
+    const heads = await countRows(departments, eq(departments.headOfDepartmentId, resourceId));
+    if (heads) dependencies.push(`${heads} department-head assignments`);
+  } else if (resourceType === "user") {
+    const user = await getArchivableRecord(resourceType, resourceId);
+    if (user?.roleId) dependencies.push("linked role profile");
+  }
+  return dependencies;
+}
+
 // Load full state from individual database tables
 export async function loadFullDatabaseState(): Promise<any> {
   const existing = await db.select().from(systemState).where(eq(systemState.id, 1));
@@ -127,7 +204,7 @@ export async function loadFullDatabaseState(): Promise<any> {
   }
 
   // 1. Courses
-  const courseRows = await db.select().from(courses);
+  const courseRows = await db.select().from(courses).where(activeResourceCondition("course", courses.id));
   dbState.courses = courseRows.map(c => ({
     id: c.id,
     code: c.code,
@@ -153,7 +230,7 @@ export async function loadFullDatabaseState(): Promise<any> {
   }));
 
   // 3. Lecturers
-  const lecturerRows = await db.select().from(lecturers);
+  const lecturerRows = await db.select().from(lecturers).where(activeResourceCondition("lecturer", lecturers.id));
   const lecturerSubjRows = await db.select().from(lecturerSubjects);
   const lecturerPubRows = await db.select().from(lecturerPublications);
   const lecturerResRows = await db.select().from(lecturerResearchInterests);
@@ -190,7 +267,7 @@ export async function loadFullDatabaseState(): Promise<any> {
   }));
 
   // 4. Students
-  const studentRows = await db.select().from(students);
+  const studentRows = await db.select().from(students).where(activeResourceCondition("student", students.id));
   const enrollmentRows = await db.select().from(studentEnrollments);
   const gradeRows = await db.select().from(grades);
   const invoiceRows = await db.select().from(invoices);
@@ -303,7 +380,7 @@ export async function loadFullDatabaseState(): Promise<any> {
   }));
 
   // 9. Books
-  const bookRows = await db.select().from(books);
+  const bookRows = await db.select().from(books).where(activeResourceCondition("book", books.id));
   dbState.books = bookRows.map(b => ({
     id: b.id,
     title: b.title,
@@ -323,7 +400,7 @@ export async function loadFullDatabaseState(): Promise<any> {
   }));
 
   // 10. Loans
-  const loanRows = await db.select().from(loans);
+  const loanRows = await db.select().from(loans).where(activeResourceCondition("book", loans.bookId));
   dbState.loans = loanRows.map(l => ({
     id: l.id,
     bookId: l.bookId,
@@ -339,7 +416,7 @@ export async function loadFullDatabaseState(): Promise<any> {
   }));
 
   // 11. Reservations
-  const reservationRows = await db.select().from(reservations);
+  const reservationRows = await db.select().from(reservations).where(activeResourceCondition("book", reservations.bookId));
   dbState.reservations = reservationRows.map(r => ({
     id: r.id,
     bookId: r.bookId,
@@ -351,8 +428,8 @@ export async function loadFullDatabaseState(): Promise<any> {
   }));
 
   // 12. Reading Lists
-  const readingListRows = await db.select().from(readingLists);
-  const readingListBookRows = await db.select().from(readingListBooks);
+  const readingListRows = await db.select().from(readingLists).where(activeResourceCondition("lecturer", readingLists.lecturerId));
+  const readingListBookRows = await db.select().from(readingListBooks).where(activeResourceCondition("book", readingListBooks.bookId));
   dbState.readingLists = readingListRows.map(rl => ({
     id: rl.id,
     subjectCode: rl.subjectCode,
@@ -362,7 +439,7 @@ export async function loadFullDatabaseState(): Promise<any> {
   }));
 
   // 13. Book Reviews
-  const bookReviewRows = await db.select().from(bookReviews);
+  const bookReviewRows = await db.select().from(bookReviews).where(activeResourceCondition("book", bookReviews.bookId));
   dbState.bookReviews = bookReviewRows.map(br => ({
     id: br.id,
     bookId: br.bookId,
@@ -515,12 +592,7 @@ async function performDatabaseSync(dbState: any): Promise<void> {
     // await db.transaction(async (tx) => {
     // 1. Courses
     if (dbState.courses) {
-      const ids = dbState.courses.map((c: any) => c.id).filter(Boolean);
-      if (ids.length > 0) {
-        await tx.delete(courses).where(notInArray(courses.id, ids));
-      } else {
-        await tx.delete(courses);
-      }
+      // State sync is upsert-only: omitted IDs may be archived records.
       for (const c of dbState.courses) {
         const val = {
           id: c.id,
@@ -567,13 +639,6 @@ async function performDatabaseSync(dbState: any): Promise<void> {
 
     // 3. Lecturers
     if (dbState.lecturers) {
-      const ids = dbState.lecturers.map((l: any) => l.id).filter(Boolean);
-      if (ids.length > 0) {
-        await tx.delete(lecturers).where(notInArray(lecturers.id, ids));
-      } else {
-        await tx.delete(lecturers);
-      }
-
       for (const l of dbState.lecturers) {
         const lecturerVal = {
           id: l.id,
@@ -654,13 +719,6 @@ async function performDatabaseSync(dbState: any): Promise<void> {
 
     // 4. Students
     if (dbState.students) {
-      const ids = dbState.students.map((s: any) => s.id).filter(Boolean);
-      if (ids.length > 0) {
-        await tx.delete(students).where(notInArray(students.id, ids));
-      } else {
-        await tx.delete(students);
-      }
-
       for (const s of dbState.students) {
         const studentVal = {
           id: s.id,
@@ -856,12 +914,6 @@ async function performDatabaseSync(dbState: any): Promise<void> {
 
     // 9. Books
     if (dbState.books) {
-      const ids = dbState.books.map((b: any) => b.id).filter(Boolean);
-      if (ids.length > 0) {
-        await tx.delete(books).where(notInArray(books.id, ids));
-      } else {
-        await tx.delete(books);
-      }
       for (const b of dbState.books) {
         const val = {
           id: b.id,
@@ -1492,8 +1544,30 @@ function buildLecturerStudentLookupView(params: {
   };
 }
 
+async function isArchivedSessionIdentity(decoded: any): Promise<boolean> {
+  const role = String(decoded?.role || "");
+  const profileId = String(decoded?.roleId || decoded?.userId || "");
+  const email = String(decoded?.email || "").toLowerCase();
+  const profileType = role === "student" ? "student"
+    : ["lecturer", "accountant", "librarian"].includes(role) ? "lecturer"
+    : "";
+  const result = await db.execute(sql`
+    SELECT 1
+    FROM archive_records ar
+    WHERE (${profileType} <> '' AND ar.resource_type = ${profileType} AND ar.resource_id = ${profileId})
+       OR (
+         ar.resource_type = 'user'
+         AND ar.resource_id = (
+           SELECT u.id::text FROM users u WHERE LOWER(u.email) = ${email} LIMIT 1
+         )
+       )
+    LIMIT 1
+  `);
+  return result.rows.length > 0;
+}
+
 // JWT Verification Middleware
-function authenticateJWT(req: any, res: any, next: any) {
+async function authenticateJWT(req: any, res: any, next: any) {
   const authHeader = req.headers.authorization;
   let token = null;
   if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
@@ -1511,6 +1585,13 @@ function authenticateJWT(req: any, res: any, next: any) {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as any;
+    if (await isArchivedSessionIdentity(decoded)) {
+      return res.status(403).json({
+        success: false,
+        error: "Access Denied: This account is archived. Please contact System Administrator.",
+        code: "ACCOUNT_ARCHIVED",
+      });
+    }
     req.user = decoded;
     
     // Propagate role and ID to headers for downstream compatibility
@@ -2069,10 +2150,10 @@ app.post(["/api/auth/change-password", "/api/auth/change-passcode"], async (req:
 app.get("/api/admin/system-stats", checkRBAC(["admin", "accountant", "librarian"]), async (req, res) => {
   try {
     const [cCount, sCount, lCount, bCount] = await Promise.all([
-      db.select({ value: count() }).from(courses),
-      db.select({ value: count() }).from(students),
-      db.select({ value: count() }).from(lecturers),
-      db.select({ value: count() }).from(books),
+      db.select({ value: count() }).from(courses).where(activeResourceCondition("course", courses.id)),
+      db.select({ value: count() }).from(students).where(activeResourceCondition("student", students.id)),
+      db.select({ value: count() }).from(lecturers).where(activeResourceCondition("lecturer", lecturers.id)),
+      db.select({ value: count() }).from(books).where(activeResourceCondition("book", books.id)),
     ]);
     res.json({
       systemOnline: true,
@@ -2261,7 +2342,7 @@ app.post("/api/data", async (req, res) => {
 // 4. REST Resource: Courses
 app.get("/api/courses", async (req, res) => {
   try {
-    const courseRows = await db.select().from(courses);
+    const courseRows = await db.select().from(courses).where(activeResourceCondition("course", courses.id));
     const result = courseRows.map(c => ({
       id: c.id,
       code: c.code,
@@ -2436,7 +2517,8 @@ app.get("/api/lecturers", async (req, res) => {
         isAccountant: lecturers.isAccountant,
         isLibrarian: lecturers.isLibrarian,
       })
-      .from(lecturers);
+      .from(lecturers)
+      .where(activeResourceCondition("lecturer", lecturers.id));
 
     const subjectRows = await db.select().from(lecturerSubjects);
     const publicationRows = await db.select().from(lecturerPublications);
@@ -2593,7 +2675,7 @@ app.get("/api/students/search", async (req: any, res: any) => {
       // Fallback: check local database cache
       const cachedStudents = getDatabase().students || [];
       const cachedStudent = cachedStudents.find(
-        (s: any) => s.admissionNo?.toLowerCase() === admissionNo.toLowerCase()
+        (s: any) => s.accountStatus !== "Archived" && s.admissionNo?.toLowerCase() === admissionNo.toLowerCase()
       );
 
       if (cachedStudent) {
@@ -2615,7 +2697,7 @@ app.get("/api/students/search", async (req: any, res: any) => {
 // 1. GET /api/finance/students (fetches students with computed outstanding ledger balances)
 app.get("/api/finance/students", async (req, res) => {
   try {
-    const allStudents = await db.select().from(students);
+    const allStudents = await db.select().from(students).where(activeResourceCondition("student", students.id));
     const ledgerEntries = await db.select().from(studentLedger);
 
     const result = allStudents.map(s => {
@@ -2653,6 +2735,9 @@ app.post("/api/finance/bill", async (req, res) => {
 
   if (!studentId || !voteHead || !amount || isNaN(Number(amount))) {
     return res.status(400).json({ error: "Missing required billing fields or invalid amount" });
+  }
+  if (!await activeStudentExists(studentId)) {
+    return res.status(404).json({ error: "Active student not found" });
   }
 
   const invoiceNo = `INV-${Math.floor(100000 + Math.random() * 900000)}`;
@@ -2740,6 +2825,9 @@ app.post("/api/finance/grant", async (req, res) => {
   if (!studentId || !discountTypology || !amount || isNaN(Number(amount))) {
     return res.status(400).json({ error: "Missing required grant fields or invalid credit value" });
   }
+  if (!await activeStudentExists(studentId)) {
+    return res.status(404).json({ error: "Active student not found" });
+  }
 
   const creditNo = `CRD-${Math.floor(100000 + Math.random() * 900000)}`;
   const dateStr = new Date().toISOString().substring(0, 10);
@@ -2826,7 +2914,11 @@ app.post("/api/finance/reconcile", async (req, res) => {
 
   try {
     const allTransactions = await db.select().from(transactions);
-    const unpaidInvoices = await db.select().from(invoices).where(eq(invoices.status, "unpaid"));
+    const activeStudents = await db.select({ id: students.id }).from(students).where(activeResourceCondition("student", students.id));
+    const activeStudentIds = activeStudents.map((student) => student.id);
+    const unpaidInvoices = activeStudentIds.length
+      ? await db.select().from(invoices).where(and(eq(invoices.status, "unpaid"), inArray(invoices.studentId, activeStudentIds)))
+      : [];
     const allPayments = await db.select().from(payments);
 
     const usedRefs = new Set(allPayments.map(p => p.transactionId));
@@ -2981,8 +3073,12 @@ app.post("/api/finance/reconcile", async (req, res) => {
 // 5. GET /api/finance/payments & PATCH /api/finance/payments/:id/reconcile
 app.get("/api/finance/payments", async (req, res) => {
   try {
-    const paymentRows = await db.select().from(payments);
-    const studentRows = await db.select().from(students);
+    const activeStudents = await db.select({ id: students.id }).from(students).where(activeResourceCondition("student", students.id));
+    const activeStudentIds = activeStudents.map((student) => student.id);
+    const paymentRows = activeStudentIds.length
+      ? await db.select().from(payments).where(inArray(payments.studentId, activeStudentIds))
+      : [];
+    const studentRows = await db.select().from(students).where(activeResourceCondition("student", students.id));
 
     const result = paymentRows.map(p => {
       const student = studentRows.find(s => s.id === p.studentId);
@@ -3542,7 +3638,7 @@ app.get("/api/students", async (req, res) => {
     const offset = (page - 1) * limit;
 
     // Build SQL conditions
-    const conditions = [];
+    const conditions = [activeResourceCondition("student", students.id)];
 
     if (searchParam) {
       const searchPattern = `%${searchParam}%`;
@@ -3732,6 +3828,7 @@ app.get("/api/students", async (req, res) => {
     // Fallback using cached database memory store
     const fullDb = getDatabase();
     let allStudents = fullDb.students || [];
+    allStudents = allStudents.filter((student: any) => student.accountStatus !== "Archived");
 
     const searchParam = ((req.query.search as string) || "").toLowerCase().trim();
     const cohortParam = ((req.query.cohort as string) || "").trim();
@@ -3859,7 +3956,6 @@ app.post("/api/students", async (req, res) => {
         error: "Name and email required",
       });
     }
-    
     const { plain: rawPass } = resolvePassword(studentData.passcode, "student");
     const hashedPasscode = (rawPass.startsWith('$2b$') || rawPass.startsWith('$2a$') || rawPass.startsWith('$2y$'))
       ? rawPass
@@ -3917,6 +4013,9 @@ app.patch("/api/students/:id/status", checkRBAC(["admin"]), async (req: any, res
   try {
     const accountStatus = String(req.body?.accountStatus || "").trim();
     if (!accountStatus) return res.status(400).json({ error: "Account status is required" });
+    if (accountStatus === "Archived") {
+      return res.status(400).json({ error: "Use the archive endpoint so the record remains restorable and audited." });
+    }
 
     const [student] = await db.update(students)
       .set({ accountStatus })
@@ -3933,8 +4032,131 @@ app.patch("/api/students/:id/status", checkRBAC(["admin"]), async (req: any, res
   }
 });
 
+// Archive registry: the normal delete action is a reversible soft delete.
+app.post("/api/archive/:resourceType/:id", checkRBAC(["admin"]), async (req: any, res: any) => {
+  const resourceType = req.params.resourceType as ArchivableResource;
+  const resourceId = String(req.params.id || "").trim();
+  if (!(resourceType in archiveResourceTables) || !resourceId) {
+    return res.status(400).json({ success: false, error: "Unsupported archive resource." });
+  }
+  try {
+    const record = await getArchivableRecord(resourceType, resourceId);
+    if (!record) return res.status(404).json({ success: false, error: "Record not found." });
+    const safeSnapshot = resourceType === "user"
+      ? (() => { const { passwordHash, ...safeUser } = record; return safeUser; })()
+      : record;
+    await db.transaction(async (tx) => {
+      await tx.insert(archiveRecords).values({
+        resourceType,
+        resourceId,
+        displayName: archiveDisplayName(resourceType, record),
+        snapshot: safeSnapshot,
+        archivedBy: req.user?.userId || null,
+      });
+      await tx.insert(archiveAuditLogs).values({
+        resourceType,
+        resourceId,
+        action: "ARCHIVED",
+        performedBy: req.user?.userId || null,
+        details: { displayName: archiveDisplayName(resourceType, record) },
+      });
+      if (resourceType === "student") {
+        await tx.update(students).set({ accountStatus: "Archived" }).where(eq(students.id, resourceId));
+      }
+    });
+    const fullDb = await loadFullDatabaseState();
+    saveDatabase(fullDb);
+    return res.json({ success: true, message: "Record archived. It can be restored later." });
+  } catch (error: any) {
+    if (error?.code === "23505") return res.status(409).json({ success: false, error: "This record is already archived." });
+    console.error("Archive record failed:", error);
+    return res.status(500).json({ success: false, error: "Unable to archive the record." });
+  }
+});
+
+app.get("/api/archive", checkRBAC(["admin"]), async (req: any, res: any) => {
+  try {
+    const type = String(req.query.type || "").trim();
+    const search = String(req.query.search || "").trim().toLowerCase();
+    const from = String(req.query.from || "").trim();
+    const to = String(req.query.to || "").trim();
+    const sort = String(req.query.sort || "archivedAtDesc").trim();
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
+    const orderBy = sort === "archivedAtAsc" ? asc(archiveRecords.archivedAt)
+      : sort === "nameAsc" ? asc(archiveRecords.displayName)
+      : sort === "nameDesc" ? desc(archiveRecords.displayName)
+      : desc(archiveRecords.archivedAt);
+    let records = await db.select().from(archiveRecords).orderBy(orderBy);
+    records = records.filter((record) =>
+      (!type || record.resourceType === type) &&
+      (!search || `${record.displayName} ${record.resourceId}`.toLowerCase().includes(search)) &&
+      (!from || record.archivedAt >= from) && (!to || record.archivedAt <= `${to}T23:59:59.999Z`),
+    );
+    const totalRecords = records.length;
+    return res.json({ records: records.slice((page - 1) * limit, page * limit), page, limit, sort, totalRecords, totalPages: Math.max(1, Math.ceil(totalRecords / limit)) });
+  } catch (error) {
+    console.error("List archive failed:", error);
+    return res.status(500).json({ success: false, error: "Unable to load archived records." });
+  }
+});
+
+app.post("/api/archive/:resourceType/:id/restore", checkRBAC(["admin"]), async (req: any, res: any) => {
+  const resourceType = req.params.resourceType as ArchivableResource;
+  const resourceId = String(req.params.id || "").trim();
+  if (!(resourceType in archiveResourceTables) || !resourceId) return res.status(400).json({ success: false, error: "Unsupported archive resource." });
+  try {
+    await db.transaction(async (tx) => {
+      const archived = await tx.delete(archiveRecords).where(and(eq(archiveRecords.resourceType, resourceType), eq(archiveRecords.resourceId, resourceId))).returning();
+      if (!archived.length) throw Object.assign(new Error("Record is not archived."), { statusCode: 404 });
+      if (resourceType === "student") {
+        const archivedStatus = typeof (archived[0].snapshot as any)?.accountStatus === "string"
+          ? (archived[0].snapshot as any).accountStatus
+          : "Active";
+        await tx.update(students).set({ accountStatus: archivedStatus === "Archived" ? "Active" : archivedStatus }).where(eq(students.id, resourceId));
+      }
+      await tx.insert(archiveAuditLogs).values({ resourceType, resourceId, action: "RESTORED", performedBy: req.user?.userId || null });
+    });
+    const fullDb = await loadFullDatabaseState();
+    saveDatabase(fullDb);
+    return res.json({ success: true, message: "Record restored." });
+  } catch (error: any) {
+    return res.status(error?.statusCode || 500).json({ success: false, error: error?.message || "Unable to restore the record." });
+  }
+});
+
+app.delete("/api/archive/:resourceType/:id/permanent", checkRBAC(["admin"]), async (req: any, res: any) => {
+  const resourceType = req.params.resourceType as ArchivableResource;
+  const resourceId = String(req.params.id || "").trim();
+  if (!(resourceType in archiveResourceTables) || !resourceId) return res.status(400).json({ success: false, error: "Unsupported archive resource." });
+  try {
+    const archived = await db.select().from(archiveRecords).where(and(eq(archiveRecords.resourceType, resourceType), eq(archiveRecords.resourceId, resourceId))).limit(1);
+    if (!archived.length) return res.status(409).json({ success: false, error: "Only archived records may be permanently deleted." });
+    const dependencies = await dependencySummary(resourceType, resourceId);
+    if (dependencies.length) return res.status(409).json({ success: false, error: "Permanent deletion is blocked by active references.", dependencies });
+    await db.transaction(async (tx) => {
+      const table = archiveResourceTables[resourceType];
+      if (resourceType === "user") await tx.delete(users).where(eq(users.id, Number(resourceId)));
+      else await tx.delete(table).where(eq(table.id, resourceId));
+      await tx.delete(archiveRecords).where(and(eq(archiveRecords.resourceType, resourceType), eq(archiveRecords.resourceId, resourceId)));
+      await tx.insert(archiveAuditLogs).values({ resourceType, resourceId, action: "PERMANENTLY_DELETED", performedBy: req.user?.userId || null });
+    });
+    return res.json({ success: true, message: "Record permanently deleted." });
+  } catch (error) {
+    console.error("Permanent archive deletion failed:", error);
+    return res.status(500).json({ success: false, error: "Unable to permanently delete the record." });
+  }
+});
+
 // Admin Route: Hard Delete / Purge User Account and automatically purge all associated relational records
 app.delete(["/api/admin/users/:id", "/api/admin/users/[id]", "/api/students/:id"], checkRBAC(["admin"]), async (req: any, res: any) => {
+  return res.status(410).json({
+    success: false,
+    error: "Direct deletion has been retired. Archive the record first; permanent deletion is available only from the Archive module after dependency checks.",
+  });
+
+  /* Legacy purge implementation intentionally retained below for historical reference,
+     but unreachable so routine delete calls can never physically remove records. */
   try {
     const targetId = req.params.id;
     if (!targetId) {
@@ -4077,7 +4299,7 @@ app.get("/api/student/dashboard-summary", async (req, res) => {
     const [studentRow] = await db
       .select()
       .from(students)
-      .where(eq(students.id, studentId))
+      .where(and(eq(students.id, studentId), activeResourceCondition("student", students.id)))
       .limit(1);
 
     if (!studentRow) {
@@ -4104,7 +4326,7 @@ app.get("/api/student/dashboard-summary", async (req, res) => {
       .from(invoices)
       .where(eq(invoices.studentId, studentId));
 
-    const courseRows = await db.select().from(courses);
+    const courseRows = await db.select().from(courses).where(activeResourceCondition("course", courses.id));
     const activeCourseCount = courseRows.filter((c) => c.active !== false).length;
 
     const markToGpa = (mark: number): number => {
@@ -4316,7 +4538,7 @@ app.get("/api/lecturer/dashboard-summary", async (req, res) => {
     const [lecturerRow] = await db
       .select()
       .from(lecturers)
-      .where(eq(lecturers.id, lecturerId))
+      .where(and(eq(lecturers.id, lecturerId), activeResourceCondition("lecturer", lecturers.id)))
       .limit(1);
 
     if (!lecturerRow) {
@@ -4329,7 +4551,7 @@ app.get("/api/lecturer/dashboard-summary", async (req, res) => {
       .where(eq(lecturerSubjects.lecturerId, lecturerId));
 
     const assignedCodes = assignedSubjectRows.map((s) => s.subjectCode);
-    const courseRows = await db.select().from(courses);
+    const courseRows = await db.select().from(courses).where(activeResourceCondition("course", courses.id));
     const courseByCode = new Map(courseRows.map((c) => [c.code, c]));
 
     const assignedSubjects = assignedCodes.map((code) => ({
@@ -4660,7 +4882,7 @@ app.get(
       const [lecturerRow] = await db
         .select({ id: lecturers.id })
         .from(lecturers)
-        .where(eq(lecturers.id, lecturerId))
+        .where(and(eq(lecturers.id, lecturerId), activeResourceCondition("lecturer", lecturers.id)))
         .limit(1);
 
       if (!lecturerRow) {
@@ -4696,7 +4918,7 @@ app.get(
           avatar: students.avatar,
         })
         .from(students)
-        .where(inArray(students.id, ids));
+        .where(and(inArray(students.id, ids), activeResourceCondition("student", students.id)));
 
       const filtered = q
         ? studentRows.filter(
@@ -4750,7 +4972,7 @@ app.get(
       const [lecturerRow] = await db
         .select()
         .from(lecturers)
-        .where(eq(lecturers.id, lecturerId))
+        .where(and(eq(lecturers.id, lecturerId), activeResourceCondition("lecturer", lecturers.id)))
         .limit(1);
 
       if (!lecturerRow) {
@@ -4762,14 +4984,14 @@ app.get(
         [studentRow] = await db
           .select()
           .from(students)
-          .where(eq(students.id, studentIdQuery.trim()))
+          .where(and(eq(students.id, studentIdQuery.trim()), activeResourceCondition("student", students.id)))
           .limit(1);
       } else {
         const admissionNo = String(admissionNoQuery).trim();
         [studentRow] = await db
           .select()
           .from(students)
-          .where(ilike(students.admissionNo, admissionNo))
+          .where(and(ilike(students.admissionNo, admissionNo), activeResourceCondition("student", students.id)))
           .limit(1);
       }
 
@@ -4795,7 +5017,7 @@ app.get(
           .select()
           .from(studentAttendance)
           .where(eq(studentAttendance.studentId, studentRow.id)),
-        db.select().from(courses),
+        db.select().from(courses).where(activeResourceCondition("course", courses.id)),
         db.select().from(invoices).where(eq(invoices.studentId, studentRow.id)),
         db
           .select({ subjectCode: lecturerSubjects.subjectCode })
@@ -4907,7 +5129,7 @@ app.post("/api/lecturer/teaching-sessions", async (req, res) => {
     const [lecturerRow] = await db
       .select()
       .from(lecturers)
-      .where(eq(lecturers.id, lecturerId))
+      .where(and(eq(lecturers.id, lecturerId), activeResourceCondition("lecturer", lecturers.id)))
       .limit(1);
 
     if (!lecturerRow) {
@@ -5125,7 +5347,7 @@ app.post("/api/lecturer/attendance-sessions", async (req, res) => {
     const [lecturerRow] = await db
       .select()
       .from(lecturers)
-      .where(eq(lecturers.id, lecturerId))
+      .where(and(eq(lecturers.id, lecturerId), activeResourceCondition("lecturer", lecturers.id)))
       .limit(1);
 
     if (!lecturerRow) {
@@ -5207,13 +5429,13 @@ app.get("/api/student/registered-units", async (req, res) => {
       const [cateStudent] = await db
         .select()
         .from(students)
-        .where(eq(students.name, "Cate Wanjiru"))
+        .where(and(eq(students.name, "Cate Wanjiru"), activeResourceCondition("student", students.id)))
         .limit(1);
 
       if (cateStudent) {
         studentId = cateStudent.id;
       } else {
-        const [firstStudent] = await db.select().from(students).limit(1);
+        const [firstStudent] = await db.select().from(students).where(activeResourceCondition("student", students.id)).limit(1);
         if (firstStudent) {
           studentId = firstStudent.id;
         }
@@ -5221,6 +5443,15 @@ app.get("/api/student/registered-units", async (req, res) => {
     }
 
     if (!studentId) {
+      return res.status(404).json({ error: "Student profile not found" });
+    }
+
+    const [activeStudent] = await db
+      .select({ id: students.id })
+      .from(students)
+      .where(and(eq(students.id, studentId), activeResourceCondition("student", students.id)))
+      .limit(1);
+    if (!activeStudent) {
       return res.status(404).json({ error: "Student profile not found" });
     }
 
@@ -5240,7 +5471,10 @@ app.get("/api/student/registered-units", async (req, res) => {
       })
       .from(studentEnrollments)
       .innerJoin(courses, eq(studentEnrollments.courseCode, courses.code))
-      .where(eq(studentEnrollments.studentId, studentId));
+      .where(and(
+        eq(studentEnrollments.studentId, studentId),
+        activeResourceCondition("course", courses.id),
+      ));
 
     const attendanceLogs = await db
       .select()
@@ -5299,6 +5533,14 @@ app.post("/api/student-enrollments", async (req, res) => {
       return res.status(400).json({
         error: "studentId and courseCode are required",
       });
+    }
+
+    const [activeStudent, activeCourse] = await Promise.all([
+      db.select({ id: students.id }).from(students).where(and(eq(students.id, studentId), activeResourceCondition("student", students.id))).limit(1),
+      db.select({ id: courses.id }).from(courses).where(and(eq(courses.code, courseCode), activeResourceCondition("course", courses.id))).limit(1),
+    ]);
+    if (!activeStudent || !activeCourse) {
+      return res.status(404).json({ error: "Active student or course not found." });
     }
 
     // Insert with onConflictDoNothing to gracefully handle duplicate enrollments
@@ -5364,6 +5606,15 @@ app.delete("/api/student-enrollments", async (req, res) => {
       return res.status(400).json({ error: "studentId and courseCode are required" });
     }
 
+    const [activeStudent] = await db
+      .select({ id: students.id })
+      .from(students)
+      .where(and(eq(students.id, studentId), activeResourceCondition("student", students.id)))
+      .limit(1);
+    if (!activeStudent) {
+      return res.status(404).json({ error: "Student profile not found" });
+    }
+
     await db
       .delete(studentEnrollments)
       .where(and(eq(studentEnrollments.studentId, studentId), eq(studentEnrollments.courseCode, courseCode)));
@@ -5401,6 +5652,9 @@ app.post("/api/payments", async (req, res) => {
         error: "Missing payment details",
       });
     }
+    if (!await activeStudentExists(paymentData.studentId)) {
+      return res.status(404).json({ error: "Active student not found" });
+    }
 
     const [payment] = await db
       .insert(payments)
@@ -5434,7 +5688,7 @@ app.post("/api/payments", async (req, res) => {
 // 7. REST Resource: Books
 app.get("/api/books", async (req, res) => {
   try {
-    const bookRows = await db.select().from(books);
+    const bookRows = await db.select().from(books).where(activeResourceCondition("book", books.id));
     const result = bookRows.map(b => ({
       id: b.id,
       title: b.title,

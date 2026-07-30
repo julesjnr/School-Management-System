@@ -1,7 +1,7 @@
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
-import { eq, or, sql } from 'drizzle-orm';
+import { and, eq, or, sql } from 'drizzle-orm';
 import { db } from './db/index.ts';
 import { users, students, lecturers } from './db/schema.ts';
 
@@ -101,10 +101,16 @@ export async function findUserByIdentifier(identifier: string, roleHint?: string
 
   const records = await db.execute(sql`
     SELECT * FROM users
-    WHERE LOWER(username) = ${cleanId}
+    WHERE (LOWER(username) = ${cleanId}
        OR LOWER(email) = ${cleanId}
        OR (role_id IS NOT NULL AND LOWER(role_id) = ${cleanId})
-       OR (uid IS NOT NULL AND LOWER(uid) = ${cleanId})
+       OR (uid IS NOT NULL AND LOWER(uid) = ${cleanId}))
+      AND NOT EXISTS (
+        SELECT 1 FROM archive_records ar
+        WHERE (ar.resource_type = 'user' AND ar.resource_id = users.id::text)
+           OR (ar.resource_type = 'student' AND users.role = 'student' AND ar.resource_id = users.role_id)
+           OR (ar.resource_type = 'lecturer' AND users.role IN ('lecturer', 'accountant', 'librarian') AND ar.resource_id = users.role_id)
+      )
     LIMIT 5
   `);
 
@@ -541,7 +547,13 @@ export async function resetStudentPassword(
         email: students.email,
       })
       .from(students)
-      .where(eq(students.id, normalizedStudentId))
+      .where(and(
+        eq(students.id, normalizedStudentId),
+        sql`NOT EXISTS (
+          SELECT 1 FROM archive_records
+          WHERE resource_type = 'student' AND resource_id = ${students.id}::text
+        )`,
+      ))
       .limit(2);
 
     if (studentRows.length === 0) {

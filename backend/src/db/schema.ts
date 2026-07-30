@@ -645,6 +645,35 @@ export const payrollPeriods = pgTable("payroll_periods", {
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 });
 
+/**
+ * A registry of records hidden from operational views. Keeping archive state in
+ * a separate table avoids changing existing foreign-key relationships.
+ */
+export const archiveRecords = pgTable("archive_records", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	resourceType: varchar("resource_type", { length: 30 }).notNull(),
+	resourceId: text("resource_id").notNull(),
+	displayName: varchar("display_name", { length: 255 }).notNull(),
+	snapshot: jsonb().notNull(),
+	archivedAt: timestamp("archived_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	archivedBy: varchar("archived_by", { length: 255 }),
+}, (table) => [
+	unique("archive_records_resource_key").on(table.resourceType, table.resourceId),
+	index("idx_archive_records_archived_at").using("btree", table.archivedAt.desc().nullsLast().op("timestamptz_ops")),
+]);
+
+export const archiveAuditLogs = pgTable("archive_audit_logs", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	resourceType: varchar("resource_type", { length: 30 }).notNull(),
+	resourceId: text("resource_id").notNull(),
+	action: varchar({ length: 30 }).notNull(),
+	performedBy: varchar("performed_by", { length: 255 }),
+	performedAt: timestamp("performed_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	details: jsonb(),
+}, (table) => [
+	index("idx_archive_audit_resource").using("btree", table.resourceType.asc().nullsLast().op("text_ops"), table.resourceId.asc().nullsLast().op("text_ops")),
+]);
+
 export const payrollTransactions = pgTable("payroll_transactions", {
 	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
 	periodId: uuid("period_id"),

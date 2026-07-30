@@ -18,6 +18,7 @@ import { LecturerRegistrationForm } from './LecturerRegistrationForm';
 import { LecturerProfileModal } from './LecturerProfileModal';
 import { PayrollBreakdownModal } from './PayrollBreakdownModal';
 import { PayrollReportsModal } from './PayrollReportsModal';
+import { useNotification } from '../notifications';
 
 interface HRPayrollViewProps {
   lecturers: Lecturer[];
@@ -32,6 +33,7 @@ export const HRPayrollView: React.FC<HRPayrollViewProps> = ({
   onUpdateLecturer,
   onDeleteLecturer
 }) => {
+  const { showConfirm } = useNotification();
   // Main Sub-Tab State
   const [activeTab, setActiveTab] = useState<'directory' | 'payroll'>('directory');
 
@@ -477,12 +479,18 @@ export const HRPayrollView: React.FC<HRPayrollViewProps> = ({
                               <Edit className="w-4 h-4" />
                             </button>
                             <button
-                              onClick={() => {
-                                if (confirm(`Are you sure you want to dismiss faculty record for ${l.name}?`)) {
+                              onClick={async () => {
+                                const confirmed = await showConfirm({
+                                  title: 'Archive staff record',
+                                  message: `Archive ${l.name}? The record will remain available in Archive and can be restored later.`,
+                                  confirmText: 'Archive record',
+                                  variant: 'warning',
+                                });
+                                if (confirmed) {
                                   onDeleteLecturer(l.id);
                                 }
                               }}
-                              title="Dismiss Staff Record"
+                              title="Archive Staff Record"
                               className="p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950 rounded-lg transition-colors cursor-pointer"
                             >
                               <Trash2 className="w-4 h-4" />

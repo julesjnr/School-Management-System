@@ -8,7 +8,7 @@ import {
   BookOpen, Users, DollarSign, Package, FileText, Plus, CheckCircle2, 
   AlertCircle, Bookmark, ClipboardCheck, ArrowRight, Save, Trash2, Check, X,
   Shield, Lock, Fingerprint, Library, Link, Copy, KeyRound, RefreshCw,
-  TrendingUp, Calendar, Clock, MapPin, UserCheck, AlertTriangle, Info, School, Landmark, Sliders, Award, Activity, User, LogOut, Menu, Bell
+  TrendingUp, Calendar, Clock, MapPin, UserCheck, AlertTriangle, Info, School, Landmark, Sliders, Award, Activity, User, LogOut, Menu, Bell, ArchiveRestore
 } from 'lucide-react';
 import GlobalSearchBar from './GlobalSearchBar';
 import FinanceSuite from './FinanceSuite';
@@ -18,6 +18,7 @@ import { HRPayrollView } from './hr/HRPayrollView';
 import SystemDiagnostics from './SystemDiagnostics';
 import StudentAdmissionDossierStation from './StudentAdmissionDossierStation';
 import StudentRecordsTable from './StudentRecordsTable';
+import ArchiveManagement from './ArchiveManagement';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   AreaChart, Area
@@ -106,7 +107,7 @@ export default function AdminDashboard({
   isAcademicsLoading = false,
   academicsLoadError = null
 }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'academics' | 'finances' | 'payroll' | 'inventory' | 'roles' | 'library' | 'diagnostics'>(() => {
+  const [activeTab, setActiveTab] = useState<'overview' | 'academics' | 'finances' | 'payroll' | 'inventory' | 'roles' | 'library' | 'archive' | 'diagnostics'>(() => {
     if (isLibrarianView) return 'library';
     if (isAccountantView) return 'finances';
     return 'overview';
@@ -989,6 +990,10 @@ export default function AdminDashboard({
                     <Library className="w-4 h-4" />
                     <span>Library Registry</span>
                   </button>
+                  <button type="button" onClick={() => { setActiveTab('archive'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'archive' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                    <ArchiveRestore className="w-4 h-4" />
+                    <span>Archive</span>
+                  </button>
                   <button type="button" onClick={() => { setActiveTab('diagnostics'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'diagnostics' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
                     <CheckCircle2 className="w-4 h-4" />
                     <span>Diagnostics</span>
@@ -1082,6 +1087,10 @@ export default function AdminDashboard({
                 <button type="button" onClick={() => setActiveTab('library')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'library' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
                   <Library className="w-4 h-4" />
                   <span>Library HQ</span>
+                </button>
+                <button type="button" onClick={() => setActiveTab('archive')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'archive' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
+                  <ArchiveRestore className="w-4 h-4" />
+                  <span>Archive</span>
                 </button>
                 <button type="button" onClick={() => setActiveTab('diagnostics')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'diagnostics' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
                   <CheckCircle2 className="w-4 h-4" />
@@ -2337,6 +2346,8 @@ export default function AdminDashboard({
             onTriggerGateLog={onTriggerGateLog}
           />
         )}
+
+        {activeTab === 'archive' && !isAccountantView && !isLibrarianView && <ArchiveManagement />}
 
         {activeTab === 'diagnostics' && (
           <SystemDiagnostics

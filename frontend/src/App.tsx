@@ -1230,21 +1230,21 @@ Zenti Library Services`;
   }
 };
   // 15d. SYSTEM DELETE LECTURER OR FAULTY CODES
-  const handleDeleteLecturer = (lecturerId: string) => {
+  const handleDeleteLecturer = async (lecturerId: string) => {
+    const response = await fetch(`/api/archive/lecturer/${lecturerId}`, { method: 'POST' });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(data?.error || 'Unable to archive lecturer record.');
     setLecturers(prev => prev.filter(l => l.id !== lecturerId));
   };
 
   // 15e. SYSTEM DELETE UNDERGRADUATE STUDENT PROFILE
   const handleDeleteStudent = async (studentId: string) => {
-    // Optimistic UI updates
-    setStudents(prev => prev.filter(s => s.id !== studentId));
     try {
-      const res = await fetch(`/api/students/${studentId}`, {
-        method: "DELETE"
-      });
+      const res = await fetch(`/api/archive/student/${studentId}`, { method: "POST" });
       if (!res.ok) {
         throw new Error("HTTP error " + res.status);
       }
+      setStudents(prev => prev.filter(s => s.id !== studentId));
     } catch (err) {
       console.error("Failed to delete student from database:", err);
       showError("Database Error", "Failed to delete student from the database. Re-fetching state...");

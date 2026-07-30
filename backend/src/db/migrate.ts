@@ -10,6 +10,7 @@ const drizzleDir = path.resolve(__dirname, "../../drizzle");
 const studentSchemaMigrations = [
   "0004_student_registry_fields.sql",
   "0005_student_account_status.sql",
+  "0006_archive_records.sql",
 ];
 
 export async function runMigrations(): Promise<void> {

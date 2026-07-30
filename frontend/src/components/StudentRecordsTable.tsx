@@ -213,14 +213,7 @@ export default function StudentRecordsTable({ onUpdateStudent, refetchTrigger = 
     }
 
     try {
-      const res = await fetch(`/api/students/${studentId}/status`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-role': 'admin',
-        },
-        body: JSON.stringify({ accountStatus: 'Archived' }),
-      });
+      const res = await fetch(`/api/archive/student/${studentId}`, { method: 'POST' });
 
       if (!res.ok) {
         throw new Error('Failed to archive student record');
