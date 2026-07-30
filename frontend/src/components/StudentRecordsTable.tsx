@@ -370,55 +370,56 @@ export default function StudentRecordsTable({ onUpdateStudent, refetchTrigger = 
   const hasActiveFilters = Boolean(search || cohortFilter !== 'all' || statusFilter !== 'all' || unitsFilter !== 'all');
 
   return (
-    <div className="space-y-4 pt-6 border-t border-slate-150">
-      {/* Top Bar: Title & Primary Actions */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+    <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 p-6 shadow-sm space-y-6">
+      {/* Header section with export action */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h3 className="text-xs uppercase font-bold text-slate-400 tracking-wider">
-            Registered Student Records Database
+          <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Users className="w-5 h-5 text-[#2563EB]" />
+            Student Master Registry
           </h3>
-          <p className="text-[11px] text-slate-500">
+          <p className="text-xs text-slate-400 mt-1">
             Query student credentials, enrolled units, and financial statement balances efficiently with server-side pagination.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={fetchStudents}
             disabled={loading}
-            className="p-2 text-slate-500 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-200 transition-colors cursor-pointer"
+            className="p-2.5 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-2xl border border-transparent transition-all cursor-pointer"
             title="Refresh database records"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-blue-600' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-[#2563EB]' : ''}`} />
           </button>
           <button
             type="button"
             onClick={handleExportCSV}
             disabled={isExporting}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-bold h-9 text-xs px-3.5 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap transition-all hover:shadow-md disabled:opacity-50"
+            className="bg-[#2563EB] hover:bg-blue-700 text-white font-semibold h-10 text-xs px-5 rounded-2xl flex items-center justify-center gap-2 cursor-pointer shadow-sm shadow-blue-500/20 whitespace-nowrap transition-all disabled:opacity-50"
           >
-            <FileText className="w-3.5 h-3.5" />
+            <FileText className="w-4 h-4" />
             <span>{isExporting ? 'Exporting...' : 'Export to CSV'}</span>
           </button>
         </div>
       </div>
 
       {/* Filter and Search Bar Controls */}
-      <div className="bg-slate-50/70 p-3 rounded-2xl border border-slate-150 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
+      <div className="bg-slate-50/80 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
         {/* Direct Database Search Input */}
         <div className="relative flex-1 min-w-[240px]">
-          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
             placeholder="Search by name, admission number, email, or cohort"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="bg-white border border-slate-200 rounded-xl py-1.5 pl-9 pr-8 text-xs text-slate-850 focus:outline-hidden focus:border-blue-500 w-full"
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl py-2.5 pl-10 pr-9 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-blue-500/20 w-full transition-all"
           />
           {search && (
             <button
               onClick={() => setSearch('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -426,12 +427,12 @@ export default function StudentRecordsTable({ onUpdateStudent, refetchTrigger = 
         </div>
 
         {/* Dropdown Filters */}
-        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2">
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-3">
           {/* Cohort Filter */}
           <select
             value={cohortFilter}
             onChange={(e) => handleCohortChange(e.target.value)}
-            className="bg-white border border-slate-200 rounded-xl py-1.5 px-3 text-xs text-slate-750 focus:outline-hidden focus:border-blue-500 cursor-pointer"
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl py-2.5 px-4 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:border-[#2563EB] cursor-pointer transition-all"
           >
             <option value="all">All cohorts</option>
             {filterOptions.cohorts.map((cohort) => <option key={cohort} value={cohort}>{cohort}</option>)}
@@ -441,7 +442,7 @@ export default function StudentRecordsTable({ onUpdateStudent, refetchTrigger = 
           <select
             value={statusFilter}
             onChange={(e) => handleStatusChange(e.target.value)}
-            className="bg-white border border-slate-200 rounded-xl py-1.5 px-3 text-xs text-slate-750 focus:outline-hidden focus:border-blue-500 cursor-pointer"
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl py-2.5 px-4 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:border-[#2563EB] cursor-pointer transition-all"
           >
             <option value="all">All statuses</option>
             {filterOptions.statuses.map((status) => <option key={status} value={status}>{status}</option>)}
@@ -451,7 +452,7 @@ export default function StudentRecordsTable({ onUpdateStudent, refetchTrigger = 
           <select
             value={unitsFilter}
             onChange={(e) => handleUnitsChange(e.target.value)}
-            className="bg-white border border-slate-200 rounded-xl py-1.5 px-3 text-xs text-slate-750 focus:outline-hidden focus:border-blue-500 cursor-pointer"
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl py-2.5 px-4 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:border-[#2563EB] cursor-pointer transition-all"
           >
             <option value="all">All Registered Units</option>
             <option value="0">0 Units (Unenrolled)</option>
@@ -464,7 +465,7 @@ export default function StudentRecordsTable({ onUpdateStudent, refetchTrigger = 
           <select
             value={limit}
             onChange={(e) => handleLimitChange(Number(e.target.value))}
-            className="bg-white border border-slate-200 rounded-xl py-1.5 px-2.5 text-xs text-slate-750 focus:outline-hidden focus:border-blue-500 font-mono cursor-pointer"
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl py-2.5 px-3 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:border-[#2563EB] cursor-pointer font-mono transition-all"
             title="Records per page"
           >
             <option value={10}>10 / page</option>
@@ -477,9 +478,9 @@ export default function StudentRecordsTable({ onUpdateStudent, refetchTrigger = 
           {hasActiveFilters && (
             <button
               onClick={handleClearFilters}
-              className="text-[11px] font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-2.5 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1"
+              className="text-xs font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-3 py-2.5 rounded-2xl transition-colors cursor-pointer flex items-center gap-1.5"
             >
-              <X className="w-3 h-3" />
+              <X className="w-3.5 h-3.5" />
               <span>Reset</span>
             </button>
           )}
@@ -487,7 +488,7 @@ export default function StudentRecordsTable({ onUpdateStudent, refetchTrigger = 
       </div>
 
       {/* Main Student Records Table */}
-      <div className="overflow-x-auto border border-slate-100 rounded-xl relative min-h-[320px] bg-white">
+      <div className="overflow-x-auto border border-slate-100 dark:border-slate-800 rounded-3xl relative min-h-[320px] bg-white dark:bg-slate-900 shadow-xs">
         {/* Loading Spinner Overlay */}
         {loading && (
           <div className="absolute inset-0 bg-white/70 backdrop-blur-[1px] z-10 flex flex-col items-center justify-center gap-2">

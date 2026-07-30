@@ -243,210 +243,38 @@
 }
 
 /* ==========================================================================
-   MINIMALIST FINTECH & MODERN SAAS DASHBOARD DESIGN SYSTEM (INVO-INSPIRED)
+   MODERN SAAS DASHBOARD DESIGN SYSTEM
    ========================================================================== */
 :root {
-  --fintech-canvas: #F8FAFC;
-  --fintech-panel: #FFFFFF;
-  --fintech-accent: #0066FF;
-  --fintech-text-primary: #0F172A;
-  --fintech-text-secondary: #64748B;
-  --fintech-border: #E2E8F0;
-  --text-muted: #94A3B8;
+  --page-bg: #F5F7FB;
+  --card-bg: #FFFFFF;
+  --primary-blue: #2563EB;
+  --primary-blue-hover: #1D4ED8;
+  --text-main: #0F172A;
+  --text-muted: #64748B;
+  --border-light: #F1F5F9;
 }
 
-/* Global App Canvas Background in light mode */
-:not(.dark) body,
-:not(.dark) #student-dashboard-root,
-:not(.dark) #lecturer-dashboard-root,
-:not(.dark) #admin-dashboard-root,
-:not(.dark) .bg-slate-50,
-:not(.dark) .bg-slate-55,
-:not(.dark) .bg-slate-100 {
-  background-color: var(--fintech-canvas) !important;
+body {
+  background-color: var(--page-bg);
 }
 
-/* Floating Borderless Sidebar: Pure white panel, borderless, text items vertically aligned */
-:not(.dark) aside {
-  background-color: var(--fintech-panel) !important;
-  border-right: 1px solid var(--fintech-border) !important;
+:not(.dark) body {
+  background-color: #F5F7FB !important;
 }
 
-/* Inactive Sidebar Buttons & Navigation Links: Muted slate gray (#64748B), transparent bg, medium weight */
-:not(.dark) aside button,
-:not(.dark) aside a {
-  background-color: transparent !important;
-  color: var(--fintech-text-secondary) !important;
-  font-weight: 500 !important;
-  display: flex !important;
-  align-items: center !important;
-  padding: 10px 18px !important;
-  border-radius: 9999px !important; /* Capsule shape */
-  transition: all 150ms ease-in-out !important;
-  box-shadow: none !important;
-  margin: 4px 0 !important;
+/* Smooth custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
-
-:not(.dark) aside button *,
-:not(.dark) aside a * {
-  color: var(--fintech-text-secondary) !important;
+::-webkit-scrollbar-track {
+  background: transparent;
 }
-
-/* Hover feedback: gently shifts text color to dark slate (#0F172A) on transparent/light hover bg */
-:not(.dark) aside button:hover,
-:not(.dark) aside a:hover {
-  background-color: #F1F5F9 !important;
-  color: var(--fintech-text-primary) !important;
+::-webkit-scrollbar-thumb {
+  background-color: #CBD5E1;
+  border-radius: 9999px;
 }
-
-:not(.dark) aside button:hover *,
-:not(.dark) aside a:hover * {
-  color: var(--fintech-text-primary) !important;
-}
-
-/* Active Sidebar Buttons: Vibrant solid electric blue capsule (#0066FF), pure white text, semi-bold weight */
-:not(.dark) aside button[class*="bg-blue-600"],
-:not(.dark) aside button[class*="bg-violet-600"],
-:not(.dark) aside button[class*="bg-amber-600"],
-:not(.dark) aside button.bg-blue-600,
-:not(.dark) aside button.bg-violet-600,
-:not(.dark) aside button.bg-amber-600 {
-  background-color: var(--fintech-accent) !important;
-  color: #FFFFFF !important;
-  font-weight: 600 !important;
-  box-shadow: 0 4px 14px rgba(0, 102, 255, 0.2) !important;
-}
-
-:not(.dark) aside button[class*="bg-blue-600"] *,
-:not(.dark) aside button[class*="bg-violet-600"] *,
-:not(.dark) aside button[class*="bg-amber-600"] *,
-:not(.dark) aside button.bg-blue-600 *,
-:not(.dark) aside button.bg-violet-600 *,
-:not(.dark) aside button.bg-amber-600 * {
-  color: #FFFFFF !important;
-}
-
-/* Sidebar Header / Brand Styling */
-:not(.dark) aside > div:first-child {
-  border-bottom: 1px solid var(--fintech-border) !important;
-  background-color: var(--fintech-panel) !important;
-}
-
-:not(.dark) aside > div:first-child span {
-  color: var(--fintech-text-primary) !important;
-}
-
-:not(.dark) aside > div:first-child span[class*="text-slate-500"],
-:not(.dark) aside > div:first-child span[class*="text-slate-550"],
-:not(.dark) aside > div:first-child span[class*="text-slate-400"] {
-  color: var(--fintech-text-secondary) !important;
-}
-
-:not(.dark) aside > div:first-child .bg-violet-650,
-:not(.dark) aside > div:first-child .bg-blue-650,
-:not(.dark) aside > div:first-child .bg-blue-655,
-:not(.dark) aside > div:first-child .bg-slate-850 {
-  background-color: var(--fintech-accent) !important;
-}
-
-:not(.dark) aside > div:first-child .bg-violet-650 *,
-:not(.dark) aside > div:first-child .bg-blue-650 *,
-:not(.dark) aside > div:first-child .bg-blue-655 *,
-:not(.dark) aside > div:first-child .bg-slate-850 * {
-  color: #FFFFFF !important;
-}
-
-/* Profile Info & Logout */
-:not(.dark) aside > div:last-child {
-  border-top: 1px solid var(--fintech-border) !important;
-  background-color: var(--fintech-panel) !important;
-}
-
-:not(.dark) aside > div:last-child .bg-slate-800,
-:not(.dark) aside > div:last-child .bg-violet-650 {
-  background-color: #F1F5F9 !important;
-  border: 1px solid var(--fintech-border) !important;
-  color: var(--fintech-text-primary) !important;
-}
-
-:not(.dark) aside > div:last-child .bg-slate-800 *,
-:not(.dark) aside > div:last-child .bg-violet-650 * {
-  color: var(--fintech-text-primary) !important;
-}
-
-:not(.dark) aside button[class*="bg-slate-800"] {
-  background-color: #F8FAFC !important;
-  border: 1px solid var(--fintech-border) !important;
-  color: var(--fintech-text-secondary) !important;
-}
-
-:not(.dark) aside button[class*="bg-slate-800"]:hover {
-  background-color: rgba(239, 68, 68, 0.1) !important;
-  border-color: rgba(239, 68, 68, 0.2) !important;
-  color: #EF4444 !important;
-}
-
-:not(.dark) aside button[class*="bg-slate-800"]:hover * {
-  color: #EF4444 !important;
-}
-
-/* Layout Panels & Dashboard Cards: Pure White, Rounded 16px, Ultra-soft low-opacity drop shadow */
-:not(.dark) .bg-white,
-:not(.dark) .bg-white.rounded-2xl,
-:not(.dark) .bg-white.rounded-xl {
-  background-color: var(--fintech-panel) !important;
-  border-radius: 16px !important;
-  border: 1px solid var(--fintech-border) !important;
-  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.01) !important;
-}
-
-/* Primary Headers & Metric Labels: Deep Slate (#0F172A) */
-:not(.dark) h1:not(aside *),
-:not(.dark) h2:not(aside *),
-:not(.dark) h3:not(aside *),
-:not(.dark) .text-slate-800,
-:not(.dark) .text-slate-850,
-:not(.dark) .text-slate-900 {
-  color: var(--fintech-text-primary) !important;
-  font-weight: 600 !important;
-}
-
-/* Paragraph tags, detail blocks, subtitles: Cool Slate Gray (#64748B) */
-:not(.dark) p:not(aside *),
-:not(.dark) span:not(aside *):not(.font-mono):not(.text-indigo-650):not(.text-indigo-700):not(.text-blue-600):not(.text-violet-600):not(.text-amber-600):not(.text-emerald-600):not(.text-red-500):not(.text-white),
-:not(.dark) .text-slate-400,
-:not(.dark) .text-slate-550,
-:not(.dark) .text-slate-600 {
-  color: var(--fintech-text-secondary) !important;
-}
-
-/* Input Placeholders & Disabled states */
-:not(.dark) ::placeholder {
-  color: var(--text-muted) !important;
-  opacity: 1 !important;
-}
-:not(.dark) input::placeholder,
-:not(.dark) textarea::placeholder {
-  color: var(--text-muted) !important;
-}
-:not(.dark) :disabled,
-:not(.dark) [disabled] {
-  color: var(--text-muted) !important;
-}
-
-/* Active elements, buttons and action points: Electric Blue (#0066FF) */
-:not(.dark) button.bg-blue-600,
-:not(.dark) button.bg-violet-600,
-:not(.dark) button.bg-amber-600,
-:not(.dark) a.bg-blue-600,
-:not(.dark) a.bg-violet-600 {
-  background-color: var(--fintech-accent) !important;
-  border-color: var(--fintech-accent) !important;
-  color: #FFFFFF !important;
-  border-radius: 12px !important;
-}
-:not(.dark) button.bg-blue-600:hover,
-:not(.dark) button.bg-violet-600:hover,
-:not(.dark) button.bg-amber-600:hover {
-  background-color: #0052cc !important;
+::-webkit-scrollbar-thumb:hover {
+  background-color: #94A3B8;
 }

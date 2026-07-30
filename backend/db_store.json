@@ -29,28 +29,6 @@
   "loans": [],
   "courses": [
     {
-      "id": "3515c26b-f0bd-4494-8ba0-e70f53affd73",
-      "code": "BDS",
-      "title": "Bachelor of Data Science",
-      "description": "Focuses on statistics, machine learning, big data analytics, artificial intelligence, and data engineering.",
-      "duration": "4 Years",
-      "fees": 520000,
-      "thumbnail": "",
-      "faculty": "School of Computing and Informatics",
-      "active": true
-    },
-    {
-      "id": "6ab1051c-03f9-4293-9cde-d50daa8f1c7e",
-      "code": "BIT",
-      "title": "Bachelor of Information Technology",
-      "description": "A programme covering software development, cloud computing, networking, web technologies, and IT infrastructure management.",
-      "duration": "4 Years",
-      "fees": 450000,
-      "thumbnail": "",
-      "faculty": "School of Computing and Informatics",
-      "active": true
-    },
-    {
       "id": "3e6160cc-f3c9-4746-b17e-ed8855e7da32",
       "code": "BBIT",
       "title": "Bachelor of Business Information Technology",
@@ -82,6 +60,28 @@
       "thumbnail": "",
       "faculty": "School of Computing and Informatics",
       "active": true
+    },
+    {
+      "id": "3515c26b-f0bd-4494-8ba0-e70f53affd73",
+      "code": "BDS",
+      "title": "Bachelor of Data Science",
+      "description": "Focuses on statistics, machine learning, big data analytics, artificial intelligence, and data engineering.",
+      "duration": "4 Years",
+      "fees": 520000,
+      "thumbnail": "",
+      "faculty": "School of Computing and Informatics",
+      "active": true
+    },
+    {
+      "id": "6ab1051c-03f9-4293-9cde-d50daa8f1c7e",
+      "code": "BIT",
+      "title": "Bachelor of Information Technology",
+      "description": "A programme covering software development, cloud computing, networking, web technologies, and IT infrastructure management.",
+      "duration": "4 Years",
+      "fees": 450000,
+      "thumbnail": "",
+      "faculty": "School of Computing and Informatics",
+      "active": true
     }
   ],
   "reviews": [],
@@ -99,26 +99,19 @@
   ],
   "students": [
     {
-      "id": "b2b275e6-d090-4896-a631-46256f153527",
-      "name": "james maina",
-      "email": "maina@zenti.edu",
-      "phone": "079816465",
-      "admissionNo": "ADM001",
+      "id": "e813718a-ad15-4175-b5d5-1a9dd900bb41",
+      "name": "Erick Mukui",
+      "email": "mukui@zenti.edu",
+      "phone": "0113876776",
+      "admissionNo": "ADM-001",
       "cohort": "2026",
-      "programme": "Data Science",
+      "programme": "Computer Science",
       "department": "Information Technology",
+      "avatar": null,
       "accountStatus": "Pending Setup",
-      "createdAt": "2026-07-28 08:42:09.006988+00",
-      "enrolledUnits": [
-        "BDS"
-      ],
-      "grades": {
-        "BDS": {
-          "cat": 23,
-          "exam": 54,
-          "gradedAt": "2026-07-28 11:05:25.018452+00"
-        }
-      },
+      "createdAt": "2026-07-30 05:48:29.671806+00",
+      "enrolledUnits": [],
+      "grades": {},
       "ledger": [],
       "payments": [],
       "attendance": {}

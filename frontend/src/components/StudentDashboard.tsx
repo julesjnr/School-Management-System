@@ -6,10 +6,11 @@ import {
   Trash2, Landmark, Smartphone, Coins, ListFilter, Plus, RefreshCw,
   Printer, Sliders, TrendingUp, TrendingDown, Gauge, Calculator, Clock, Calendar,
   GripVertical, ChevronUp, ChevronDown, ArrowRight, UserCheck, Camera, X, CameraOff,
-  Search, MapPin, ArrowUpRight, School, Library, Menu, LogOut
+  Search, MapPin, ArrowUpRight, School, Library, Menu, LogOut, Bell
 } from 'lucide-react';
 import { Student, Course, Grade, Invoice, Payment, StockItem, Lecturer, CourseReview, Book, Loan, Reservation, LMSReadingList, BookReview, BookRequest, ExamPaper, LibraryGateLog, AttendanceSession } from '../types';
 import { subjectMap } from '../data';
+import GlobalSearchBar from './GlobalSearchBar';
 import StudentTranscript from './StudentTranscript';
 import PerformanceInsights from './PerformanceInsights';
 import DegreeProgress from './DegreeProgress';
@@ -725,97 +726,125 @@ export default function StudentDashboard({
       )}
 
       {/* LEFT SIDEBAR NAVIGATION */}
-      <aside className="w-64 bg-slate-900 dark:bg-slate-950 text-slate-300 flex flex-col border-r border-slate-800 shrink-0 hidden md:flex font-sans">
+      <aside className="w-64 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 flex flex-col border-r border-slate-100 dark:border-slate-800 shrink-0 hidden md:flex font-sans justify-between p-4 shadow-sm z-10">
         {/* Brand Header */}
-        <div className="p-6 border-b border-slate-800 flex items-center gap-2">
-          <div className="w-8 h-8 bg-blue-650 rounded-lg flex items-center justify-center shrink-0">
-            <School className="w-5 h-5 text-white" />
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 px-2 py-3 border-b border-slate-100 dark:border-slate-800">
+            <div className="w-10 h-10 bg-[#2563EB] rounded-2xl flex items-center justify-center shrink-0 shadow-md shadow-blue-500/20">
+              <School className="w-5 h-5 text-white" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-base font-black tracking-tight text-slate-900 dark:text-white block uppercase leading-none truncate">ZENTI ACADEMY</span>
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mt-1">Student Portal</span>
+            </div>
           </div>
-          <div>
-            <span className="text-sm font-black tracking-tight text-white block uppercase leading-none">ZENTI</span>
-            <span className="text-[8px] text-slate-500 font-bold uppercase tracking-widest block">Student Portal</span>
-          </div>
+          
+          {/* Navigation Menu */}
+          <nav className="space-y-1.5 overflow-y-auto max-h-[calc(100vh-220px)]">
+            <button type="button" onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'dashboard' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
+              <Sliders className="w-4 h-4" />
+              <span>My Dashboard</span>
+            </button>
+            <button type="button" onClick={() => setActiveTab('grades')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'grades' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
+              <Award className="w-4 h-4" />
+              <span>Academic Marks</span>
+            </button>
+            <button type="button" onClick={() => setActiveTab('financials')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'financials' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
+              <Landmark className="w-4 h-4" />
+              <span>My Financials</span>
+            </button>
+            <button type="button" onClick={() => setActiveTab('materials')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'materials' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
+              <BookOpen className="w-4 h-4" />
+              <span>Supplementary</span>
+            </button>
+            <button type="button" onClick={() => setActiveTab('units')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'units' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
+              <Plus className="w-4 h-4" />
+              <span>Unit Register</span>
+            </button>
+            <button type="button" onClick={() => setActiveTab('officeHours')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'officeHours' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
+              <Clock className="w-4 h-4" />
+              <span>Office Hours</span>
+            </button>
+            <button type="button" onClick={() => setActiveTab('library')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'library' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
+              <Library className="w-4 h-4" />
+              <span>Library HQ</span>
+            </button>
+          </nav>
         </div>
         
-        {/* Navigation Menu */}
-        <nav className="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
-          <button type="button" onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'dashboard' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
-            <Sliders className="w-4 h-4" />
-            <span>My Dashboard</span>
-          </button>
-          <button type="button" onClick={() => setActiveTab('grades')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'grades' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
-            <Award className="w-4 h-4" />
-            <span>Academic Marks</span>
-          </button>
-          <button type="button" onClick={() => setActiveTab('financials')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'financials' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
-            <Landmark className="w-4 h-4" />
-            <span>My Financials</span>
-          </button>
-          <button type="button" onClick={() => setActiveTab('materials')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'materials' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
-            <BookOpen className="w-4 h-4" />
-            <span>Supplementary</span>
-          </button>
-          <button type="button" onClick={() => setActiveTab('units')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'units' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
-            <Plus className="w-4 h-4" />
-            <span>Unit Register</span>
-          </button>
-          <button type="button" onClick={() => setActiveTab('officeHours')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'officeHours' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
-            <Clock className="w-4 h-4" />
-            <span>Office Hours</span>
-          </button>
-          <button type="button" onClick={() => setActiveTab('library')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'library' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
-            <Library className="w-4 h-4" />
-            <span>Library HQ</span>
-          </button>
-        </nav>
-        
         {/* Profile Info & Logout */}
-        <div className="p-4 border-t border-slate-800/60 bg-slate-950/40 space-y-3 shrink-0">
-          <div className="flex items-center gap-3">
+        <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3 shrink-0">
+          <div className="flex items-center gap-3 p-2 rounded-2xl bg-slate-50 dark:bg-slate-800/50">
             {student.avatar ? (
-              <img src={student.avatar} alt={student.name} className="w-9 h-9 rounded-lg object-cover border border-slate-700" referrerPolicy="no-referrer" />
+              <img src={student.avatar} alt={student.name} className="w-9 h-9 rounded-xl object-cover border border-slate-200" referrerPolicy="no-referrer" />
             ) : (
-              <div className="w-9 h-9 rounded-lg bg-blue-650 text-white flex items-center justify-center font-bold text-sm shrink-0">
+              <div className="w-9 h-9 rounded-xl bg-[#2563EB] text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-sm">
                 {student.name.charAt(0)}
               </div>
             )}
-            <div className="truncate max-w-[120px]">
-              <h4 className="text-xs font-bold text-white leading-none truncate">{student.name}</h4>
-              <span className="text-[9px] text-slate-500 font-mono block mt-1 truncate">{student.admissionNo}</span>
+            <div className="truncate min-w-0 flex-1">
+              <h4 className="text-xs font-bold text-slate-900 dark:text-white leading-none truncate">{student.name}</h4>
+              <span className="text-[10px] text-slate-400 font-medium block mt-1 truncate">{student.admissionNo}</span>
             </div>
           </div>
-          <button type="button" onClick={onLogout} className="w-full py-2.5 bg-slate-800 hover:bg-rose-955/30 hover:text-rose-450 text-slate-400 hover:text-white text-xs font-bold rounded-lg uppercase tracking-wider transition-colors flex items-center justify-center gap-1.5 cursor-pointer">
-            <X className="w-3.5 h-3.5" />
+          <button type="button" onClick={onLogout} className="w-full py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-rose-50 hover:text-rose-600 text-slate-600 dark:text-slate-300 text-xs font-semibold rounded-2xl transition-all flex items-center justify-center gap-2 cursor-pointer">
+            <LogOut className="w-3.5 h-3.5" />
             <span>Logout Portal</span>
           </button>
         </div>
       </aside>
       
       {/* MAIN CONTAINER */}
-      <div className="flex-1 flex flex-col min-h-screen overflow-y-auto bg-slate-50 dark:bg-slate-950">
+      <div className="flex-1 flex flex-col min-h-screen overflow-y-auto bg-[#F5F7FB] dark:bg-slate-950">
         {/* TOP UTILITY BAR */}
-        <header className="bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-2xs shrink-0 font-sans">
+        <header className="bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 px-8 py-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xs shrink-0 font-sans sticky top-0 z-20">
           <div className="flex items-center gap-3">
-            <div className="space-y-0.5 text-center sm:text-left">
-              <h2 className="text-[9px] font-bold text-slate-450 uppercase tracking-widest leading-none font-mono">Welcome back</h2>
-              <h1 className="text-base font-black text-slate-800 dark:text-white leading-tight">{student.name}</h1>
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(true)}
+              className="md:hidden p-2 rounded-xl text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              title="Toggle Menu"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <div className="space-y-0.5 text-left">
+              <h2 className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Welcome back</h2>
+              <h1 className="text-lg font-bold text-slate-900 dark:text-white leading-tight">{student.name}</h1>
             </div>
           </div>
           <div className="flex items-center gap-4 w-full sm:w-auto justify-end">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse animate-duration-1000"></div>
-              <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider font-mono font-sans">Telemetry Live</span>
+            <div className="w-full sm:w-64 md:w-80">
+              <GlobalSearchBar students={students} courses={allCourses} inventory={inventory} />
+            </div>
+            <span className="hidden sm:inline-block w-px h-6 bg-slate-200 dark:bg-slate-800"></span>
+            
+            {/* Notification Bell Icon */}
+            <div className="relative">
+              <button 
+                type="button" 
+                className="relative p-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-all cursor-pointer"
+              >
+                <Bell className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Student Avatar */}
+            <div className="hidden md:flex items-center gap-3 pl-2">
+              <div className="w-9 h-9 rounded-2xl bg-[#2563EB] text-white flex items-center justify-center font-bold text-sm shadow-sm">
+                {student.name.charAt(0)}
+              </div>
+              <div className="text-left leading-tight">
+                <span className="block text-xs font-bold text-slate-900 dark:text-white">{student.name}</span>
+                <span className="block text-[10px] text-slate-400 font-medium">Student ({student.cohort})</span>
+              </div>
             </div>
           </div>
         </header>
         
         {/* WORKSPACE CONTENT AREA */}
-        <div className={`${activeTab === 'units' ? 'p-4 md:p-6' : 'p-6'} space-y-6 flex-1 flex flex-col min-h-0 bg-slate-50 dark:bg-slate-950`}>
+        <div className="p-8 space-y-8 flex-1 flex flex-col min-h-0 bg-[#F5F7FB] dark:bg-slate-950">
           
-          <div className={activeTab === 'units'
-            ? 'flex-1 min-h-0 w-full'
-            : 'bg-white rounded-2xl border border-slate-150 p-6 shadow-sm flex-1'
-          }>
+          <div className="flex-1 min-h-0 w-full space-y-8">
         
         {/* MY DASHBOARD OVERVIEW (DRAG-AND-DROP WIDGETS) */}
         {activeTab === 'dashboard' && (

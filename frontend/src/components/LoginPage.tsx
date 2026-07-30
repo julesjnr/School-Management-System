@@ -425,28 +425,28 @@ export default function LoginPage({
 
           <div className="h-px bg-slate-200 dark:bg-slate-800" />
 
-          <form onSubmit={handleFormSubmit} className="space-y-5" autoComplete="on">
+          <form onSubmit={handleFormSubmit} className="space-y-6 bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-lg" autoComplete="on">
 
             {infoMessage && (
-              <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 text-xs px-4 py-3 rounded-xl border border-blue-100 dark:border-blue-950/30 font-medium animate-fadeIn">
-                <span className="w-2 h-2 rounded-full bg-blue-550 shrink-0 animate-ping"></span>
+              <div className="flex items-center gap-2 bg-blue-50 text-[#2563EB] text-xs px-4 py-3 rounded-2xl border border-blue-100 font-medium animate-fadeIn">
+                <span className="w-2 h-2 rounded-full bg-[#2563EB] shrink-0 animate-ping"></span>
                 <span>{infoMessage}</span>
               </div>
             )}
 
             {errorText && (
-              <div className="flex items-center gap-2 bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 text-xs px-4 py-3 rounded-xl border border-rose-100 dark:border-rose-950/30 font-medium">
+              <div className="flex items-center gap-2 bg-rose-50 text-rose-600 text-xs px-4 py-3 rounded-2xl border border-rose-100 font-medium">
                 <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0 animate-ping"></span>
                 <span>{errorText}</span>
               </div>
             )}
 
-            <div className="space-y-1.5">
-              <label htmlFor="login-identifier-input" className="block text-xs font-bold text-slate-550 dark:text-slate-400 uppercase tracking-wider">
+            <div className="space-y-2">
+              <label htmlFor="login-identifier-input" className="block text-xs font-semibold text-slate-500 uppercase tracking-wider">
                 {identifierLabel}
               </label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                   <User className="w-4 h-4" />
                 </span>
                 <input
@@ -460,13 +460,13 @@ export default function LoginPage({
                     setSelectedUser(e.target.value);
                     setErrorText('');
                   }}
-                  className="w-full bg-white dark:bg-slate-850 dark:text-slate-100 border border-slate-200 dark:border-slate-800 rounded-xl pl-10 pr-3 py-3 text-xs text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 shadow-2xs font-medium"
+                  className="w-full bg-slate-50/70 dark:bg-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-2xl pl-11 pr-4 py-3 text-xs text-slate-900 focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-blue-500/20 font-medium transition-all"
                 />
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <label htmlFor="login-password-field" className="block text-xs font-bold text-slate-550 dark:text-slate-400 uppercase tracking-wider">
+            <div className="space-y-2">
+              <label htmlFor="login-password-field" className="block text-xs font-semibold text-slate-500 uppercase tracking-wider">
                 Password
               </label>
               <div className="relative">
@@ -480,28 +480,28 @@ export default function LoginPage({
                     setPasscode(e.target.value);
                     setErrorText('');
                   }}
-                  className="w-full bg-white dark:bg-slate-850 dark:text-slate-100 border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-xs text-slate-850 focus:outline-hidden focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 font-mono shadow-2xs"
+                  className="w-full bg-slate-50/70 dark:bg-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 text-xs text-slate-900 focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-blue-500/20 font-mono transition-all pr-10"
                   required
                 />
-                <KeyRound className="w-4 h-4 text-slate-400 absolute right-3.5 top-3.5" />
+                <KeyRound className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2" />
               </div>
             </div>
 
             <div className="flex items-center justify-between text-xs pt-1">
-              <label className="flex items-center gap-2 text-slate-550 dark:text-slate-450 cursor-pointer select-none">
+              <label className="flex items-center gap-2 text-slate-500 cursor-pointer select-none">
                 <input
                   type="checkbox"
                   checked={rememberMe}
                   onChange={(e) => setRememberMe(e.target.checked)}
-                  className="rounded-sm border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500/10"
+                  className="rounded-md border-slate-300 text-[#2563EB] focus:ring-blue-500/20"
                 />
-                <span className="font-semibold">Remember Me</span>
+                <span className="font-medium">Remember Me</span>
               </label>
 
               <button
                 type="button"
                 onClick={() => setIsRecoveryMode(true)}
-                className="font-bold text-blue-650 hover:text-blue-750 dark:text-blue-400 dark:hover:text-blue-300 hover:underline cursor-pointer"
+                className="font-semibold text-[#2563EB] hover:underline cursor-pointer"
               >
                 Forgot Password?
               </button>
@@ -510,7 +510,7 @@ export default function LoginPage({
             <button
               type="submit"
               disabled={isSubmitting}
-              className={`w-full mt-2 text-white font-black py-3 px-6 rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all duration-155 cursor-pointer text-center shadow-lg hover:shadow-xl ${currentConfig.buttonBg} ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+              className={`w-full mt-2 bg-[#2563EB] hover:bg-blue-700 text-white font-bold py-3.5 px-6 rounded-2xl text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all duration-200 cursor-pointer text-center shadow-md shadow-blue-500/20 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               <span>{isSubmitting ? 'Signing In...' : 'Sign In'}</span>
               <ArrowRight className={`w-4 h-4 ${isSubmitting ? 'animate-ping' : ''}`} />
