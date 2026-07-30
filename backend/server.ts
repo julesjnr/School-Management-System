@@ -4159,6 +4159,19 @@ app.post("/api/students", async (req, res) => {
   } catch (error: any) {
     console.error("Registration failed:", error);
 
+    const isUniqueViolation =
+      error?.code === "23505" ||
+      error?.cause?.code === "23505" ||
+      error?.originalError?.code === "23505" ||
+      /unique constraint|duplicate key|already exists/i.test(error?.message || "");
+
+    if (isUniqueViolation) {
+      return res.status(409).json({
+        message: "A student with this email already exists.",
+        error: "A student with this email already exists.",
+      });
+    }
+
     res.status(500).json({
       error: error.message,
     });
@@ -6208,7 +6221,12 @@ async function startServer() {
   }
 
   startupPromise = (async () => {
-    await runMigrations();
+    try {
+      await runMigrations();
+    } catch (migrationErr) {
+      console.error("[Startup] Database migrations failed:", migrationErr);
+      console.warn("[Startup] Proceeding with database initialization...");
+    }
     // Initialize the PostgreSQL database state (or fallback store if offline)
     await initPostgresDB();
     const dbStateForAuth = getDatabase();

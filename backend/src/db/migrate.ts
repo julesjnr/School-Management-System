@@ -13,41 +13,59 @@ const studentSchemaMigrations = [
   "0006_archive_records.sql",
 ];
 
-export async function runMigrations(): Promise<void> {
-  await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS app_migrations (
-      name VARCHAR(255) PRIMARY KEY,
-      applied_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
-    )
-  `);
+export async function runMigrations(retries = 3, delayMs = 2000): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS app_migrations (
+          name VARCHAR(255) PRIMARY KEY,
+          applied_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+        )
+      `);
 
-  const appliedRows = await db.execute(sql`SELECT name FROM app_migrations`);
-  const applied = new Set(
-    appliedRows.rows
-      .map((row: any) => row?.name)
-      .filter((name: unknown): name is string => typeof name === "string"),
-  );
+      const appliedRows = await db.execute(sql`SELECT name FROM app_migrations`);
+      const applied = new Set(
+        appliedRows.rows
+          .map((row: any) => row?.name)
+          .filter((name: unknown): name is string => typeof name === "string"),
+      );
 
-  for (const migrationFile of studentSchemaMigrations) {
-    if (applied.has(migrationFile)) {
-      continue;
+      for (const migrationFile of studentSchemaMigrations) {
+        if (applied.has(migrationFile)) {
+          continue;
+        }
+
+        const migrationPath = path.join(drizzleDir, migrationFile);
+        const migrationSql = fs.readFileSync(migrationPath, "utf8");
+        const statements = migrationSql
+          .split("--> statement-breakpoint")
+          .map((statement) => statement.trim())
+          .filter(Boolean);
+
+        for (const statement of statements) {
+          await db.execute(sql.raw(statement));
+        }
+
+        await db.execute(
+          sql`INSERT INTO app_migrations (name) VALUES (${migrationFile}) ON CONFLICT (name) DO NOTHING`,
+        );
+      }
+      return;
+    } catch (error) {
+      lastError = error;
+      console.warn(
+        `[Migrations] Attempt ${attempt}/${retries} failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      if (attempt < retries) {
+        console.log(`[Migrations] Retrying in ${delayMs / 1000}s...`);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
     }
-
-    const migrationPath = path.join(drizzleDir, migrationFile);
-    const migrationSql = fs.readFileSync(migrationPath, "utf8");
-    const statements = migrationSql
-      .split("--> statement-breakpoint")
-      .map((statement) => statement.trim())
-      .filter(Boolean);
-
-    for (const statement of statements) {
-      await db.execute(sql.raw(statement));
-    }
-
-    await db.execute(
-      sql`INSERT INTO app_migrations (name) VALUES (${migrationFile}) ON CONFLICT (name) DO NOTHING`,
-    );
   }
+  throw lastError;
 }
 
 if (process.argv[1] === __filename) {

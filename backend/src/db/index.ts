@@ -10,19 +10,19 @@ export const createPool = () => {
   const connectionString = process.env.DATABASE_URL;
 
   const max = Number(process.env.DB_POOL_MAX) || 10;
-  const connectionTimeoutMillis = Number(process.env.DB_CONNECTION_TIMEOUT_MS) || 10000;
-  const idleTimeoutMillis = Number(process.env.DB_IDLE_TIMEOUT_MS) || 30000;
+  const connectionTimeoutMillis = Number(process.env.DB_CONNECTION_TIMEOUT_MS) || 15000;
+  const idleTimeoutMillis = Number(process.env.DB_IDLE_TIMEOUT_MS) || 10000;
 
   if (connectionString) {
     return new Pool({
       connectionString,
       connectionTimeoutMillis,
-      ssl: { rejectUnauthorized: false },
+      ssl: process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: false },
       max,
       min: 0,
       idleTimeoutMillis,
       keepAlive: true,
-      keepAliveInitialDelayMillis: 10000,
+      keepAliveInitialDelayMillis: 5000,
     });
   }
 
@@ -33,12 +33,12 @@ export const createPool = () => {
     password: process.env.SQL_PASSWORD,
     database: process.env.SQL_DB_NAME,
     connectionTimeoutMillis,
-    ssl: { rejectUnauthorized: false },
+    ssl: process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: false },
     max,
     min: 0,
     idleTimeoutMillis,
     keepAlive: true,
-    keepAliveInitialDelayMillis: 10000,
+    keepAliveInitialDelayMillis: 5000,
   });
 };
 
