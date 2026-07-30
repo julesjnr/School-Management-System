@@ -44,7 +44,7 @@ export function createCorsMiddleware() {
       callback(new Error('Not allowed by CORS'));
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-user-role', 'x-user-id', 'x-session-token'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-user-role', 'x-user-id', 'x-session-token', 'x-refresh-token'],
     credentials: true,
   });
 }

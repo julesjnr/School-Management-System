@@ -204,6 +204,7 @@ export default function LoginPage({
     }
 
     localStorage.removeItem('zenti_session_token');
+    localStorage.removeItem('zenti_refresh_token');
     clearPendingPasswordChange();
     setIsSubmitting(true);
 
@@ -264,6 +265,9 @@ export default function LoginPage({
         }
 
         localStorage.setItem('zenti_session_token', data.token);
+        if (data.refreshToken) {
+          localStorage.setItem('zenti_refresh_token', data.refreshToken);
+        }
 
         if (data.role === 'lecturer' && data.profile?.isAccountant) {
           onLogin('accountant', data.userId);

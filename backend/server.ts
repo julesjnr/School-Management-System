@@ -64,6 +64,8 @@ import {
   upsertUserAuthRecord,
   sanitizeProfile,
   issueAuthToken,
+  issueAccessToken,
+  issueRefreshToken,
   migrateAuthSchemaAndData,
   authenticateUser,
   changeUserPassword,
@@ -1610,6 +1612,22 @@ async function isArchivedSessionIdentity(decoded: any): Promise<boolean> {
   return result.rows.length > 0;
 }
 
+function parseCookies(req: any): Record<string, string> {
+  const list: Record<string, string> = {};
+  const cookieHeader = req.headers.cookie;
+  if (!cookieHeader) return list;
+
+  cookieHeader.split(';').forEach((cookie: string) => {
+    let [name, ...rest] = cookie.split('=');
+    name = name?.trim();
+    if (!name) return;
+    const value = rest.join('=').trim();
+    if (!value) return;
+    list[name] = decodeURIComponent(value);
+  });
+  return list;
+}
+
 // JWT Verification Middleware
 async function authenticateJWT(req: any, res: any, next: any) {
   const authHeader = req.headers.authorization;
@@ -1629,6 +1647,12 @@ async function authenticateJWT(req: any, res: any, next: any) {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as any;
+    if (decoded.tokenType && decoded.tokenType !== 'access') {
+      return res.status(401).json({
+        success: false,
+        error: "Access Denied: Invalid token type for API access."
+      });
+    }
     if (await isArchivedSessionIdentity(decoded)) {
       return res.status(403).json({
         success: false,
@@ -1655,6 +1679,7 @@ async function authenticateJWT(req: any, res: any, next: any) {
 const publicAPIPaths = [
   "/api/health",
   "/api/auth/login",
+  "/api/auth/refresh",
   // Forced first-login password changes happen before any token is issued, so this
   // endpoint cannot sit behind the JWT gate. It authenticates the caller itself by
   // verifying the current password before writing a new one.
@@ -2138,6 +2163,17 @@ app.post("/api/auth/login", async (req: any, res: any) => {
       return;
     }
 
+    if (result.refreshToken) {
+      const isProduction = process.env.NODE_ENV === "production";
+      res.cookie("refreshToken", result.refreshToken, {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 7 * 24 * 60 * 60 * 1000
+      });
+    }
+
     res.json({
       success: true,
       role: result.role,
@@ -2145,6 +2181,7 @@ app.post("/api/auth/login", async (req: any, res: any) => {
       username: result.username,
       email: result.email,
       token: result.token,
+      refreshToken: result.refreshToken,
       profile: result.profile
     });
   } catch (err: any) {
@@ -2183,10 +2220,86 @@ app.post(["/api/auth/change-password", "/api/auth/change-passcode"], async (req:
       return;
     }
 
+    if (result.refreshToken) {
+      const isProduction = process.env.NODE_ENV === "production";
+      res.cookie("refreshToken", result.refreshToken, {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 7 * 24 * 60 * 60 * 1000
+      });
+    }
+
     res.json(result);
   } catch (err: any) {
     console.error("Password change endpoint error:", err);
     res.status(500).json({ success: false, error: err.message || "Failed to update password." });
+  }
+});
+
+// Token Refresh Endpoint (/api/auth/refresh)
+app.all("/api/auth/refresh", async (req: any, res: any) => {
+  if (req.method !== 'POST' && req.method !== 'GET') {
+    return res.status(405).json({ success: false, error: 'Method not allowed' });
+  }
+  try {
+    const cookies = parseCookies(req);
+    const refreshToken =
+      cookies.refreshToken ||
+      cookies.zenti_refresh_token ||
+      req.body?.refreshToken ||
+      req.headers['x-refresh-token'] ||
+      (req.headers.authorization && req.headers.authorization.toLowerCase().startsWith('bearer ') ? req.headers.authorization.substring(7) : null);
+
+    if (!refreshToken) {
+      return res.status(401).json({ success: false, error: "Refresh token required." });
+    }
+
+    let decoded: any;
+    try {
+      decoded = jwt.verify(refreshToken, JWT_SECRET);
+    } catch (err) {
+      return res.status(401).json({ success: false, error: "Invalid or expired refresh token." });
+    }
+
+    if (decoded.tokenType && decoded.tokenType !== 'refresh') {
+      return res.status(401).json({ success: false, error: "Invalid token type for refresh." });
+    }
+
+    const user = await findUserByIdentifier(decoded.userId || decoded.username, decoded.role);
+    if (!user || user.is_active === false) {
+      return res.status(401).json({ success: false, error: "Account is inactive or not found." });
+    }
+
+    if (await isArchivedSessionIdentity(decoded)) {
+      return res.status(403).json({ success: false, error: "Account is archived." });
+    }
+
+    const profileId = user.role_id || user.username || String(user.id);
+    const newAccessToken = issueAccessToken(profileId, user.role, user.email, JWT_SECRET, user.role_id);
+    const newRefreshToken = issueRefreshToken(profileId, user.role, user.email, JWT_SECRET, user.role_id);
+
+    const isProduction = process.env.NODE_ENV === 'production';
+    res.cookie('refreshToken', newRefreshToken, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    return res.json({
+      success: true,
+      token: newAccessToken,
+      refreshToken: newRefreshToken,
+      userId: profileId,
+      role: user.role,
+      email: user.email
+    });
+  } catch (err: any) {
+    console.error("Refresh endpoint error:", err);
+    return res.status(500).json({ success: false, error: "Failed to refresh token." });
   }
 });
 

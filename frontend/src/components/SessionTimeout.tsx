@@ -59,7 +59,7 @@ export default function SessionTimeout({
       }, 1000); // Throttle activity checks to once per second
     };
 
-    const events = ['mousemove', 'mousedown', 'keypress', 'scroll', 'touchstart'];
+    const events = ['click', 'keydown', 'mousemove', 'mousedown', 'keypress', 'scroll', 'touchstart'];
     events.forEach(event => {
       window.addEventListener(event, handleActivity);
     });

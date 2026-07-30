@@ -290,6 +290,7 @@ export default function App() {
     } else {
       localStorage.removeItem("zenti_current_user_role");
       localStorage.removeItem("zenti_session_token");
+      localStorage.removeItem("zenti_refresh_token");
     }
   }, [currentUserRole]);
 
@@ -299,6 +300,7 @@ export default function App() {
     } else {
       localStorage.removeItem("zenti_current_user_id");
       localStorage.removeItem("zenti_session_token");
+      localStorage.removeItem("zenti_refresh_token");
     }
   }, [currentUserId]);
 

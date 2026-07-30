@@ -128,6 +128,9 @@ export default function ChangePasswordPage({
       if (data.token) {
         localStorage.setItem('zenti_session_token', data.token);
       }
+      if (data.refreshToken) {
+        localStorage.setItem('zenti_refresh_token', data.refreshToken);
+      }
       clearPendingPasswordChange();
 
       // Remember the identifier that now owns the new password, so the login page offers

@@ -70,8 +70,18 @@ export function sanitizeProfile(profileObj: Record<string, unknown> | null | und
   return rest;
 }
 
+export function issueAccessToken(userId: string, role: string, email: string, jwtSecret: string, roleId?: string): string {
+  const expiresIn = (process.env.ACCESS_TOKEN_EXPIRES_IN || '15m') as any;
+  return jwt.sign({ userId, role, email, roleId: roleId || userId, tokenType: 'access' }, jwtSecret, { expiresIn });
+}
+
+export function issueRefreshToken(userId: string, role: string, email: string, jwtSecret: string, roleId?: string): string {
+  const expiresIn = (process.env.REFRESH_TOKEN_EXPIRES_IN || '7d') as any;
+  return jwt.sign({ userId, role, email, roleId: roleId || userId, tokenType: 'refresh' }, jwtSecret, { expiresIn });
+}
+
 export function issueAuthToken(userId: string, role: string, email: string, jwtSecret: string, roleId?: string): string {
-  return jwt.sign({ userId, role, email, roleId: roleId || userId }, jwtSecret, { expiresIn: '24h' });
+  return issueAccessToken(userId, role, email, jwtSecret, roleId);
 }
 
 export interface UserAuthRecord {
@@ -353,6 +363,7 @@ export async function authenticateUser(params: {
   username?: string;
   email?: string;
   token?: string;
+  refreshToken?: string;
   profile?: any;
   message?: string;
   error?: string;
@@ -405,7 +416,8 @@ export async function authenticateUser(params: {
   }
 
   // Generate JWT token
-  const token = issueAuthToken(profileId, userRole, user.email, jwtSecret, user.role_id);
+  const token = issueAccessToken(profileId, userRole, user.email, jwtSecret, user.role_id);
+  const refreshToken = issueRefreshToken(profileId, userRole, user.email, jwtSecret, user.role_id);
 
   // Load user profile if profile loader function is provided
   let profileObj: any = null;
@@ -420,6 +432,7 @@ export async function authenticateUser(params: {
     username: user.username,
     email: user.email,
     token,
+    refreshToken,
     profile: sanitizeProfile(profileObj)
   };
 }
@@ -438,6 +451,7 @@ export async function changeUserPassword(params: {
   success: boolean;
   message?: string;
   token?: string;
+  refreshToken?: string;
   role?: string;
   userId?: string;
   username?: string;
@@ -477,7 +491,8 @@ export async function changeUserPassword(params: {
 
   const profileId = user.role_id || user.username || String(user.id);
   const userRole = user.role;
-  const token = issueAuthToken(profileId, userRole, user.email, jwtSecret, user.role_id);
+  const token = issueAccessToken(profileId, userRole, user.email, jwtSecret, user.role_id);
+  const refreshToken = issueRefreshToken(profileId, userRole, user.email, jwtSecret, user.role_id);
 
   let profileObj: any = null;
   if (getProfileFn) {
@@ -488,6 +503,7 @@ export async function changeUserPassword(params: {
     success: true,
     message: "Password updated successfully.",
     token,
+    refreshToken,
     role: userRole,
     userId: profileId,
     // Echo back the canonical login identifier so the client can remember it.
