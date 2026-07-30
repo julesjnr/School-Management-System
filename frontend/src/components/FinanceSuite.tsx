@@ -619,11 +619,15 @@ export default function FinanceSuite({
 
     setIsCreatingInvoice(true);
     try {
-      const res = await fetch("/api/finance/bill", {
+      const res = await fetch("/api/invoices", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-role": "accountant"
+        },
         body: JSON.stringify({
           studentId: billingStudentId,
+          feeCategory: billingVoteHead,
           voteHead: billingVoteHead,
           amount: Number(billingAmount),
           description: billingDescription.trim()
@@ -631,7 +635,8 @@ export default function FinanceSuite({
       });
 
       if (!res.ok) {
-        throw new Error("Failed to create billing debit entry");
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || errData.message || "Failed to create invoice");
       }
 
       const data = await res.json();
@@ -641,12 +646,33 @@ export default function FinanceSuite({
         `Billed KES ${Number(billingAmount).toLocaleString()} to student ID ${billingStudentId} (${data.invoiceNo})`
       );
 
+      const createdInv = data.invoice || {
+        id: data.invoice?.id || `inv-${Date.now()}`,
+        invoiceNo: data.invoiceNo || `INV-${Math.floor(100000 + Math.random() * 900000)}`,
+        description: data.description || `[${billingVoteHead}] ${billingDescription.trim()}`,
+        amount: Number(billingAmount),
+        date: new Date().toISOString().substring(0, 10),
+        status: "unpaid"
+      };
+
+      if (onUpdateStudent) {
+        const targetStudent = students.find(s => s.id === billingStudentId || s.admissionNo === billingStudentId);
+        if (targetStudent) {
+          const currentLedger = targetStudent.ledger || [];
+          if (!currentLedger.some(inv => inv.id === createdInv.id || inv.invoiceNo === createdInv.invoiceNo)) {
+            onUpdateStudent(targetStudent.id, {
+              ledger: [...currentLedger, createdInv]
+            });
+          }
+        }
+      }
+
       setBillingAmount("");
       setBillingDescription("");
-      showToast(`Invoice ${data.invoiceNo || ''} created successfully.`, 'success', { title: 'Invoice created' });
-    } catch (err) {
+      showToast(`Invoice ${data.invoiceNo || ''} issued successfully.`, 'success', { title: 'Invoice issued' });
+    } catch (err: any) {
       console.error(err);
-      showToast('Failed to create invoice. Please try again.', 'error', { title: 'Invoice error' });
+      showToast(err.message || 'Failed to create invoice. Please try again.', 'error', { title: 'Invoice error' });
     } finally {
       setIsCreatingInvoice(false);
     }

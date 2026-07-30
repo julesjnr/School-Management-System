@@ -65,5 +65,5 @@ export async function closePool(): Promise<void> {
   }
 }
 
-// Initialize Drizzle with the pool and schema.
-export const db = drizzle(pool, { schema });
+// Initialize Drizzle with the pool, schema, and disable prepared statements for PgBouncer compatibility.
+export const db = drizzle(pool, { schema, prepare: false } as any);

@@ -394,10 +394,11 @@ export default function StudentDashboard({
   ];
 
   // Calculations for total fee summary
-  const unpaidInvoices = student.ledger.filter(i => i.status === 'unpaid');
-  const totalInvoiced = student.ledger.reduce((sum, inv) => sum + inv.amount, 0);
-  const totalPaid = student.ledger.filter(i => i.status === 'paid').reduce((sum, inv) => sum + inv.amount, 0);
-  const outstandingBal = unpaidInvoices.reduce((sum, inv) => sum + inv.amount, 0);
+  const studentLedgerList = student?.ledger || [];
+  const unpaidInvoices = studentLedgerList.filter(i => i.status === 'unpaid');
+  const totalInvoiced = studentLedgerList.reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0);
+  const totalPaid = studentLedgerList.filter(i => i.status === 'paid').reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0);
+  const outstandingBal = unpaidInvoices.reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0);
 
   const getGradeClassification = (cat: number, exam: number) => {
     const total = cat + exam;
@@ -2049,7 +2050,7 @@ export default function StudentDashboard({
               <div className="md:col-span-2 space-y-4">
                 <h3 className="text-xs uppercase font-bold text-slate-400 tracking-wider">Itemized Ledger Invoices</h3>
                 <div className="border border-slate-100 rounded-xl overflow-hidden divide-y divide-slate-100">
-                  {student.ledger.map((inv) => (
+                  {studentLedgerList.map((inv) => (
                     <div key={inv.id} className="p-4 flex justify-between items-center bg-white hover:bg-slate-50/20 text-xs">
                       <div>
                         <div className="flex items-center gap-2">
@@ -2060,7 +2061,7 @@ export default function StudentDashboard({
                       </div>
 
                       <div className="flex items-center gap-4">
-                        <span className="font-extrabold text-slate-900 text-sm">KES {inv.amount.toLocaleString()}</span>
+                        <span className="font-extrabold text-slate-900 text-sm">KES {Number(inv.amount).toLocaleString()}</span>
                         {inv.status === 'paid' ? (
                           <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 rounded-sm text-[10px] font-bold">Paid</span>
                         ) : (

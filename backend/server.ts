@@ -2557,41 +2557,231 @@ app.post("/api/courses", async (req, res) => {
 });
 
   // REST Resource: Invoices
+// REST Resource: Invoices
 app.get("/api/invoices", async (req, res) => {
   try {
+    const { studentId } = req.query;
+    if (studentId) {
+      let resolvedStudentId = String(studentId);
+      try {
+        const [st] = await db
+          .select({ id: students.id })
+          .from(students)
+          .where(or(eq(students.id, resolvedStudentId), eq(students.admissionNo, resolvedStudentId)));
+        if (st) resolvedStudentId = st.id;
+      } catch (_) {}
+
+      const invList = await db.select().from(invoices).where(eq(invoices.studentId, resolvedStudentId));
+      return res.json(invList);
+    }
     const result = await db.select().from(invoices);
     res.json(result);
   } catch (error: any) {
     console.error("Failed to fetch invoices:", error);
-    res.status(500).json({ error: error.message });
+    try {
+      const dbVal = getDatabase();
+      const allInvoices = dbVal.invoices || [];
+      if (req.query.studentId) {
+        const filtered = allInvoices.filter((i: any) => i.studentId === req.query.studentId || i.admissionNo === req.query.studentId);
+        return res.json(filtered);
+      }
+      res.json(allInvoices);
+    } catch (fallbackErr: any) {
+      res.status(500).json({ error: error.message });
+    }
   }
 });
-app.post("/api/invoices", async (req, res) => {
-  try {
-    const invoiceData = req.body;
 
-    if (!invoiceData?.studentId || !invoiceData?.amount) {
+app.get("/api/students/:studentId/invoices", async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    let resolvedId = studentId;
+    try {
+      const [st] = await db
+        .select({ id: students.id })
+        .from(students)
+        .where(or(eq(students.id, studentId), eq(students.admissionNo, studentId)));
+      if (st) resolvedId = st.id;
+    } catch (_) {}
+
+    const result = await db.select().from(invoices).where(eq(invoices.studentId, resolvedId));
+    res.json(result);
+  } catch (error: any) {
+    console.error("Failed to fetch student invoices:", error);
+    try {
+      const dbVal = getDatabase();
+      const allInvoices = dbVal.invoices || [];
+      const filtered = allInvoices.filter((i: any) => i.studentId === req.params.studentId || i.admissionNo === req.params.studentId);
+      res.json(filtered);
+    } catch (fallbackErr: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+});
+
+app.post("/api/invoices", checkRBAC(["accountant", "admin"]), async (req: any, res: any) => {
+  try {
+    const { studentId, admissionNumber, admissionNo, feeCategory, voteHead, amount, description, term, invoiceNo, date } = req.body;
+
+    const targetIdentifier = studentId || admissionNumber || admissionNo;
+    if (!targetIdentifier || !amount || isNaN(Number(amount))) {
       return res.status(400).json({
-        error: "Student ID and amount are required",
+        error: "Student ID or admission number, and a valid numeric amount are required",
       });
     }
 
-    const [invoice] = await db
-      .insert(invoices)
-      .values({
-        studentId: invoiceData.studentId,
-        invoiceNo: invoiceData.invoiceNo,
-        description: invoiceData.description,
-        amount: invoiceData.amount,
-        date: invoiceData.date,
-        status: invoiceData.status ?? "unpaid",
-      })
-      .returning();
+    const numAmount = Number(amount);
+    if (numAmount <= 0) {
+      return res.status(400).json({ error: "Amount must be a positive numeric value" });
+    }
 
-    res.status(201).json(invoice);
+    // Resolve student record in PostgreSQL
+    let resolvedStudent: { id: string; name: string; admissionNo: string } | null = null;
+    try {
+      const [st] = await db
+        .select({ id: students.id, name: students.name, admissionNo: students.admissionNo })
+        .from(students)
+        .where(or(eq(students.id, String(targetIdentifier)), eq(students.admissionNo, String(targetIdentifier))));
+      if (st) resolvedStudent = st;
+    } catch (_) {}
+
+    // Fallback student lookup in JSON store
+    if (!resolvedStudent) {
+      const dbVal = getDatabase();
+      const st = dbVal.students?.find((s: any) => s.id === targetIdentifier || s.admissionNo === targetIdentifier);
+      if (st) {
+        resolvedStudent = { id: st.id, name: st.name, admissionNo: st.admissionNo };
+      }
+    }
+
+    if (!resolvedStudent) {
+      return res.status(404).json({ error: "Student not found with provided identifier" });
+    }
+
+    const categoryStr = feeCategory || voteHead || "Tuition";
+    const rawDesc = description || term || "Semester Fees";
+    const formattedDesc = rawDesc.toLowerCase().includes(categoryStr.toLowerCase()) 
+      ? rawDesc 
+      : `[${categoryStr}] ${rawDesc}`;
+
+    const finalInvoiceNo = invoiceNo || `INV-${Math.floor(100000 + Math.random() * 900000)}`;
+    const dateStr = date || new Date().toISOString().substring(0, 10);
+
+    let createdInvoice: any = null;
+    let createdLedgerEntry: any = null;
+
+    try {
+      // 1. Save invoice to PostgreSQL invoices table
+      const [inv] = await db
+        .insert(invoices)
+        .values({
+          studentId: resolvedStudent.id,
+          invoiceNo: finalInvoiceNo,
+          description: formattedDesc,
+          amount: String(numAmount),
+          date: dateStr,
+          status: "unpaid",
+        })
+        .returning();
+      createdInvoice = inv;
+
+      // 2. Save debit entry to PostgreSQL studentLedger table
+      const [led] = await db
+        .insert(studentLedger)
+        .values({
+          studentId: resolvedStudent.id,
+          entryType: "DEBIT",
+          voteHead: categoryStr,
+          amount: String(numAmount),
+          description: formattedDesc,
+        })
+        .returning();
+      createdLedgerEntry = led;
+
+      // Keep JSON file store updated for offline/mixed mode fallback consistency
+      try {
+        const dbVal = getDatabase();
+        dbVal.invoices = dbVal.invoices || [];
+        dbVal.student_ledger = dbVal.student_ledger || [];
+
+        const newInv = {
+          id: inv.id,
+          studentId: resolvedStudent.id,
+          invoiceNo: finalInvoiceNo,
+          description: formattedDesc,
+          amount: numAmount,
+          date: dateStr,
+          status: "unpaid",
+        };
+        dbVal.invoices.push(newInv);
+
+        const st = dbVal.students?.find((s: any) => s.id === resolvedStudent!.id);
+        if (st) {
+          st.ledger = st.ledger || [];
+          if (!st.ledger.some((existing: any) => existing.id === newInv.id)) {
+            st.ledger.push(newInv);
+          }
+        }
+        saveDatabase(dbVal);
+      } catch (_) {}
+
+    } catch (dbErr: any) {
+      console.warn("PostgreSQL invoice creation warning, executing JSON fallback:", dbErr.message);
+      const dbVal = getDatabase();
+      dbVal.invoices = dbVal.invoices || [];
+      dbVal.student_ledger = dbVal.student_ledger || [];
+
+      const newInv = {
+        id: `inv-${Date.now()}`,
+        studentId: resolvedStudent.id,
+        invoiceNo: finalInvoiceNo,
+        description: formattedDesc,
+        amount: numAmount,
+        date: dateStr,
+        status: "unpaid",
+      };
+
+      const newLedger = {
+        id: `ledger-${Date.now()}`,
+        studentId: resolvedStudent.id,
+        entryType: "DEBIT",
+        voteHead: categoryStr,
+        amount: numAmount,
+        description: formattedDesc,
+        createdAt: new Date().toISOString(),
+      };
+
+      dbVal.invoices.push(newInv);
+      dbVal.student_ledger.push(newLedger);
+
+      const st = dbVal.students?.find((s: any) => s.id === resolvedStudent.id);
+      if (st) {
+        st.ledger = st.ledger || [];
+        st.ledger.push(newInv);
+      }
+
+      saveDatabase(dbVal);
+      createdInvoice = newInv;
+      createdLedgerEntry = newLedger;
+    }
+
+    // Return sanitized JSON response (no sensitive user/hash data)
+    return res.status(201).json({
+      success: true,
+      invoice: createdInvoice,
+      invoiceNo: finalInvoiceNo,
+      ledgerEntry: createdLedgerEntry,
+      studentId: resolvedStudent.id,
+      studentName: resolvedStudent.name,
+      amount: numAmount,
+      feeCategory: categoryStr,
+      description: formattedDesc,
+      status: "unpaid",
+    });
+
   } catch (error: any) {
     console.error("Failed to create invoice:", error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error.message || "Failed to create invoice" });
   }
 });
 
