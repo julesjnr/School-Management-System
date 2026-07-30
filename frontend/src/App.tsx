@@ -24,6 +24,11 @@ import DashboardShowcase from './components/DashboardShowcase';
 import SessionTimeout from './components/SessionTimeout';
 
 import { useNotification } from './components/notifications';
+import { 
+  getPendingPasswordChange, 
+  clearPendingPasswordChange, 
+  pickLoginIdentifier 
+} from './authIdentity';
 
 export default function App() {
   const { showToast, showError, showSuccess, showRegistrationModal } = useNotification();
@@ -170,6 +175,15 @@ export default function App() {
       clearInterval(interval);
     };
   }, []);
+
+  // Strict First-Login Route Guarding
+  useEffect(() => {
+    const pending = getPendingPasswordChange();
+    if (pending && currentPath !== '/change-password') {
+      window.history.pushState({}, '', '/change-password');
+      setCurrentPath('/change-password');
+    }
+  }, [currentPath]);
 
   const [isBooting, setIsBooting] = useState<boolean>(true);
   const [academicsLoadError, setAcademicsLoadError] = useState<string | null>(null);
@@ -985,13 +999,17 @@ Zenti Library Services`;
     setLecturers((prev) => [...prev, lecturer]);
 
     if (lecturer.temporaryPasscode) {
+      const humanId = pickLoginIdentifier(lecturer.designatorCode, lecturer.staffId, lecturer.staffNumber, newLec.designatorCode) || `STF-${Date.now()}`;
       showRegistrationModal({
         name: lecturer.name,
-        idOrAdmissionNo: lecturer.staffId || lecturer.id,
+        idOrAdmissionNo: humanId,
+        username: humanId,
+        staffId: humanId,
         temporaryPasscode: lecturer.temporaryPasscode,
         role: lecturer.department || 'Faculty Staff',
         department: lecturer.department || 'Academic Faculty',
-        email: lecturer.email
+        email: lecturer.email,
+        isEmailConfigured: !!lecturer.email
       });
     }
   } catch (err) {
@@ -1225,10 +1243,25 @@ Zenti Library Services`;
         attendance: {},
       },
     ]);
-  } catch (err) {
-    console.error("Error creating student:", err);
-  }
-};
+
+    if (createdStudent.temporaryPasscode) {
+      const humanId = pickLoginIdentifier(createdStudent.admissionNo, newStud.admissionNo) || `ADM-${Date.now()}`;
+      showRegistrationModal({
+        name: createdStudent.name,
+        idOrAdmissionNo: humanId,
+        username: humanId,
+        admissionNo: humanId,
+        temporaryPasscode: createdStudent.temporaryPasscode,
+        role: 'Undergraduate Student',
+        department: createdStudent.department || 'Academic Affairs',
+        email: createdStudent.email,
+        isEmailConfigured: !!createdStudent.email
+      });
+    }
+    } catch (err) {
+      console.error("Error creating student:", err);
+    }
+  };
   // 15d. SYSTEM DELETE LECTURER OR FAULTY CODES
   const handleDeleteLecturer = async (lecturerId: string) => {
     const response = await fetch(`/api/archive/lecturer/${lecturerId}`, { method: 'POST' });
@@ -1416,7 +1449,38 @@ Zenti Library Services`;
 
       {/* CORE WORKSPACE ENTRY ROUTING */}
       <main className="flex-1 flex flex-col">
-        {currentPath === '/showcase' ? (
+        {getPendingPasswordChange() ? (
+          <ChangePasswordPage
+            initialIdentifier={getPendingPasswordChange()?.identifier}
+            initialRole={getPendingPasswordChange()?.role}
+            initialEmail={getPendingPasswordChange()?.email}
+            onSuccess={(role, userId) => {
+              clearPendingPasswordChange();
+              setSessionExpiredMessage('');
+              if (role === 'lecturer') {
+                const targetLecturer = lecturers.find(l => l.id === userId);
+                if (targetLecturer?.isAccountant) {
+                  setCurrentUserRole('accountant');
+                  setCurrentUserId(userId);
+                  window.history.pushState({}, '', '/');
+                  setCurrentPath('/');
+                  return;
+                }
+              }
+              setCurrentUserRole(role);
+              setCurrentUserId(userId);
+              window.history.pushState({}, '', '/');
+              setCurrentPath('/');
+            }}
+            onCancel={() => {
+              clearPendingPasswordChange();
+              setCurrentUserRole(null);
+              setCurrentUserId('');
+              window.history.pushState({}, '', '/login');
+              setCurrentPath('/login');
+            }}
+          />
+        ) : currentPath === '/showcase' ? (
           <DashboardShowcase 
             students={students}
             lecturers={lecturers}

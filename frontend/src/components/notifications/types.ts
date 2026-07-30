@@ -46,6 +46,10 @@ export interface RegistrationCredentials {
   role?: string;
   department?: string;
   email?: string;
+  username?: string;
+  admissionNo?: string;
+  staffId?: string;
+  isEmailConfigured?: boolean;
 }
 
 export interface LoadingOptions {

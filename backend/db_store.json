@@ -97,45 +97,28 @@
       "description": "[Scholarship Approved] Bursary Award"
     }
   ],
-  "students": [
-    {
-      "id": "e813718a-ad15-4175-b5d5-1a9dd900bb41",
-      "name": "Erick Mukui",
-      "email": "mukui@zenti.edu",
-      "phone": "0113876776",
-      "admissionNo": "ADM-001",
-      "cohort": "2026",
-      "programme": "Computer Science",
-      "department": "Information Technology",
-      "accountStatus": "Pending Setup",
-      "createdAt": "2026-07-30 05:48:29.671806+00",
-      "enrolledUnits": [
-        "BDS"
-      ],
-      "grades": {},
-      "ledger": [],
-      "payments": [],
-      "attendance": {}
-    }
-  ],
+  "students": [],
   "inventory": [],
   "lecturers": [
     {
-      "id": "9ae9e9c8-9ff0-4e40-ad6a-c5057bcefa58",
+      "id": "09140292-7e95-453d-9f80-8f61c1419222",
       "name": "mercy mueni",
       "email": "mueni@zenti.edu",
-      "phone": "0773467561",
-      "hourlyRate": "60.00",
-      "loggedHours": "80.00",
-      "bankDetails": "Equity Bank Kenya - 0495093467 (Nairobi Central)",
+      "phone": "0797655342",
+      "hourlyRate": 60,
+      "loggedHours": 80,
+      "bankDetails": "Equity Bank Kenya - 04075745654 (Nairobi Central)",
       "contractLength": "Permanent",
       "designatorCode": "STF-2026-001",
-      "bio": null,
+      "bio": "",
       "avatar": "",
       "isActive": true,
       "isAccountant": false,
       "isLibrarian": false,
-      "temporaryPasscode": "eb27fff18487"
+      "subjects": [],
+      "publications": [],
+      "researchInterests": [],
+      "officeHours": []
     }
   ],
   "examPapers": [],
