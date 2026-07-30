@@ -10,7 +10,7 @@ import crypto from "crypto";
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { createCorsMiddleware } from "./src/cors.ts";
-import { db } from "./src/db/index.ts";
+import { db, closePool } from "./src/db/index.ts";
 import { runMigrations } from "./src/db/migrate.ts";
 import {
   systemState,
@@ -583,14 +583,47 @@ const THROTTLE_LIMIT = 5000;
 let syncFailureCount = 0;
 let isSyncPausedUntil = 0;
 
+function isTransientDbError(err: any): boolean {
+  if (!err) return false;
+  const msg = (err.message || err.toString() || '').toLowerCase();
+  const code = err.code || err.errno;
+
+  const transientCodes = [
+    'ETIMEDOUT', 'ECONNRESET', 'EPIPE', '57P01', '57P02',
+    '08006', '08003', '08001', '08004', '57000', -110
+  ];
+  if (transientCodes.includes(code)) return true;
+
+  const transientPhrases = [
+    'connection terminated',
+    'connection timeout',
+    'connection terminated unexpectedly',
+    'timeout',
+    'socket hang up',
+    'terminating connection',
+    'could not connect',
+    'drizzlequeryerror',
+    'econnreset',
+    'etimedout'
+  ];
+
+  return transientPhrases.some(phrase => msg.includes(phrase));
+}
+
 async function performDatabaseSync(dbState: any): Promise<void> {
   isSavingFullState = true;
   lastSaveTime = Date.now();
 
+  const maxAttempts = 3;
+  let attempt = 0;
+
   try {
-    const tx = db;
-    // await db.transaction(async (tx) => {
-    // 1. Courses
+    while (attempt < maxAttempts) {
+      attempt++;
+      try {
+        const tx = db;
+        // await db.transaction(async (tx) => {
+        // 1. Courses
     if (dbState.courses) {
       // State sync is upsert-only: omitted IDs may be archived records.
       for (const c of dbState.courses) {
@@ -1225,12 +1258,23 @@ async function performDatabaseSync(dbState: any): Promise<void> {
       });
 
     syncFailureCount = 0; // Reset on successful write
-  } catch (err: any) {
-    syncFailureCount++;
-    const backoffDelay = Math.min(30000 * Math.pow(2, syncFailureCount - 1), 300000);
-    isSyncPausedUntil = Date.now() + backoffDelay;
-    console.error(`[DB TUNER] Relational database synchronization failed (${syncFailureCount} consecutive failures). Pausing database writes for ${backoffDelay / 1000} seconds. Error:`, err);
-    throw err;
+        break; // Exit retry loop on successful completion
+      } catch (err: any) {
+        const isTransient = isTransientDbError(err);
+        if (isTransient && attempt < maxAttempts) {
+          const retryDelay = Math.pow(2, attempt - 1) * 1000;
+          console.warn(`[DB Sync] Transient DB disconnect/timeout on attempt ${attempt}/${maxAttempts} (${err?.message || err}). Retrying in ${retryDelay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+          continue;
+        }
+
+        syncFailureCount++;
+        const backoffDelay = Math.min(30000 * Math.pow(2, syncFailureCount - 1), 300000);
+        isSyncPausedUntil = Date.now() + backoffDelay;
+        console.error(`[DB TUNER] Relational database synchronization failed (${syncFailureCount} consecutive failures). Pausing database writes for ${backoffDelay / 1000} seconds. Error:`, err);
+        throw err;
+      }
+    }
   } finally {
     isSavingFullState = false;
     if (pendingSaveState) {
@@ -1285,8 +1329,8 @@ export async function saveFullDatabaseState(dbState: any): Promise<void> {
 // Helper to initialize database state directly from PostgreSQL
 async function initPostgresDB() {
   try {
-    if (!process.env.SQL_HOST || !process.env.SQL_PASSWORD || !process.env.SQL_USER || !process.env.SQL_DB_NAME) {
-      throw new Error("Missing database environment variables (SQL_HOST, SQL_PASSWORD, SQL_USER, or SQL_DB_NAME). Please configure your local .env file.");
+    if (!process.env.DATABASE_URL && (!process.env.SQL_HOST || !process.env.SQL_PASSWORD || !process.env.SQL_USER || !process.env.SQL_DB_NAME)) {
+      throw new Error("Missing database environment variables (DATABASE_URL or SQL_HOST, SQL_PASSWORD, SQL_USER, or SQL_DB_NAME). Please configure your local .env file.");
     }
     cachedDb = await loadFullDatabaseState();
     console.log("Successfully loaded database state from PostgreSQL!");
@@ -5974,7 +6018,7 @@ function registerShutdownHandlers() {
     if (isShuttingDown) return;
     isShuttingDown = true;
     console.log(
-      `Received ${signal}; closing HTTP listener (pid=${process.pid}, port=${PORT})`
+      `Received ${signal}; closing HTTP listener and database pool (pid=${process.pid}, port=${PORT})`
     );
     try {
       await closeHttpServer();
@@ -5982,11 +6026,17 @@ function registerShutdownHandlers() {
     } catch (err) {
       console.error(`Error while closing HTTP listener:`, err);
     }
+    try {
+      await closePool();
+    } catch (err) {
+      console.error(`Error while closing database connection pool:`, err);
+    }
     process.exit(0);
   };
 
   process.once("SIGTERM", () => void shutdown("SIGTERM"));
   process.once("SIGINT", () => void shutdown("SIGINT"));
+  process.once("SIGUSR2", () => void shutdown("SIGUSR2"));
 }
 
 async function bindHttpServer(): Promise<"newly-started" | "reused"> {

@@ -29,6 +29,17 @@
   "loans": [],
   "courses": [
     {
+      "id": "3515c26b-f0bd-4494-8ba0-e70f53affd73",
+      "code": "BDS",
+      "title": "Bachelor of Data Science",
+      "description": "Focuses on statistics, machine learning, big data analytics, artificial intelligence, and data engineering.",
+      "duration": "4 Years",
+      "fees": 520000,
+      "thumbnail": "",
+      "faculty": "School of Computing and Informatics",
+      "active": true
+    },
+    {
       "id": "6ab1051c-03f9-4293-9cde-d50daa8f1c7e",
       "code": "BIT",
       "title": "Bachelor of Information Technology",
@@ -71,17 +82,6 @@
       "thumbnail": "",
       "faculty": "School of Computing and Informatics",
       "active": true
-    },
-    {
-      "id": "3515c26b-f0bd-4494-8ba0-e70f53affd73",
-      "code": "BDS",
-      "title": "Bachelor of Data Science",
-      "description": "Focuses on statistics, machine learning, big data analytics, artificial intelligence, and data engineering.",
-      "duration": "4 Years",
-      "fees": 520000,
-      "thumbnail": "",
-      "faculty": "School of Computing and Informatics",
-      "active": true
     }
   ],
   "reviews": [],
@@ -121,28 +121,21 @@
   "inventory": [],
   "lecturers": [
     {
-      "id": "c40008df-40cf-4e8d-93f5-aec7287907f5",
-      "name": "Mercy Mueni",
-      "email": "mueni@zenti.edu.ke",
-      "phone": "+25477664651",
-      "hourlyRate": 2000,
-      "loggedHours": 8,
-      "bankDetails": "Equity Bank Kenya - 054-9063468513 (Nairobi Central)",
+      "id": "9ae9e9c8-9ff0-4e40-ad6a-c5057bcefa58",
+      "name": "mercy mueni",
+      "email": "mueni@zenti.edu",
+      "phone": "0773467561",
+      "hourlyRate": "60.00",
+      "loggedHours": "80.00",
+      "bankDetails": "Equity Bank Kenya - 0495093467 (Nairobi Central)",
       "contractLength": "Permanent",
       "designatorCode": "STF-2026-001",
-      "bio": "",
+      "bio": null,
       "avatar": "",
       "isActive": true,
       "isAccountant": false,
       "isLibrarian": false,
-      "subjects": [
-        "BCS",
-        "BSE",
-        "BDS"
-      ],
-      "publications": [],
-      "researchInterests": [],
-      "officeHours": []
+      "temporaryPasscode": "eb27fff18487"
     }
   ],
   "examPapers": [],
@@ -203,18 +196,7 @@
   ],
   "libraryGateLogs": [],
   "teacherResources": [],
-  "attendanceSessions": [
-    {
-      "id": "546b88de-791e-47fc-85d0-3a35e078b00a",
-      "date": "2026-07-26",
-      "subjectCode": "BCS",
-      "presentStudents": [
-        "351d378f-ce47-4f2f-bfa8-a8956982d577"
-      ],
-      "absentStudents": [],
-      "lecturerId": "c40008df-40cf-4e8d-93f5-aec7287907f5"
-    }
-  ],
+  "attendanceSessions": [],
   "passwordResetRequests": [
     {
       "id": "64b3376a-067b-324d-c424-b46611c3959e",
