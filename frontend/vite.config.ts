@@ -12,7 +12,7 @@ export default defineConfig(() => {
       },
     },
     server: {
-      port: 8000,
+      port: 3000,
       strictPort: true,
       allowedHosts: true as const,
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
@@ -24,7 +24,7 @@ export default defineConfig(() => {
       },
       proxy: {
         '/api': {
-          target: 'http://localhost:3000',
+          target: 'http://localhost:8000',
           changeOrigin: true,
           secure: false,
         },

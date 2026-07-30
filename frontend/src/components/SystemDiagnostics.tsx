@@ -162,7 +162,7 @@ export default function SystemDiagnostics({
     // Initial logs
     setLogs([
       { id: '1', timestamp: new Date(now.getTime() - 10000).toLocaleTimeString(), type: 'system', message: 'Diagnostics engine initialized successfully.' },
-      { id: '2', timestamp: new Date(now.getTime() - 8000).toLocaleTimeString(), type: 'info', message: 'API Gateway binding to 0.0.0.0:3000 completed.' },
+      { id: '2', timestamp: new Date(now.getTime() - 8000).toLocaleTimeString(), type: 'info', message: 'API Gateway binding to 0.0.0.0:8000 completed.' },
       { id: '3', timestamp: new Date(now.getTime() - 4000).toLocaleTimeString(), type: 'success', message: 'Database connection pool verified (active: 8, idle: 92).' },
     ]);
   }, []);
@@ -873,7 +873,7 @@ export default function SystemDiagnostics({
                 <Server className="w-4 h-4 text-indigo-500" />
                 <div>
                   <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">Nginx Proxy Router</span>
-                  <span className="text-[10px] text-slate-400 block font-mono">Reverse proxy bounding port 3000</span>
+                  <span className="text-[10px] text-slate-400 block font-mono">Reverse proxy forwarding to port 8000</span>
                 </div>
               </div>
               <span className="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 font-mono uppercase">

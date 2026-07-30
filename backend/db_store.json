@@ -29,6 +29,17 @@
   "loans": [],
   "courses": [
     {
+      "id": "6ab1051c-03f9-4293-9cde-d50daa8f1c7e",
+      "code": "BIT",
+      "title": "Bachelor of Information Technology",
+      "description": "A programme covering software development, cloud computing, networking, web technologies, and IT infrastructure management.",
+      "duration": "4 Years",
+      "fees": 450000,
+      "thumbnail": "",
+      "faculty": "School of Computing and Informatics",
+      "active": true
+    },
+    {
       "id": "3e6160cc-f3c9-4746-b17e-ed8855e7da32",
       "code": "BBIT",
       "title": "Bachelor of Business Information Technology",
@@ -71,17 +82,6 @@
       "thumbnail": "",
       "faculty": "School of Computing and Informatics",
       "active": true
-    },
-    {
-      "id": "6ab1051c-03f9-4293-9cde-d50daa8f1c7e",
-      "code": "BIT",
-      "title": "Bachelor of Information Technology",
-      "description": "A programme covering software development, cloud computing, networking, web technologies, and IT infrastructure management.",
-      "duration": "4 Years",
-      "fees": 450000,
-      "thumbnail": "",
-      "faculty": "School of Computing and Informatics",
-      "active": true
     }
   ],
   "reviews": [],
@@ -107,10 +107,11 @@
       "cohort": "2026",
       "programme": "Computer Science",
       "department": "Information Technology",
-      "avatar": null,
       "accountStatus": "Pending Setup",
       "createdAt": "2026-07-30 05:48:29.671806+00",
-      "enrolledUnits": [],
+      "enrolledUnits": [
+        "BDS"
+      ],
       "grades": {},
       "ledger": [],
       "payments": [],
@@ -118,32 +119,7 @@
     }
   ],
   "inventory": [],
-  "lecturers": [
-    {
-      "id": "c40008df-40cf-4e8d-93f5-aec7287907f5",
-      "name": "Mercy Mueni",
-      "email": "mueni@zenti.edu.ke",
-      "phone": "+25477664651",
-      "hourlyRate": 2000,
-      "loggedHours": 8,
-      "bankDetails": "Equity Bank Kenya - 054-9063468513 (Nairobi Central)",
-      "contractLength": "Permanent",
-      "designatorCode": "STF-2026-001",
-      "bio": "",
-      "avatar": "",
-      "isActive": true,
-      "isAccountant": false,
-      "isLibrarian": false,
-      "subjects": [
-        "BCS",
-        "BSE",
-        "BDS"
-      ],
-      "publications": [],
-      "researchInterests": [],
-      "officeHours": []
-    }
-  ],
+  "lecturers": [],
   "examPapers": [],
   "bookReviews": [],
   "testimonies": [],
@@ -152,15 +128,6 @@
   "requisitions": [],
   "reservations": [],
   "notifications": [
-    {
-      "id": "2fe609d8-12d2-44a3-b6fb-0e0d5e80a812",
-      "targetUserRole": "all",
-      "type": "library",
-      "title": " [Grade Posted] New Grade for Unit BDS",
-      "message": "james maina (james.maina@zenti.edu): Dear james maina,",
-      "status": "unread",
-      "dateTime": "2026-07-28 11:05:19+00"
-    },
     {
       "id": "56ce593d-d574-4eaa-bd39-3e0088504fa6",
       "targetUserRole": "all",
@@ -187,6 +154,15 @@
       "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
       "status": "unread",
       "dateTime": "2026-07-26 12:15:22+00"
+    },
+    {
+      "id": "2fe609d8-12d2-44a3-b6fb-0e0d5e80a812",
+      "targetUserRole": "all",
+      "type": "library",
+      "title": " [Grade Posted] New Grade for Unit BDS",
+      "message": "james maina (james.maina@zenti.edu): Dear james maina,",
+      "status": "unread",
+      "dateTime": "2026-07-28 11:05:19+00"
     }
   ],
   "student_ledger": [

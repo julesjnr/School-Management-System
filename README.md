@@ -98,7 +98,8 @@ The system supports five roles, each with its own dashboard and permissions:
    ```bash
    npm run dev
    ```
-   - Backend runs on `http://localhost:3000`
+   - Frontend runs on `http://localhost:3000`
+   - Backend API runs on `http://localhost:8000`
    - Frontend runs on Vite's dev server, proxying API calls to the backend
 
 ## Useful scripts
@@ -140,4 +141,3 @@ Full data model (tables, keys, and constraints) is documented in `backend/databa
 3. Run the app:   `npm install`
 2. Set 
    `npm run dev`
-

@@ -179,12 +179,11 @@ export default function StudentRecordsTable({ onUpdateStudent, refetchTrigger = 
     try {
       const res = await fetch(`/api/students/${studentId}/reset-password`, {
         method: 'POST',
-        headers: { 'x-user-role': 'admin' },
       });
+      const data = await res.json().catch(() => null);
       if (!res.ok) {
-        throw new Error('Failed to reset passcode');
+        throw new Error(data?.error || `Unable to reset passcode (HTTP ${res.status}).`);
       }
-      const data = await res.json();
       const code = data.temporaryPasscode || data.passcode;
       if (!code) throw new Error('The authentication service did not issue a temporary credential.');
       

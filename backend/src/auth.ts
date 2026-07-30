@@ -26,6 +26,18 @@ export function verifyPassword(input: string, stored: string): boolean {
   return bcrypt.compareSync(input, stored);
 }
 
+/** An expected, safe-to-return failure from an administrator password reset. */
+export class PasswordResetError extends Error {
+  constructor(
+    public readonly statusCode: number,
+    public readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'PasswordResetError';
+  }
+}
+
 export function getDefaultPasswordForRole(role: string): string {
   const envKeyByRole: Record<string, string | undefined> = {
     student: process.env.DEFAULT_STUDENT_PASSWORD,
@@ -87,29 +99,24 @@ export async function findUserByIdentifier(identifier: string, roleHint?: string
   if (!identifier) return null;
   const cleanId = identifier.trim().toLowerCase();
 
-  try {
-    const records = await db.execute(sql`
-      SELECT * FROM users 
-      WHERE LOWER(username) = ${cleanId}
-         OR LOWER(email) = ${cleanId}
-         OR (role_id IS NOT NULL AND LOWER(role_id) = ${cleanId})
-         OR (uid IS NOT NULL AND LOWER(uid) = ${cleanId})
-      LIMIT 5
-    `);
+  const records = await db.execute(sql`
+    SELECT * FROM users
+    WHERE LOWER(username) = ${cleanId}
+       OR LOWER(email) = ${cleanId}
+       OR (role_id IS NOT NULL AND LOWER(role_id) = ${cleanId})
+       OR (uid IS NOT NULL AND LOWER(uid) = ${cleanId})
+    LIMIT 5
+  `);
 
-    const rows: any[] = records.rows || [];
-    if (rows.length === 0) return null;
+  const rows: any[] = records.rows || [];
+  if (rows.length === 0) return null;
 
-    if (roleHint && rows.length > 1) {
-      const matchedByRole = rows.find((r: any) => r.role === roleHint);
-      if (matchedByRole) return matchedByRole;
-    }
-
-    return rows[0];
-  } catch (err) {
-    console.error("Error querying users table by identifier:", err);
-    return null;
+  if (roleHint && rows.length > 1) {
+    const matchedByRole = rows.find((r: any) => r.role === roleHint);
+    if (matchedByRole) return matchedByRole;
   }
+
+  return rows[0];
 }
 
 /**
@@ -508,4 +515,93 @@ export async function adminResetUserPassword(
   `);
 
   return { success: true, temporaryPasscode: tempPass };
+}
+
+/**
+ * Resets a student credential against the relational source of truth.
+ *
+ * Student profile status and the matching authentication record are updated in one
+ * transaction, so a response is only successful when the generated credential can
+ * actually be used to sign in.
+ */
+export async function resetStudentPassword(
+  studentId: string,
+): Promise<{ temporaryPasscode: string }> {
+  if (!studentId || !studentId.trim()) {
+    throw new PasswordResetError(400, 'STUDENT_ID_REQUIRED', 'Student ID is required.');
+  }
+
+  const normalizedStudentId = studentId.trim();
+
+  return db.transaction(async (tx) => {
+    const studentRows = await tx
+      .select({
+        id: students.id,
+        admissionNo: students.admissionNo,
+        email: students.email,
+      })
+      .from(students)
+      .where(eq(students.id, normalizedStudentId))
+      .limit(2);
+
+    if (studentRows.length === 0) {
+      throw new PasswordResetError(404, 'STUDENT_NOT_FOUND', 'Student record was not found.');
+    }
+    if (studentRows.length > 1) {
+      throw new PasswordResetError(409, 'DUPLICATE_STUDENT_RECORDS', 'Multiple student records match this ID.');
+    }
+
+    const student = studentRows[0];
+    const accountResult = await tx.execute(sql`
+      SELECT id
+      FROM users
+      WHERE role = 'student'
+        AND (
+          role_id = ${student.id}
+          OR uid = ${student.admissionNo}
+          OR LOWER(username) = LOWER(${student.admissionNo})
+          OR LOWER(email) = LOWER(${student.email})
+        )
+      LIMIT 2
+    `);
+    const accounts: Array<{ id: number }> = accountResult.rows as Array<{ id: number }>;
+
+    if (accounts.length === 0) {
+      throw new PasswordResetError(
+        404,
+        'AUTH_ACCOUNT_NOT_FOUND',
+        'This student has no linked authentication account. Create or repair the account before resetting its password.',
+      );
+    }
+    if (accounts.length > 1) {
+      throw new PasswordResetError(
+        409,
+        'DUPLICATE_AUTH_ACCOUNTS',
+        'Multiple authentication accounts match this student. Resolve the duplicate accounts before resetting the password.',
+      );
+    }
+
+    const temporaryPasscode = `ZENTI-${crypto.randomInt(100000, 1000000)}`;
+    const passwordHash = hashPassword(temporaryPasscode);
+    const updatedAccounts = await tx
+      .update(users)
+      .set({
+        passwordHash,
+        mustChangePassword: true,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(users.id, accounts[0].id))
+      .returning({ id: users.id });
+
+    if (updatedAccounts.length !== 1) {
+      throw new PasswordResetError(500, 'AUTH_ACCOUNT_UPDATE_FAILED', 'The authentication account could not be updated.');
+    }
+
+    await tx
+      .update(students)
+      .set({ accountStatus: 'Pending Setup' })
+      .where(eq(students.id, student.id));
+
+    return { temporaryPasscode };
+  });
 }

@@ -391,8 +391,8 @@ export default function AdminDashboard({
       const res = await fetch(`/api/students/${studentId}/reset-password`, {
         method: 'POST'
       });
+      const data = await res.json().catch(() => null);
       if (res.ok) {
-        const data = await res.json();
         if (data.success && data.temporaryPasscode) {
           setResetModalData({
             isOpen: true,
@@ -414,7 +414,7 @@ export default function AdminDashboard({
           triggerToast(data.error || 'Failed to reset password.', 'error');
         }
       } else {
-        triggerToast('Failed to reset student password.', 'error');
+        triggerToast(data?.error || `Unable to reset student password (HTTP ${res.status}).`, 'error');
       }
     } catch (err) {
       console.error(err);

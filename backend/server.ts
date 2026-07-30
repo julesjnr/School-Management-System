@@ -65,6 +65,8 @@ import {
   authenticateUser,
   changeUserPassword,
   adminResetUserPassword,
+  PasswordResetError,
+  resetStudentPassword,
   findUserByIdentifier,
 } from "./src/auth.ts";
 
@@ -79,7 +81,7 @@ import {
 } from "./src/data";
 
 const app = express();
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = Number(process.env.PORT) || 8000;
 
 // Set up larger limit for full state synchronizations
 app.use(express.json({ limit: "20mb" }));
@@ -1319,8 +1321,9 @@ function saveDatabase(dbState: any) {
 // Role-Based Access Control (RBAC) Protection Middleware
 function checkRBAC(allowedRoles: string[]) {
   return (req: any, res: any, next: any) => {
-    // Only trust the verified role propagated from the JWT token header
-    const userRole = req.headers["x-user-role"] || req.user?.role;
+    // The global /api middleware verifies the JWT before protected routes run.
+    // Never authorize this action from a client-controlled role header.
+    const userRole = req.user?.role;
 
     if (!userRole) {
       return res.status(403).json({
@@ -1555,14 +1558,21 @@ app.use("/api", (req: any, res: any, next: any) => {
   const lecturerLookupProtected =
     relativePath.startsWith("/api/lecturer/student-lookup") ||
     relativePath.startsWith("/api/lecturer/students");
+  const isPublicStudentRoute =
+    relativePath === "/api/student" || relativePath.startsWith("/api/student/");
+  const isPublicLecturerRoute =
+    relativePath === "/api/lecturer" || relativePath.startsWith("/api/lecturer/");
+  const isPublicEnrollmentRoute =
+    relativePath === "/api/student-enrollments" ||
+    relativePath.startsWith("/api/student-enrollments/");
 
   const isPublic =
     !lecturerLookupProtected &&
     (publicAPIPaths.includes(fullPath) ||
       publicAPIPaths.includes(relativePath) ||
-      relativePath.startsWith("/api/student") ||
-      relativePath.startsWith("/api/lecturer") ||
-      relativePath.startsWith("/api/student-enrollments"));
+      isPublicStudentRoute ||
+      isPublicLecturerRoute ||
+      isPublicEnrollmentRoute);
   if (isPublic) {
     return next();
   }
@@ -3997,51 +4007,63 @@ app.delete(["/api/admin/users/:id", "/api/admin/users/[id]", "/api/students/:id"
 });
 
 // Admin Route: Generate temporary activation credentials / password reset
-app.post("/api/students/:id/reset-password", checkRBAC(["admin"]), async (req, res) => {
+app.post("/api/students/:id/reset-password", checkRBAC(["admin"]), async (req: any, res: any) => {
+  const studentId = typeof req.params.id === 'string' ? req.params.id.trim() : '';
+  const requestId = crypto.randomUUID();
+
   try {
-    const studentId = req.params.id;
     if (!studentId) {
-      return res.status(400).json({ error: "Student ID required" });
-    }
-
-    const dbVal = getDatabase();
-    const studentIdx = (dbVal.students || []).findIndex((s: any) => s.id === studentId);
-    if (studentIdx === -1) {
-      return res.status(404).json({ error: "Student not found" });
-    }
-
-    const student = dbVal.students[studentIdx];
-
-    // Generate a temporary, single-use activation credential and write it to the `users`
-    // table - the only place credentials live. Writing it onto the student profile (as this
-    // route used to) hit a dropped column, so the generated passcode never worked.
-    const temporaryPasscode = "ZENTI-" + Math.floor(100000 + Math.random() * 900000).toString();
-    const resetResult = await adminResetUserPassword(
-      student.admissionNo || student.email || studentId,
-      temporaryPasscode
-    );
-
-    if (!resetResult.success) {
-      return res.status(404).json({
+      return res.status(400).json({
         success: false,
-        error: resetResult.error || "No user account is linked to this student profile."
+        code: 'STUDENT_ID_REQUIRED',
+        error: 'Student ID is required.',
       });
     }
 
-    // Flag the profile as awaiting first-login setup
-    dbVal.students[studentIdx].accountStatus = "Pending Setup";
-    saveDatabase(dbVal);
+    // The student identifier is deliberately supplied only in the route path.
+    // Reject payloads so a client cannot accidentally target a different account
+    // through a body field that the endpoint would otherwise ignore.
+    if (req.body && Object.keys(req.body).length > 0) {
+      return res.status(400).json({
+        success: false,
+        code: 'REQUEST_BODY_NOT_ALLOWED',
+        error: 'This endpoint does not accept a request body; provide the student ID in the URL.',
+      });
+    }
 
-    res.status(200).json({
+    const { temporaryPasscode } = await resetStudentPassword(studentId);
+
+    return res.status(200).json({
       success: true,
       message: "Student passcode reset successfully.",
       temporaryPasscode
     });
   } catch (error: any) {
-    console.error("Password reset failed:", error);
-    res.status(500).json({
-      error: error.message,
+    const isExpected = error instanceof PasswordResetError;
+    const databaseErrorCode = error?.code || error?.cause?.code;
+    const databaseErrorMessage = `${error?.message || ''} ${error?.cause?.message || ''}`.toLowerCase();
+    const databaseUnavailable =
+      ['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', '57P01', '57P02'].includes(databaseErrorCode) ||
+      databaseErrorMessage.includes('connection terminated') ||
+      databaseErrorMessage.includes('connection timeout') ||
+      databaseErrorMessage.includes('timeout expired');
+    const status = isExpected ? error.statusCode : databaseUnavailable ? 503 : 500;
+    const code = isExpected ? error.code : databaseUnavailable ? 'DATABASE_UNAVAILABLE' : 'PASSWORD_RESET_FAILED';
+    const message = isExpected
+      ? error.message
+      : databaseUnavailable
+        ? 'The database is temporarily unavailable. Please try again shortly.'
+        : 'Unable to reset the student password. Please contact an administrator.';
+
+    console.error('[password-reset] Request failed', {
+      requestId,
+      studentId: studentId || undefined,
+      administratorId: req.user?.userId,
+      code,
+      error: error?.message,
+      databaseCode: databaseErrorCode,
     });
+    return res.status(status).json({ success: false, code, error: message });
   }
 });
 
