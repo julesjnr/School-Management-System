@@ -125,7 +125,7 @@
         "BDS": {
           "cat": 14,
           "exam": 56,
-          "gradedAt": "2026-08-03 09:54:44.393919+00"
+          "gradedAt": "2026-08-03 10:35:27.622863+00"
         }
       },
       "ledger": [
@@ -210,6 +210,15 @@
   "reservations": [],
   "notifications": [
     {
+      "id": "2fe609d8-12d2-44a3-b6fb-0e0d5e80a812",
+      "targetUserRole": "all",
+      "type": "library",
+      "title": " [Grade Posted] New Grade for Unit BDS",
+      "message": "james maina (james.maina@zenti.edu): Dear james maina,",
+      "status": "unread",
+      "dateTime": "2026-07-28 11:05:19+00"
+    },
+    {
       "id": "56ce593d-d574-4eaa-bd39-3e0088504fa6",
       "targetUserRole": "all",
       "type": "payment",
@@ -253,15 +262,6 @@
       "message": "Brian Otieno (brian.otieno@zenti.edu): Dear Brian Otieno,",
       "status": "unread",
       "dateTime": "2026-07-30 13:47:44+00"
-    },
-    {
-      "id": "2fe609d8-12d2-44a3-b6fb-0e0d5e80a812",
-      "targetUserRole": "all",
-      "type": "library",
-      "title": " [Grade Posted] New Grade for Unit BDS",
-      "message": "james maina (james.maina@zenti.edu): Dear james maina,",
-      "status": "unread",
-      "dateTime": "2026-07-28 11:05:19+00"
     }
   ],
   "student_ledger": [
