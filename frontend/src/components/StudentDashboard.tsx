@@ -2194,6 +2194,7 @@ export default function StudentDashboard({
             onRegisterUnit={onRegisterUnit}
             onDeregisterUnit={onDeregisterUnit}
             subjectMap={subjectMap}
+            studentProgramme={student.programme || student.department || student.cohort}
           />
         )}
 

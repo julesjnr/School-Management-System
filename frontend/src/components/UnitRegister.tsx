@@ -42,6 +42,25 @@ export interface EnrolledUnit {
   completionPercentage: number | null;
 }
 
+export interface ModuleItem {
+  code: string;
+  title: string;
+  programmeTags: string[];
+  semester: string;
+  credits: number;
+}
+
+export const CURRICULUM_MODULES: ModuleItem[] = [
+  { code: 'DS-202-ML', title: 'Intro to Machine Learning (DS)', programmeTags: ['Data Science', 'BDS', 'DS'], semester: 'Semester 1', credits: 3 },
+  { code: 'DS-202-Stats', title: 'Computational Statistics (DS)', programmeTags: ['Data Science', 'BDS', 'DS'], semester: 'Semester 1', credits: 3 },
+  { code: 'CS-101-Web', title: 'Web Technologies II (CS)', programmeTags: ['Computer Science', 'BCS', 'CS', 'Information Technology', 'BIT'], semester: 'Semester 1', credits: 3 },
+  { code: 'CS-101-Algo', title: 'Design & Analysis of Algorithms (CS)', programmeTags: ['Computer Science', 'BCS', 'CS', 'Software Engineering', 'BSE'], semester: 'Semester 1', credits: 3 },
+  { code: 'CYBER-310-Crypto', title: 'Applied Cryptography & Signatures (CYBER)', programmeTags: ['Cybersecurity', 'CYBER', 'Computer Science', 'BCS'], semester: 'Semester 1', credits: 3 },
+  { code: 'EE-201-Circuits', title: 'Analog Circuit Analysis (EE)', programmeTags: ['Electrical Engineering', 'EE'], semester: 'Semester 1', credits: 3 },
+  { code: 'BIT1101', title: 'Database Systems & Management', programmeTags: ['Information Technology', 'BIT', 'Business Information Technology', 'BBIT'], semester: 'Semester 1', credits: 3 },
+  { code: 'BSE1101', title: 'Software Requirement Engineering', programmeTags: ['Software Engineering', 'BSE'], semester: 'Semester 1', credits: 3 },
+];
+
 interface UnitRegisterProps {
   studentId: string;
   allCourses: Course[];
@@ -49,11 +68,37 @@ interface UnitRegisterProps {
   onRegisterUnit?: (unitCode: string) => Promise<void> | void;
   onDeregisterUnit?: (unitCode: string) => Promise<void> | void;
   subjectMap?: Record<string, string>;
+  studentProgramme?: string;
+}
+
+function formatLecturerName(name: string): string {
+  if (!name || name.toLowerCase() === 'unassigned') return 'Unassigned';
+  return name
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
 }
 
 function resolveLecturerName(code: string, lecturers: Lecturer[]): string {
   const match = lecturers.find((l) => Array.isArray(l.subjects) && l.subjects.includes(code));
-  return match?.name || 'Unassigned';
+  return match?.name ? formatLecturerName(match.name) : 'Unassigned';
+}
+
+function resolveUnitName(code: string, rawTitle?: string, subjectMap: Record<string, string> = {}): string {
+  const catalogMatch = CURRICULUM_MODULES.find((m) => m.code === code);
+  if (catalogMatch) return catalogMatch.title;
+  if (subjectMap[code] && !subjectMap[code].startsWith('Bachelor of')) return subjectMap[code];
+  const programMap: Record<string, string> = {
+    'BDS': 'Intro to Machine Learning (DS)',
+    'BCS': 'Web Technologies II (CS)',
+    'BIT': 'Database Systems & Management',
+    'BBIT': 'Enterprise Systems & E-Commerce',
+    'BSE': 'Software Architecture & Design',
+  };
+  if (programMap[code]) return programMap[code];
+  if (rawTitle && !rawTitle.startsWith('Bachelor of')) return rawTitle;
+  return subjectMap[code] || code;
 }
 
 function registrationStatusLabel(registered: number, remaining: number): {
@@ -85,6 +130,7 @@ export const UnitRegister: React.FC<UnitRegisterProps> = ({
   onRegisterUnit,
   onDeregisterUnit,
   subjectMap = {},
+  studentProgramme,
 }) => {
   const { showError, showConfirm } = useNotification();
   const enrollSelectRef = useRef<HTMLSelectElement>(null);
@@ -194,14 +240,25 @@ export const UnitRegister: React.FC<UnitRegisterProps> = ({
     window.setTimeout(() => enrollSelectRef.current?.focus(), 280);
   };
 
-  const enrolledCodes = registeredUnits.map((u) => u.courseCode);
-  const unregisteredCourses = allCourses.filter((c) => !enrolledCodes.includes(c.code));
+  const normalizedProg = (studentProgramme || '').toLowerCase();
+  const matchedProgramModules = CURRICULUM_MODULES.filter((m) => {
+    if (!normalizedProg) return true;
+    return m.programmeTags.some((tag) => normalizedProg.includes(tag.toLowerCase()) || tag.toLowerCase().includes(normalizedProg));
+  });
+  const candidateModules = matchedProgramModules.length > 0 ? matchedProgramModules : CURRICULUM_MODULES;
+
+  const registeredCodes = registeredUnits.map((u) => u.courseCode);
+  const availableModules = candidateModules.filter((m) => {
+    if (registeredCodes.includes(m.code)) return false;
+    if (registeredCodes.includes('BDS') && m.code === 'DS-202-ML') return false;
+    return true;
+  });
 
   const registeredCount = registeredUnits.length;
   const creditHours = registeredCount * CREDITS_PER_UNIT;
-  const remainingUnits = Math.max(0, allCourses.length - registeredCount);
-  const progressPct =
-    allCourses.length > 0 ? Math.round((registeredCount / allCourses.length) * 100) : 0;
+  const totalProgramModules = candidateModules.length;
+  const remainingUnits = Math.max(0, totalProgramModules - registeredCount);
+  const progressPct = totalProgramModules > 0 ? Math.round((registeredCount / totalProgramModules) * 100) : 0;
   const status = registrationStatusLabel(registeredCount, remainingUnits);
 
   return (
@@ -331,14 +388,14 @@ export const UnitRegister: React.FC<UnitRegisterProps> = ({
             </p>
           </div>
 
-          {unregisteredCourses.length === 0 ? (
+          {availableModules.length === 0 ? (
             <div className="bg-emerald-50 text-emerald-800 p-3.5 rounded-xl border border-emerald-100 text-xs space-y-1">
               <span className="font-bold flex items-center gap-1.5">
                 <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
-                All curriculum units registered
+                No available modules
               </span>
               <span className="text-emerald-700/90 block">
-                No outstanding units remain for placement this intake season.
+                All available modules for your programme and semester are registered.
               </span>
             </div>
           ) : (
@@ -352,13 +409,13 @@ export const UnitRegister: React.FC<UnitRegisterProps> = ({
                   ref={enrollSelectRef}
                   value={selectedUnitCode}
                   onChange={(e) => setSelectedUnitCode(e.target.value)}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || availableModules.length === 0}
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 disabled:opacity-60"
                 >
                   <option value="">— Choose module —</option>
-                  {unregisteredCourses.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.code} — {c.title || subjectMap[c.code] || c.code}
+                  {availableModules.map((m) => (
+                    <option key={m.code} value={m.code}>
+                      {m.code} — {m.title}
                     </option>
                   ))}
                 </select>
@@ -420,7 +477,7 @@ export const UnitRegister: React.FC<UnitRegisterProps> = ({
               <p className="text-sm text-slate-500 mt-1.5 max-w-sm leading-relaxed">
                 Start your semester by enrolling in at least one curriculum module. Your selections will appear here as a live registration record.
               </p>
-              {unregisteredCourses.length > 0 && (
+              {availableModules.length > 0 && (
                 <button
                   type="button"
                   onClick={focusEnrollPanel}
@@ -458,8 +515,7 @@ export const UnitRegister: React.FC<UnitRegisterProps> = ({
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {registeredUnits.map((unit) => {
-                    const title =
-                      unit.courseTitle || subjectMap[unit.courseCode] || 'Unassigned Catalog Title';
+                    const unitName = resolveUnitName(unit.courseCode, unit.courseTitle, subjectMap);
                     const lecturerName = resolveLecturerName(unit.courseCode, lecturers);
                     return (
                       <tr
@@ -473,16 +529,14 @@ export const UnitRegister: React.FC<UnitRegisterProps> = ({
                         </td>
                         <td className="px-4 sm:px-5 py-3.5">
                           <span className="text-sm font-semibold text-slate-800 block leading-snug">
-                            {title}
+                            {unitName}
                           </span>
-                          {typeof unit.overallProgress === 'number' && (
-                            <span className="text-[11px] text-slate-400 mt-0.5 block">
-                              {unit.overallProgress}% academic progress
-                            </span>
-                          )}
+                          <span className="text-[11px] text-slate-500 mt-0.5 block font-medium">
+                            {unit.courseCode} • Semester 1 • {CREDITS_PER_UNIT} Credits
+                          </span>
                         </td>
-                        <td className="px-4 sm:px-5 py-3.5">
-                          <span className="inline-flex items-center gap-1.5 text-sm text-slate-600">
+                        <td className="px-4 sm:px-5 py-3.5 whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1.5 text-sm text-slate-600 whitespace-nowrap">
                             <UserRound className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                             {lecturerName}
                           </span>
@@ -522,3 +576,4 @@ export const UnitRegister: React.FC<UnitRegisterProps> = ({
 };
 
 export default UnitRegister;
+

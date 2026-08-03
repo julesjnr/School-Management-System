@@ -29,17 +29,6 @@
   "loans": [],
   "courses": [
     {
-      "id": "3e6160cc-f3c9-4746-b17e-ed8855e7da32",
-      "code": "BBIT",
-      "title": "Bachelor of Business Information Technology",
-      "description": "Integrates business management principles with information technology to prepare graduates for digital business environments.",
-      "duration": "4 Years",
-      "fees": 430000,
-      "thumbnail": "",
-      "faculty": "School of Business and Computing",
-      "active": true
-    },
-    {
       "id": "cfccd04f-89dd-45ac-977c-ab782636626a",
       "code": "BSE",
       "title": "Bachelor of Software Engineering",
@@ -82,6 +71,17 @@
       "thumbnail": "",
       "faculty": "School of Computing and Informatics",
       "active": true
+    },
+    {
+      "id": "3e6160cc-f3c9-4746-b17e-ed8855e7da32",
+      "code": "BBIT",
+      "title": "Bachelor of Business Information Technology",
+      "description": "Integrates business management principles with information technology to prepare graduates for digital business environments.",
+      "duration": "4 Years",
+      "fees": 430000,
+      "thumbnail": "",
+      "faculty": "School of Business and Computing",
+      "active": true
     }
   ],
   "reviews": [],
@@ -118,12 +118,14 @@
       "department": "Information Technology",
       "accountStatus": "Pending Setup",
       "createdAt": "2026-07-30 13:42:33.316045+00",
-      "enrolledUnits": [],
+      "enrolledUnits": [
+        "BDS"
+      ],
       "grades": {
         "BDS": {
           "cat": 14,
           "exam": 56,
-          "gradedAt": "2026-07-30 14:34:29.658831+00"
+          "gradedAt": "2026-08-03 08:40:16.92101+00"
         }
       },
       "ledger": [
@@ -139,9 +141,9 @@
       "payments": [
         {
           "id": "f9fbbf32-a3d6-4df4-a838-bc1b10ed6769",
-          "studentId": "7ec4af7b-8833-4920-aa33-23622e5d75ef",
-          "invoiceId": "6f679b24-91a2-4230-895e-f16ae35485fe",
           "amount": 20000,
+          "invoiceId": "6f679b24-91a2-4230-895e-f16ae35485fe",
+          "studentId": "7ec4af7b-8833-4920-aa33-23622e5d75ef",
           "paymentMethod": "M-Pesa",
           "transactionId": "QZIPV5P81",
           "date": "2026-07-30",
@@ -207,24 +209,6 @@
   "reservations": [],
   "notifications": [
     {
-      "id": "09133505-00aa-4e03-b4fb-e42ad91ffa9a",
-      "targetUserRole": "all",
-      "type": "payment",
-      "title": " [Invoice Generated] New Billing Invoice #INV-974178",
-      "message": "Brian Otieno (brian.otieno@zenti.edu): Dear Brian Otieno,",
-      "status": "unread",
-      "dateTime": "2026-07-30 14:11:21+00"
-    },
-    {
-      "id": "77689915-b300-4fc2-b6ab-b8fa4ce9cd72",
-      "targetUserRole": "all",
-      "type": "library",
-      "title": " [Grade Posted] New Grade for Unit BDS",
-      "message": "Brian Otieno (brian.otieno@zenti.edu): Dear Brian Otieno,",
-      "status": "unread",
-      "dateTime": "2026-07-30 13:47:44+00"
-    },
-    {
       "id": "2fe609d8-12d2-44a3-b6fb-0e0d5e80a812",
       "targetUserRole": "all",
       "type": "library",
@@ -259,6 +243,24 @@
       "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
       "status": "unread",
       "dateTime": "2026-07-26 12:15:22+00"
+    },
+    {
+      "id": "09133505-00aa-4e03-b4fb-e42ad91ffa9a",
+      "targetUserRole": "all",
+      "type": "payment",
+      "title": " [Invoice Generated] New Billing Invoice #INV-974178",
+      "message": "Brian Otieno (brian.otieno@zenti.edu): Dear Brian Otieno,",
+      "status": "unread",
+      "dateTime": "2026-07-30 14:11:21+00"
+    },
+    {
+      "id": "77689915-b300-4fc2-b6ab-b8fa4ce9cd72",
+      "targetUserRole": "all",
+      "type": "library",
+      "title": " [Grade Posted] New Grade for Unit BDS",
+      "message": "Brian Otieno (brian.otieno@zenti.edu): Dear Brian Otieno,",
+      "status": "unread",
+      "dateTime": "2026-07-30 13:47:44+00"
     }
   ],
   "student_ledger": [

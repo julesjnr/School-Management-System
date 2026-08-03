@@ -3101,9 +3101,11 @@ export default function StudentDashboard({
           <UnitRegister
             studentId={student.id}
             allCourses={allCourses}
+            lecturers={lecturers}
             onRegisterUnit={onRegisterUnit}
             onDeregisterUnit={onDeregisterUnit}
             subjectMap={subjectMap}
+            studentProgramme={student.programme || student.department || student.cohort}
           />
         )}
 

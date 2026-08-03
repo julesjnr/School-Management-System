@@ -5830,11 +5830,8 @@ app.get("/api/student/registered-units", async (req, res) => {
         thumbnail: courses.thumbnail,
       })
       .from(studentEnrollments)
-      .innerJoin(courses, eq(studentEnrollments.courseCode, courses.code))
-      .where(and(
-        eq(studentEnrollments.studentId, studentId),
-        activeResourceCondition("course", courses.id),
-      ));
+      .leftJoin(courses, eq(studentEnrollments.courseCode, courses.code))
+      .where(eq(studentEnrollments.studentId, studentId));
 
     const attendanceLogs = await db
       .select()
