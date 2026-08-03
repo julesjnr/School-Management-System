@@ -11,6 +11,7 @@ const studentSchemaMigrations = [
   "0004_student_registry_fields.sql",
   "0005_student_account_status.sql",
   "0006_archive_records.sql",
+  "0007_attendance_late_students.sql",
 ];
 
 export async function runMigrations(retries = 3, delayMs = 2000): Promise<void> {

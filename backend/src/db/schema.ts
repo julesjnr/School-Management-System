@@ -786,13 +786,14 @@ export const syllabusTopics = pgTable("syllabus_topics", {
 	index("idx_syllabus_topics_subject").using("btree", table.subjectCode.asc().nullsLast().op("text_ops")),
 ]);
 
-/** Per-class roll-call sessions (present/absent student lists) */
+/** Per-class roll-call sessions (present, late, and absent student lists) */
 export const classAttendanceSessions = pgTable("attendance_sessions", {
 	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
 	lecturerId: uuid("lecturer_id").notNull(),
 	subjectCode: varchar("subject_code", { length: 30 }).notNull(),
 	sessionDate: date("session_date").notNull(),
 	presentStudentIds: jsonb("present_student_ids").$type<string[]>().default([]).notNull(),
+	lateStudentIds: jsonb("late_student_ids").$type<string[]>().default([]).notNull(),
 	absentStudentIds: jsonb("absent_student_ids").$type<string[]>().default([]).notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [

@@ -1105,7 +1105,8 @@ Zenti Library Services`;
   subjectCode: string,
   date: string,
   presentStudentIds: string[],
-  absentStudentIds: string[]
+  absentStudentIds: string[],
+  lateStudentIds: string[] = []
 ) => {
   const lecturerId = currentUserId;
   if (!lecturerId) {
@@ -1122,6 +1123,7 @@ Zenti Library Services`;
         subjectCode,
         sessionDate: date,
         presentStudentIds,
+        lateStudentIds,
         absentStudentIds,
       }),
     });

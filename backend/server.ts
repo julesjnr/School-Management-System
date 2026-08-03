@@ -197,6 +197,7 @@ export async function loadFullDatabaseState(): Promise<any> {
       date: s.sessionDate,
       subjectCode: s.subjectCode,
       presentStudents: Array.isArray(s.presentStudentIds) ? s.presentStudentIds : [],
+      lateStudents: Array.isArray(s.lateStudentIds) ? s.lateStudentIds : [],
       absentStudents: Array.isArray(s.absentStudentIds) ? s.absentStudentIds : [],
       lecturerId: s.lecturerId,
     }));
@@ -4989,7 +4990,43 @@ app.get("/api/lecturer/dashboard-summary", async (req, res) => {
       code,
       title: courseByCode.get(code)?.title || code,
       label: `${code} – ${courseByCode.get(code)?.title || code}`,
+      semester: null as string | null,
+      academicYear: null as string | null,
     }));
+
+    // Enrich modules with semester / academic year from exam papers when available.
+    if (assignedCodes.length > 0) {
+      const paperRows = await db
+        .select({
+          subjectCode: examPapers.subjectCode,
+          semester: examPapers.semester,
+          year: examPapers.year,
+        })
+        .from(examPapers)
+        .where(inArray(examPapers.subjectCode, assignedCodes))
+        .orderBy(desc(examPapers.year))
+        .limit(80);
+      const paperByCode = new Map<string, { semester: string; year: number }>();
+      for (const paper of paperRows) {
+        if (!paperByCode.has(paper.subjectCode)) {
+          paperByCode.set(paper.subjectCode, { semester: paper.semester, year: paper.year });
+        }
+      }
+      const [globalPaper] = await db
+        .select({ semester: examPapers.semester, year: examPapers.year })
+        .from(examPapers)
+        .orderBy(desc(examPapers.year))
+        .limit(1);
+      for (const subject of assignedSubjects) {
+        const match = paperByCode.get(subject.code);
+        subject.semester = match?.semester || globalPaper?.semester || null;
+        subject.academicYear = match
+          ? String(match.year)
+          : globalPaper
+            ? String(globalPaper.year)
+            : null;
+      }
+    }
 
     const sessionRows = await db
       .select()
@@ -5266,6 +5303,33 @@ app.get("/api/lecturer/dashboard-summary", async (req, res) => {
       status: s.status as "Pending" | "Approved",
     }));
 
+    const todayStr = formatIsoDate(new Date());
+    const todayHours = Number(
+      sessionRows
+        .filter((s) => s.sessionDate === todayStr)
+        .reduce((sum, s) => sum + Number(s.durationHours || 0), 0)
+        .toFixed(2)
+    );
+    const currentWeekHours = weeklyHours.length > 0 ? weeklyHours[weeklyHours.length - 1].hours : 0;
+    const monthStart = new Date();
+    monthStart.setUTCDate(1);
+    const monthStartStr = formatIsoDate(monthStart);
+    const monthHours = Number(
+      sessionRows
+        .filter((s) => s.sessionDate >= monthStartStr && s.sessionDate <= todayStr)
+        .reduce((sum, s) => sum + Number(s.durationHours || 0), 0)
+        .toFixed(2)
+    );
+
+    let studentsTaught = 0;
+    if (assignedCodes.length > 0) {
+      const taughtEnrollmentRows = await db
+        .select({ studentId: studentEnrollments.studentId })
+        .from(studentEnrollments)
+        .where(inArray(studentEnrollments.courseCode, assignedCodes));
+      studentsTaught = new Set(taughtEnrollmentRows.map((row) => row.studentId)).size;
+    }
+
     res.json({
       lecturerId,
       name: lecturerRow.name,
@@ -5279,6 +5343,14 @@ app.get("/api/lecturer/dashboard-summary", async (req, res) => {
       estimatedPayout,
       nextClass,
       weeklyHours,
+      workload: {
+        todayHours,
+        weekHours: currentWeekHours,
+        monthHours,
+        assignedModules: assignedCodes.length,
+        studentsTaught,
+        estimatedPayroll: estimatedPayout,
+      },
       syllabusCoverage: {
         percent: syllabusCoveragePercent,
         completedSessions,
@@ -5291,6 +5363,67 @@ app.get("/api/lecturer/dashboard-summary", async (req, res) => {
   } catch (error: any) {
     console.error("Failed to build lecturer dashboard summary:", error);
     res.status(500).json({ error: error.message || "Failed to load lecturer dashboard" });
+  }
+});
+
+/** Database-backed assessment metrics for one of the lecturer's assigned modules. */
+app.get("/api/lecturer/assessment-analytics", async (req, res) => {
+  try {
+    const lecturerId = req.query.lecturerId as string;
+    const subjectCode = req.query.subjectCode as string;
+    if (!lecturerId || !subjectCode) {
+      return res.status(400).json({ error: "lecturerId and subjectCode are required" });
+    }
+
+    const [assignment] = await db
+      .select({ subjectCode: lecturerSubjects.subjectCode })
+      .from(lecturerSubjects)
+      .where(and(eq(lecturerSubjects.lecturerId, lecturerId), eq(lecturerSubjects.subjectCode, subjectCode)))
+      .limit(1);
+    if (!assignment) {
+      return res.status(403).json({ error: "Module is not assigned to this lecturer" });
+    }
+
+    const enrollmentRows = await db
+      .select({ studentId: studentEnrollments.studentId })
+      .from(studentEnrollments)
+      .where(eq(studentEnrollments.courseCode, subjectCode));
+    const studentIds = enrollmentRows.map((row) => row.studentId);
+    const gradeRows = studentIds.length === 0
+      ? []
+      : await db
+          .select({ studentId: grades.studentId, catScore: grades.catScore, examScore: grades.examScore })
+          .from(grades)
+          .where(and(inArray(grades.studentId, studentIds), eq(grades.subjectCode, subjectCode)));
+
+    const totals = gradeRows.map((grade) => Number(grade.catScore || 0) + Number(grade.examScore || 0));
+    const graded = totals.length;
+    const pending = Math.max(0, studentIds.length - graded);
+    const passCount = totals.filter((total) => total >= 40).length;
+    const distribution = [
+      { name: "A", count: totals.filter((total) => total >= 70).length, color: "#10b981" },
+      { name: "B", count: totals.filter((total) => total >= 60 && total < 70).length, color: "#3b82f6" },
+      { name: "C", count: totals.filter((total) => total >= 50 && total < 60).length, color: "#f59e0b" },
+      { name: "D", count: totals.filter((total) => total >= 40 && total < 50).length, color: "#64748b" },
+      { name: "E/F", count: totals.filter((total) => total < 40).length, color: "#ef4444" },
+    ].map((bucket) => ({
+      ...bucket,
+      percent: graded === 0 ? 0 : Number(((bucket.count / graded) * 100).toFixed(1)),
+    }));
+
+    res.json({
+      average: graded === 0 ? null : Number((totals.reduce((sum, total) => sum + total, 0) / graded).toFixed(1)),
+      highest: graded === 0 ? null : Math.max(...totals),
+      lowest: graded === 0 ? null : Math.min(...totals),
+      passRate: graded === 0 ? null : Number(((passCount / graded) * 100).toFixed(1)),
+      failRate: graded === 0 ? null : Number((((graded - passCount) / graded) * 100).toFixed(1)),
+      graded,
+      pending,
+      distribution,
+    });
+  } catch (error: any) {
+    console.error("Failed to load lecturer assessment analytics:", error);
+    res.status(500).json({ error: error.message || "Failed to load assessment analytics" });
   }
 });
 
@@ -5659,6 +5792,7 @@ function mapAttendanceSessionRow(s: {
   subjectCode: string;
   sessionDate: string;
   presentStudentIds: string[] | null;
+  lateStudentIds: string[] | null;
   absentStudentIds: string[] | null;
 }) {
   return {
@@ -5667,6 +5801,7 @@ function mapAttendanceSessionRow(s: {
     date: s.sessionDate,
     subjectCode: s.subjectCode,
     presentStudents: Array.isArray(s.presentStudentIds) ? s.presentStudentIds : [],
+    lateStudents: Array.isArray(s.lateStudentIds) ? s.lateStudentIds : [],
     absentStudents: Array.isArray(s.absentStudentIds) ? s.absentStudentIds : [],
   };
 }
@@ -5687,15 +5822,18 @@ async function recomputeSubjectAttendanceRates(
   for (const studentId of studentIds) {
     const relevant = sessions.filter((s) => {
       const present = Array.isArray(s.presentStudentIds) ? s.presentStudentIds : [];
+      const late = Array.isArray(s.lateStudentIds) ? s.lateStudentIds : [];
       const absent = Array.isArray(s.absentStudentIds) ? s.absentStudentIds : [];
-      return present.includes(studentId) || absent.includes(studentId);
+      return present.includes(studentId) || late.includes(studentId) || absent.includes(studentId);
     });
 
     if (relevant.length === 0) continue;
 
-    const presentCount = relevant.filter((s) =>
-      (Array.isArray(s.presentStudentIds) ? s.presentStudentIds : []).includes(studentId)
-    ).length;
+    const presentCount = relevant.filter((s) => {
+      const present = Array.isArray(s.presentStudentIds) ? s.presentStudentIds : [];
+      const late = Array.isArray(s.lateStudentIds) ? s.lateStudentIds : [];
+      return present.includes(studentId) || late.includes(studentId);
+    }).length;
     const attendanceRate = Math.round((presentCount / relevant.length) * 100);
 
     await db
@@ -5759,6 +5897,7 @@ app.post("/api/lecturer/attendance-sessions", async (req, res) => {
       subjectCode,
       sessionDate,
       presentStudentIds,
+      lateStudentIds,
       absentStudentIds,
     } = req.body || {};
 
@@ -5774,6 +5913,13 @@ app.post("/api/lecturer/attendance-sessions", async (req, res) => {
     const absent = Array.isArray(absentStudentIds)
       ? absentStudentIds.filter((id: unknown) => typeof id === "string" && id)
       : [];
+    const late = Array.isArray(lateStudentIds)
+      ? lateStudentIds.filter((id: unknown) => typeof id === "string" && id)
+      : [];
+    const presentSet = new Set(present);
+    const lateUnique = late.filter((id: string) => !presentSet.has(id));
+    const presentOrLate = new Set([...present, ...lateUnique]);
+    const absentUnique = absent.filter((id: string) => !presentOrLate.has(id));
 
     const [lecturerRow] = await db
       .select()
@@ -5809,7 +5955,8 @@ app.post("/api/lecturer/attendance-sessions", async (req, res) => {
         subjectCode,
         sessionDate,
         presentStudentIds: present,
-        absentStudentIds: absent,
+        lateStudentIds: lateUnique,
+        absentStudentIds: absentUnique,
       })
       .onConflictDoUpdate({
         target: [
@@ -5819,7 +5966,8 @@ app.post("/api/lecturer/attendance-sessions", async (req, res) => {
         ],
         set: {
           presentStudentIds: present,
-          absentStudentIds: absent,
+          lateStudentIds: lateUnique,
+          absentStudentIds: absentUnique,
         },
       })
       .returning();
@@ -5830,7 +5978,7 @@ app.post("/api/lecturer/attendance-sessions", async (req, res) => {
       .where(eq(studentEnrollments.courseCode, subjectCode));
 
     const enrolledIds = enrolled.map((e) => e.studentId);
-    const touchedIds = [...new Set([...present, ...absent, ...enrolledIds])];
+    const touchedIds = [...new Set([...present, ...lateUnique, ...absentUnique, ...enrolledIds])];
     const rates = await recomputeSubjectAttendanceRates(subjectCode, touchedIds);
 
     try {

@@ -371,5 +371,6 @@ export interface AttendanceSession {
   date: string;
   subjectCode: string;
   presentStudents: string[];
+  lateStudents?: string[];
   absentStudents: string[];
 }

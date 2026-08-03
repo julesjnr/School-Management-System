@@ -419,6 +419,7 @@ export interface AttendanceSession {
   date: string;
   subjectCode: string;
   presentStudents: string[];
+  lateStudents?: string[];
   absentStudents: string[];
   lecturerId?: string;
 }
@@ -437,6 +438,8 @@ export interface LecturerAssignedSubject {
   code: string;
   title: string;
   label: string;
+  semester?: string | null;
+  academicYear?: string | null;
 }
 
 export interface LecturerNextClass {
@@ -470,6 +473,14 @@ export interface LecturerDashboardSummary {
   estimatedPayout: number;
   nextClass: LecturerNextClass | null;
   weeklyHours: Array<{ name: string; hours: number; weekStart: string }>;
+  workload?: {
+    todayHours: number;
+    weekHours: number;
+    monthHours: number;
+    assignedModules: number;
+    studentsTaught: number;
+    estimatedPayroll: number;
+  };
   syllabusCoverage: {
     percent: number | null;
     completedSessions: number;

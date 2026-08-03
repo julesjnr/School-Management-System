@@ -1,15 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNotification } from './notifications';
 import { 
   Users, Award, Calendar, BookOpen, Clock, 
   CheckCircle2, Save, FileSpreadsheet, Plus, 
   Activity, AlertCircle, Sparkles, LogOut, ChevronDown, Trash2, User, Sliders, X, Menu,
-  UserCheck, School, GraduationCap, Bell
+  UserCheck, School, GraduationCap, Bell, Search, MapPin
  } from 'lucide-react';
 import { Lecturer, Student, Grade, Course, StockItem, Book, LMSReadingList, TeacherResource, BookRequest, AttendanceSession } from '../types';
-import GlobalSearchBar from './GlobalSearchBar';
 import LecturerBooksView from './LecturerBooksView';
 import StudentLookupPage from './StudentLookupPage';
+import LecturerAssessmentWorkspace from './LecturerAssessmentWorkspace';
 import LecturerWorkstationDashboard, {
   LecturerWorkstationLoading,
   LecturerWorkstationError,
@@ -51,7 +51,7 @@ interface LecturerDashboardProps {
   onReleaseTeacherResource: (resourceId: string) => void;
   onAddBookRequest: (request: Omit<BookRequest, 'id' | 'date' | 'status'>) => void;
   attendanceSessions?: AttendanceSession[];
-  onSaveAttendance?: (subjectCode: string, date: string, presentStudentIds: string[], absentStudentIds: string[]) => void | Promise<void>;
+  onSaveAttendance?: (subjectCode: string, date: string, presentStudentIds: string[], absentStudentIds: string[], lateStudentIds?: string[]) => void | Promise<void>;
   onLogout: () => void;
 }
 
@@ -78,7 +78,7 @@ export default function LecturerDashboard({
   onLogout
 }: LecturerDashboardProps) {
   const { showToast, showWarning, showConfirm } = useNotification();
-  const [activeTab, setActiveTab] = useState<'workstation' | 'grading' | 'schedule' | 'attendance' | 'lookup' | 'books'>('workstation');
+  const [activeTab, setActiveTab] = useState<'workstation' | 'grading' | 'classlist' | 'schedule' | 'attendance' | 'lookup' | 'books'>('workstation');
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
   const {
@@ -180,9 +180,15 @@ export default function LecturerDashboard({
   }, [lecturer]);
   
   // Hours logging form state
-  const [logSessionHours, setLogSessionHours] = useState('');
   const [logTopic, setLogTopic] = useState('');
+  const [logSessionDate, setLogSessionDate] = useState(new Date().toLocaleDateString('en-CA'));
+  const [logStartTime, setLogStartTime] = useState('09:00');
+  const [logEndTime, setLogEndTime] = useState('11:00');
+  const [logTeachingMode, setLogTeachingMode] = useState<'Physical' | 'Online' | 'Hybrid'>('Physical');
+  const [logRoom, setLogRoom] = useState('');
+  const [logRemarks, setLogRemarks] = useState('');
   const [timeLoggedSuccess, setTimeLoggedSuccess] = useState(false);
+  const [headerSearch, setHeaderSearch] = useState('');
 
   // Passcode updating state
   const [isPasscodeModalOpen, setIsPasscodeModalOpen] = useState(false);
@@ -197,8 +203,15 @@ export default function LecturerDashboard({
 
   // Attendance simulation states
   const [attendanceDate, setAttendanceDate] = useState(new Date().toLocaleDateString('en-CA'));
-  const [attendanceRecords, setAttendanceRecords] = useState<Record<string, boolean>>({});
+  const [attendanceRecords, setAttendanceRecords] = useState<Record<string, 'present' | 'late' | 'absent'>>({});
+  const [attendanceSessionOpen, setAttendanceSessionOpen] = useState(false);
   const [attendanceSuccess, setAttendanceSuccess] = useState(false);
+
+  const handleModuleSelection = (code: string, resetGradeInputs = false) => {
+    setSelectedSubject(code);
+    if (resetGradeInputs) setGradeInputs({});
+    void refreshDashboard();
+  };
 
   // Filter students who are registered for the selected subject
   const subjectStudents = students.filter(s => s.enrolledUnits.includes(selectedSubject));
@@ -278,6 +291,16 @@ export default function LecturerDashboard({
     }
   };
 
+  const computedSessionDuration = useMemo(() => {
+    const [sh, sm] = logStartTime.split(':').map(Number);
+    const [eh, em] = logEndTime.split(':').map(Number);
+    const start = (sh || 0) * 60 + (sm || 0);
+    const end = (eh || 0) * 60 + (em || 0);
+    const mins = end - start;
+    if (mins <= 0) return 0;
+    return Number((mins / 60).toFixed(2));
+  }, [logStartTime, logEndTime]);
+
   const handleLogHoursSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (assignedCodes.length === 0 || !selectedSubject) {
@@ -288,23 +311,30 @@ export default function LecturerDashboard({
       showWarning("Invalid Subject", 'Selected subject is not assigned to your faculty profile.');
       return;
     }
-    const hrsVal = parseFloat(logSessionHours);
+    const hrsVal = computedSessionDuration;
     if (isNaN(hrsVal) || hrsVal <= 0 || hrsVal > 12) {
-      showWarning("Lesson Duration Error", 'Please log a realistic lesson duration between 0.5 and 12 hours.');
+      showWarning("Lesson Duration Error", 'Set a valid start and end time so duration is between 0.5 and 12 hours.');
       return;
     }
     if (!logTopic.trim()) {
-      showWarning("Topic Required", 'Please enter the topic delivered for this lecturing session.');
+      showWarning("Topic Required", 'Please enter the lesson topic for this teaching session.');
       return;
     }
+
+    const topicPayload = [
+      logTopic.trim(),
+      `[mode=${logTeachingMode}`,
+      `room=${logRoom.trim() || 'N/A'}`,
+      `remarks=${logRemarks.trim() || 'None'}]`,
+    ].join(' | ');
 
     try {
       const result = await logTeachingSession({
         subjectCode: selectedSubject,
-        topic: logTopic.trim(),
+        topic: topicPayload,
         durationHours: hrsVal,
-        sessionDate: new Date().toLocaleDateString('en-CA'),
-        sessionTime: new Date().toTimeString().slice(0, 5),
+        sessionDate: logSessionDate || new Date().toLocaleDateString('en-CA'),
+        sessionTime: `${logStartTime}-${logEndTime}`,
       });
 
       onLogHours(lecturer.id, result.loggedHours, true);
@@ -314,8 +344,9 @@ export default function LecturerDashboard({
         hourlyRate: result.hourlyRate,
       });
 
-      setLogSessionHours('');
       setLogTopic('');
+      setLogRemarks('');
+      setLogRoom('');
       setTimeLoggedSuccess(true);
       showToast('Teaching session saved to the database.', 'success');
       setTimeout(() => {
@@ -328,35 +359,50 @@ export default function LecturerDashboard({
 
   // Load existing session values on date or unit toggle
   useEffect(() => {
+    setAttendanceSessionOpen(false);
     if (selectedSubject && attendanceDate) {
       const existingSession = attendanceSessions.find(
         s => s.date === attendanceDate && s.subjectCode === selectedSubject
       );
       if (existingSession) {
-        const records: Record<string, boolean> = {};
+        const records: Record<string, 'present' | 'late' | 'absent'> = {};
         existingSession.presentStudents.forEach(id => {
-          records[id] = true;
+          records[id] = 'present';
+        });
+        (existingSession.lateStudents || []).forEach(id => {
+          records[id] = 'late';
         });
         existingSession.absentStudents.forEach(id => {
-          records[id] = false;
+          records[id] = 'absent';
         });
         setAttendanceRecords(records);
       } else {
-        // Safe UX fallback: pre-check all registered students as present
-        const records: Record<string, boolean> = {};
+        const records: Record<string, 'present' | 'late' | 'absent'> = {};
         subjectStudents.forEach(s => {
-          records[s.id] = true;
+          records[s.id] = 'present';
         });
         setAttendanceRecords(records);
       }
     }
   }, [selectedSubject, attendanceDate, attendanceSessions, students]);
 
-  const toggleAttendanceCheckbox = (studentId: string) => {
+  const setAttendanceStatus = (studentId: string, status: 'present' | 'late' | 'absent') => {
     setAttendanceRecords(prev => ({
       ...prev,
-      [studentId]: !prev[studentId]
+      [studentId]: status,
     }));
+  };
+
+  const openAttendanceSession = () => {
+    if (!selectedSubject || assignedCodes.length === 0) {
+      showWarning('No Assigned Modules', 'Select one of your assigned modules before opening attendance.');
+      return;
+    }
+    if (subjectStudents.length === 0) {
+      showWarning('No Students Enrolled', 'This module has no enrolled students to mark.');
+      return;
+    }
+    setAttendanceSessionOpen(true);
   };
 
   const handleSaveAttendance = async (e: React.FormEvent) => {
@@ -365,14 +411,22 @@ export default function LecturerDashboard({
       showWarning("No Assigned Subjects", "Select an assigned subject before saving attendance.");
       return;
     }
-    const presentStudentIds = subjectStudents.filter(s => !!attendanceRecords[s.id]).map(s => s.id);
-    const absentStudentIds = subjectStudents.filter(s => !attendanceRecords[s.id]).map(s => s.id);
+    const presentStudentIds = subjectStudents
+      .filter(s => attendanceRecords[s.id] === 'present')
+      .map(s => s.id);
+    const lateStudentIds = subjectStudents
+      .filter(s => attendanceRecords[s.id] === 'late')
+      .map(s => s.id);
+    const absentStudentIds = subjectStudents
+      .filter(s => attendanceRecords[s.id] === 'absent' || !attendanceRecords[s.id])
+      .map(s => s.id);
 
     try {
       if (onSaveAttendance) {
-        await onSaveAttendance(selectedSubject, attendanceDate, presentStudentIds, absentStudentIds);
+        await onSaveAttendance(selectedSubject, attendanceDate, presentStudentIds, absentStudentIds, lateStudentIds);
       }
       await refreshDashboard();
+      setAttendanceSessionOpen(false);
       setAttendanceSuccess(true);
       showToast("Attendance session saved to the database.", "success");
       setTimeout(() => {
@@ -420,30 +474,39 @@ export default function LecturerDashboard({
 
             {/* Navigation Menu */}
             <nav className="flex-1 space-y-1.5 overflow-y-auto pr-2">
+              <p className="px-2 pt-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">Dashboard</p>
               <button type="button" onClick={() => { setActiveTab('workstation'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'workstation' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
                 <Sliders className="w-4 h-4" />
                 <span>My Workstation</span>
               </button>
+              <p className="px-2 pt-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">Teaching</p>
               <button type="button" onClick={() => { setActiveTab('grading'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'grading' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
                 <Award className="w-4 h-4" />
-                <span>Assess & Grade</span>
+                <span>Assessment & Grading</span>
+              </button>
+              <button type="button" onClick={() => { setActiveTab('attendance'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'attendance' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                <UserCheck className="w-4 h-4" />
+                <span>Attendance</span>
+              </button>
+              <button type="button" onClick={() => { setActiveTab('classlist'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'classlist' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                <Users className="w-4 h-4" />
+                <span>Class List</span>
               </button>
               <button type="button" onClick={() => { setActiveTab('schedule'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'schedule' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
                 <Calendar className="w-4 h-4" />
                 <span>Subjects Roster</span>
               </button>
-              <button type="button" onClick={() => { setActiveTab('attendance'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'attendance' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
-                <UserCheck className="w-4 h-4" />
-                <span>Attendance Log</span>
-              </button>
+              <p className="px-2 pt-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">Students</p>
               <button type="button" onClick={() => { setActiveTab('lookup'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'lookup' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
                 <GraduationCap className="w-4 h-4" />
                 <span>Student Lookup</span>
               </button>
+              <p className="px-2 pt-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">Resources</p>
               <button type="button" onClick={() => { setActiveTab('books'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'books' ? 'bg-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
                 <BookOpen className="w-4 h-4" />
                 <span>Reading Lists</span>
               </button>
+              <p className="px-2 pt-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">Account</p>
             </nav>
 
             {/* Profile Info & Logout */}
@@ -482,30 +545,39 @@ export default function LecturerDashboard({
           
           {/* Navigation Menu */}
           <nav className="space-y-1.5 overflow-y-auto max-h-[calc(100vh-220px)]">
+            <p className="px-3 pt-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">Dashboard</p>
             <button type="button" onClick={() => setActiveTab('workstation')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'workstation' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
               <Sliders className="w-4 h-4" />
               <span>My Workstation</span>
             </button>
+            <p className="px-3 pt-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">Teaching</p>
             <button type="button" onClick={() => setActiveTab('grading')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'grading' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
               <Award className="w-4 h-4" />
-              <span>Assess & Grade</span>
+              <span>Assessment & Grading</span>
+            </button>
+            <button type="button" onClick={() => setActiveTab('attendance')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'attendance' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
+              <UserCheck className="w-4 h-4" />
+              <span>Attendance</span>
+            </button>
+            <button type="button" onClick={() => setActiveTab('classlist')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'classlist' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
+              <Users className="w-4 h-4" />
+              <span>Class List</span>
             </button>
             <button type="button" onClick={() => setActiveTab('schedule')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'schedule' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
               <Calendar className="w-4 h-4" />
               <span>Subjects Roster</span>
             </button>
-            <button type="button" onClick={() => setActiveTab('attendance')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'attendance' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
-              <UserCheck className="w-4 h-4" />
-              <span>Attendance Log</span>
-            </button>
+            <p className="px-3 pt-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">Students</p>
             <button type="button" onClick={() => setActiveTab('lookup')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'lookup' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
               <GraduationCap className="w-4 h-4" />
               <span>Student Lookup</span>
             </button>
+            <p className="px-3 pt-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">Resources</p>
             <button type="button" onClick={() => setActiveTab('books')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'books' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
               <BookOpen className="w-4 h-4" />
               <span>Reading Lists</span>
             </button>
+            <p className="px-3 pt-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">Account</p>
           </nav>
         </div>
         
@@ -548,7 +620,15 @@ export default function LecturerDashboard({
           
           <div className="flex items-center gap-4 w-full sm:w-auto justify-end">
             <div className="w-full sm:w-64 md:w-80">
-              <GlobalSearchBar students={students} courses={courses} inventory={inventory} />
+              <div className="relative w-full">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={headerSearch}
+                  onChange={(e) => setHeaderSearch(e.target.value)}
+                  placeholder="Search your students by name or admission no."
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-xs text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
             </div>
             <span className="hidden sm:inline-block w-px h-6 bg-slate-200 dark:bg-slate-800"></span>
             
@@ -887,629 +967,88 @@ export default function LecturerDashboard({
                   </div>
                 )}
 
-            {/* VIEW 1: GRADING SPREADSHEEET */}
             {activeTab === 'grading' && (
-              <div className="space-y-6">
-                
-                {/* SELECT SUBJECT SELECTOR */}
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-105 pb-4">
+              <LecturerAssessmentWorkspace
+                lecturerId={lecturer.id}
+                assignedSubjects={assignedSubjects}
+                selectedSubject={selectedSubject}
+                onSelectSubject={(code) => handleModuleSelection(code, true)}
+                students={students}
+                onUpdateGrades={onUpdateGrades}
+                showToast={showToast}
+                showWarning={showWarning}
+              />
+            )}
+
+            {activeTab === 'classlist' && (
+              <div className="space-y-5">
+                <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-end sm:justify-between">
                   <div>
-                    <h2 className="text-base font-bold text-slate-800 flex items-center gap-1.5">
-                      <FileSpreadsheet className="w-5 h-5 text-blue-600" />
-                      Continuous Assessment & Marks Upload
+                    <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                      <Users className="w-5 h-5 text-blue-600" />
+                      Class List
                     </h2>
-                    <p className="text-xs text-slate-500">Select an assigned module to log Continuous Assessment Tests (CATs) & final exams.</p>
+                    <p className="text-xs text-slate-500 mt-1">Students enrolled in your selected module.</p>
                   </div>
-
-                  <div className="flex items-center gap-2">
-                    <label htmlFor="subject-select" className="text-xs font-bold text-slate-550">Active Subject:</label>
-                    <select
-                      id="subject-select"
-                      value={selectedSubject}
-                      onChange={(e) => { setSelectedSubject(e.target.value); setGradeInputs({}); }}
-                      className="bg-white border border-slate-200 rounded-lg p-2 text-xs font-bold text-slate-800 focus:outline-hidden"
-                      disabled={assignedCodes.length === 0}
-                    >
-                      {assignedCodes.length === 0 ? (
-                        <option value="">No assigned subjects</option>
-                      ) : (
-                        assignedCodes.map((s) => (
-                          <option key={s} value={s}>
-                            {subjectLabel(s)}
-                          </option>
-                        ))
-                      )}
-                    </select>
-                  </div>
+                  <select
+                    value={selectedSubject}
+                    onChange={(e) => handleModuleSelection(e.target.value)}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800"
+                    disabled={assignedCodes.length === 0}
+                  >
+                    {assignedCodes.length === 0 ? (
+                      <option value="">No assigned modules</option>
+                    ) : (
+                      assignedSubjects.map((subject) => (
+                        <option key={subject.code} value={subject.code}>
+                          {subject.code} – {subject.title}
+                        </option>
+                      ))
+                    )}
+                  </select>
                 </div>
-
-                {/* LECTURER GRADE DISTRIBUTION ANALYTICS SECTION */}
-                <div className="bg-slate-50/60 border border-slate-150 rounded-2xl p-4 md:p-5 space-y-5">
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <Award className="w-4.5 h-4.5 text-blue-600 animate-pulse" />
-                        <h3 className="font-extrabold text-xs text-slate-800 uppercase tracking-widest font-mono">
-                          Faculty Performance Analytics
-                        </h3>
-                      </div>
-                      <p className="text-[11px] text-slate-500 mt-1 leading-normal">
-                        Grade distribution profile and module performance indexes across your assigned lectures.
-                      </p>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2.5 text-[10px] font-bold font-mono bg-white border border-slate-150/85 px-2.5 py-1.5 rounded-xl">
-                      <span className="text-slate-400">Total Graded Modules:</span>
-                      <span className="text-blue-600 font-extrabold">{assignedCodes.length} Units</span>
-                    </div>
-                  </div>
-
-                  {(() => {
-                    let aCount = 0;
-                    let bCount = 0;
-                    let cCount = 0;
-                    let dCount = 0;
-                    let efCount = 0;
-                    let totalGraded = 0;
-                    const modulePerformance: Record<string, { totalScore: number; count: number }> = {};
-
-                    const subjects = assignedCodes;
-
-subjects.forEach(subj => {
-                      const enrolled = students.filter(s => s.enrolledUnits.includes(subj));
-                      enrolled.forEach(student => {
-                        const grade = student.grades[subj];
-                        if (grade) {
-                          const total = grade.cat + grade.exam;
-                          totalGraded++;
-                          
-                          // Categorize
-                          if (total >= 70) aCount++;
-                          else if (total >= 60) bCount++;
-                          else if (total >= 50) cCount++;
-                          else if (total >= 40) dCount++;
-                          else efCount++;
-
-                          // Module performance averages
-                          if (!modulePerformance[subj]) {
-                            modulePerformance[subj] = { totalScore: 0, count: 0 };
-                          }
-                          modulePerformance[subj].totalScore += total;
-                          modulePerformance[subj].count += 1;
-                        }
-                      });
-                    });
-
-                    const distributionData = [
-                      { name: 'Grade A', value: aCount, range: '70-100%', label: 'First Class', color: '#10b981' },
-                      { name: 'Grade B', value: bCount, range: '60-69%', label: 'Second Upper', color: '#3b82f6' },
-                      { name: 'Grade C', value: cCount, range: '50-59%', label: 'Second Lower', color: '#f59e0b' },
-                      { name: 'Grade D', value: dCount, range: '40-49%', label: 'Pass', color: '#64748b' },
-                      { name: 'Grade E/F', value: efCount, range: '<40%', label: 'Fail / Retake', color: '#ef4444' }
-                    ];
-
-                    const moduleAverageData = assignedCodes.map(subj => {
-                      const record = modulePerformance[subj];
-                      return {
-                        subject: subj,
-                        title: resolveSubjectTitle(subj),
-                        average: record && record.count > 0 ? Math.round(record.totalScore / record.count) : 0,
-                        studentsCount: students.filter(s => s.enrolledUnits.includes(subj)).length
-                      };
-                    });
-
-                    if (totalGraded === 0) {
-                      return (
-                        <div className="text-center py-6 bg-white rounded-xl border border-dashed border-slate-205 text-slate-400">
-                          <AlertCircle className="w-8 h-8 text-slate-300 mx-auto mb-1.5" />
-                          <span className="font-semibold text-xs text-slate-705 block">No live grades registered yet.</span>
-                          <p className="text-[10px] mt-0.5">Grades entered into the spreadsheet below will instantly reflect in the dashboard visualizer.</p>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-                        
-                        {/* CHART 1: Recharts Distribution BarChart */}
-                        <div className="lg:col-span-7 bg-white border border-slate-150/80 rounded-xl p-4 shadow-3xs space-y-3.5">
-                          <div className="flex justify-between items-center pb-2 border-b border-slate-100">
-                            <span className="text-xs font-extrabold text-slate-700 tracking-tight font-mono uppercase">Grade Category Frequency Distribution</span>
-                            <span className="text-[10px] bg-blue-50 text-blue-750 px-2 py-0.5 rounded-md font-mono font-bold uppercase shrink-0">
-                              {totalGraded} Graded Entries
-                            </span>
-                          </div>
-
-                          <div className="h-56">
-                            <ResponsiveContainer width="100%" height="100%">
-                              <BarChart
-                                data={distributionData}
-                                margin={{ top: 15, right: 10, left: -25, bottom: 5 }}
-                              >
-                                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                                <XAxis 
-                                  dataKey="name" 
-                                  tick={{ fill: '#475569', fontSize: 10, fontWeight: 600 }} 
-                                  axisLine={{ stroke: '#cbd5e1' }}
-                                  tickLine={{ stroke: '#cbd5e1' }}
-                                />
-                                <YAxis 
-                                  allowDecimals={false}
-                                  tick={{ fill: '#64748b', fontSize: 10, fontWeight: 500 }} 
-                                  axisLine={{ stroke: '#cbd5e1' }}
-                                  tickLine={{ stroke: '#cbd5e1' }}
-                                />
-                                <Tooltip
-                                  cursor={{ fill: 'rgba(241, 245, 249, 0.5)' }}
-                                  content={({ active, payload }) => {
-                                    if (active && payload && payload.length) {
-                                      const data = payload[0].payload;
-                                      return (
-                                        <div className="bg-slate-900 text-white p-3 rounded-xl border border-slate-850 shadow-xl text-xs space-y-1 font-sans">
-                                          <div className="flex items-center gap-1.5">
-                                            <span className="w-2 h-2 rounded-xs" style={{ backgroundColor: data.color }} />
-                                            <span className="font-bold text-xs text-slate-100">{data.name} ({data.range})</span>
-                                          </div>
-                                          <p className="text-slate-400 text-[10px] font-semibold">{data.label}</p>
-                                          <div className="flex justify-between items-center gap-6 pt-1 text-[11px] border-t border-slate-800/80 mt-1">
-                                            <span className="text-slate-400">Student Count:</span>
-                                            <span className="font-bold font-mono text-white text-sm">{data.value} student(s)</span>
-                                          </div>
-                                          <div className="flex justify-between items-center gap-6 text-[11px]">
-                                            <span className="text-slate-400">Percentage Contribution:</span>
-                                            <span className="font-bold font-mono text-blue-400">{Math.round((data.value / totalGraded) * 100)}%</span>
-                                          </div>
-                                        </div>
-                                      );
-                                    }
-                                    return null;
-                                  }}
-                                />
-                                <Bar dataKey="value" radius={[5, 5, 0, 0]} barSize={28}>
-                                  {distributionData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={entry.color} />
-                                  ))}
-                                </Bar>
-                              </BarChart>
-                            </ResponsiveContainer>
-                          </div>
-
-                          {/* Mini Legend & stats row */}
-                          <div className="grid grid-cols-5 gap-1 pt-1.5 border-t border-slate-100 text-center select-none">
-                            {distributionData.map((d, i) => (
-                              <div key={i} className="space-y-0.5">
-                                <span className="block text-[10px] font-black text-slate-800">{d.value}</span>
-                                <span className={`block text-[8px] font-bold uppercase tracking-wider ${
-                                  d.name === 'Grade A' ? 'text-emerald-650' :
-                                  d.name === 'Grade B' ? 'text-blue-650' :
-                                  d.name === 'Grade C' ? 'text-amber-650' :
-                                  d.name === 'Grade D' ? 'text-slate-550' :
-                                  'text-rose-650 animate-pulse'
-                                }`}>
-                                  {d.name.split(' ')[1]}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* CHART 2: Recharts Performance per Module (Averages) */}
-                        <div className="lg:col-span-5 bg-white border border-slate-150/80 rounded-xl p-4 shadow-3xs flex flex-col justify-between space-y-3">
-                          <div className="space-y-3">
-                            <div className="flex justify-between items-center pb-2 border-b border-slate-100">
-                              <span className="text-xs font-extrabold text-slate-700 tracking-tight font-mono uppercase">Course Unit Average Scores</span>
-                              <span className="text-[10px] text-slate-400 font-mono font-bold uppercase">Passmark ≥ 40%</span>
-                            </div>
-
-                            <div className="h-[148px]">
-                              <ResponsiveContainer width="100%" height="100%">
-                                <BarChart
-                                  layout="vertical"
-                                  data={moduleAverageData}
-                                  margin={{ top: 5, right: 10, left: -10, bottom: 5 }}
-                                >
-                                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-                                  <XAxis 
-                                    type="number" 
-                                    domain={[0, 100]} 
-                                    tick={{ fill: '#64748b', fontSize: 9 }} 
-                                    axisLine={{ stroke: '#cbd5e1' }}
-                                    tickLine={{ stroke: '#cbd5e1' }}
-                                    ticks={[0, 40, 70, 100]}
-                                  />
-                                  <YAxis 
-                                    dataKey="subject" 
-                                    type="category" 
-                                    tick={{ fill: '#475569', fontSize: 10, fontWeight: 700, fontFamily: 'monospace' }} 
-                                    axisLine={{ stroke: '#cbd5e1' }}
-                                    tickLine={{ stroke: '#cbd5e1' }}
-                                    width={55}
-                                  />
-                                  <Tooltip
-                                    content={({ active, payload }) => {
-                                      if (active && payload && payload.length) {
-                                        const data = payload[0].payload;
-                                        return (
-                                          <div className="bg-slate-900 text-white p-3 rounded-xl border border-slate-850 shadow-xl text-xs space-y-1 font-sans">
-                                            <span className="font-mono font-bold text-[9px] bg-slate-800 px-1.5 py-0.5 rounded text-blue-400 block w-max">
-                                              {data.subject}
-                                            </span>
-                                            <p className="font-extrabold text-xs text-slate-100">{data.title}</p>
-                                            <div className="flex justify-between items-center gap-6 pt-1 text-[11px] border-t border-slate-800/80 mt-1">
-                                              <span className="text-slate-400">Class Average score:</span>
-                                              <span className={`font-bold font-mono text-sm ${data.average >= 70 ? 'text-emerald-450' : data.average < 40 ? 'text-rose-450' : 'text-blue-450'}`}>
-                                                {data.average}%
-                                              </span>
-                                            </div>
-                                            <div className="flex justify-between items-center gap-6 text-[11px]">
-                                              <span className="text-slate-400">Active Students:</span>
-                                              <span className="font-bold text-slate-200">{data.studentsCount} students</span>
-                                            </div>
-                                          </div>
-                                        );
-                                      }
-                                      return null;
-                                    }}
-                                  />
-                                  <ReferenceLine x={40} stroke="#ef4444" strokeDasharray="3 3" />
-                                  <Bar dataKey="average" radius={[0, 4, 4, 0]} barSize={12} fill="#3b82f6">
-                                    {moduleAverageData.map((entry, index) => {
-                                      let color = '#3b82f6';
-                                      if (entry.average >= 70) color = '#10b981';
-                                      else if (entry.average < 40) color = '#ef4444';
-                                      return <Cell key={`cell-${index}`} fill={color} />;
-                                    })}
-                                  </Bar>
-                                </BarChart>
-                              </ResponsiveContainer>
-                            </div>
-                          </div>
-
-                          {/* Summary message */}
-                          <div className="p-2.5 bg-slate-50 border border-slate-150 rounded-xl flex items-start gap-2 text-[10.5px] leading-relaxed text-slate-600 font-sans">
-                            <Sparkles className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                            <p>
-                              Your highest average class module score is{' '}
-                              <strong className="text-slate-800">
-                                {Math.max(...moduleAverageData.map(d => d.average))}%
-                              </strong>
-                              . Maintain high compliance to meet university clearance bars.
-                            </p>
-                          </div>
-                        </div>
-
-                      </div>
-                    );
-                  })()}
-                </div>
-
-                {/* Spreadsheet grading panel */}
-                {!selectedSubject ? (
-                  <p className="text-xs text-slate-400 italic">No assigned courses allocated to your dashboard.</p>
-                ) : subjectStudents.length === 0 ? (
-                  <div className="text-center py-10 bg-slate-50 rounded-lg border border-dashed border-slate-200 text-slate-405">
-                    <Users className="w-10 h-10 mx-auto mb-2 opacity-30" />
-                    <p className="font-semibold text-sm text-slate-650">No students currently registered.</p>
-                    <p className="text-xs">No entries match subject code {selectedSubject} in the registration table.</p>
+                {subjectStudents.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-12 text-center">
+                    <p className="text-sm font-semibold text-slate-700">No students assigned.</p>
+                    <p className="mt-1 text-xs text-slate-500">No enrolled students for this module yet.</p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {/* Control Panel to Toggle Normal Grade Distribution Bell Curve */}
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 bg-slate-50 border border-slate-150 rounded-2xl gap-3">
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Spreadsheet Analytics</span>
-                        <h4 className="text-xs font-bold text-slate-800">Dynamic Grading Spreadsheet List</h4>
-                      </div>
-                      
-                      <button
-                        type="button"
-                        onClick={() => setShowBellCurve(!showBellCurve)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-3xs cursor-pointer border ${
-                          showBellCurve 
-                            ? 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700 font-bold' 
-                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 font-bold'
-                        }`}
-                      >
-                        <Activity className={`w-3.5 h-3.5 ${showBellCurve ? 'animate-pulse text-white' : 'text-blue-600'}`} />
-                        <span>{showBellCurve ? 'Hide Bell Curve Overlay' : 'Show Grade Distribution Bell Curve'}</span>
-                      </button>
-                    </div>
-
-                    {/* OVERLAY VISUALIZATION CARD */}
-                    {showBellCurve && (() => {
-                      const classScores = subjectStudents
-                        .filter((student) => !!student.grades[selectedSubject])
-                        .map((student) => {
-                          const grade = student.grades[selectedSubject];
-                          return Number(grade.cat) + Number(grade.exam);
-                        });
-
-                      const classCount = classScores.length;
-                      if (classCount === 0) {
-                        return (
-                          <div className="text-center py-8 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-slate-400">
-                            <AlertCircle className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                            <p className="font-semibold text-xs text-slate-700">No graded scores to plot</p>
-                            <p className="text-[10px] mt-1">Enter CAT/exam marks first to render the class distribution curve.</p>
-                          </div>
-                        );
-                      }
-
-                      const classMean =
-                        classScores.reduce((sum, score) => sum + score, 0) / classCount;
-                      const classVariance =
-                        classScores.reduce((sum, score) => sum + Math.pow(score - classMean, 2), 0) /
-                        classCount;
-                      const classStdDev = Math.sqrt(classVariance) || 1;
-
-                      // Density sample points across the mark range for the normal curve overlay
-                      const curvePoints = [];
-                      for (let xCoord = 10; xCoord <= 100; xCoord += 2.5) {
-                        const densityFunc = (x: number, m: number, s: number) => {
-                          const expTerm = -Math.pow(x - m, 2) / (2 * Math.pow(s, 2));
-                          return (1 / (s * Math.sqrt(2 * Math.PI))) * Math.exp(expTerm);
-                        };
-
-                        // Scale the densities for beautiful representation on Recharts Area graph (multiplied by 1000 for relative view)
-                        const currentClassDensity = densityFunc(xCoord, classMean, classStdDev) * 1000;
-                        const defaultBenchmarkDensity = densityFunc(xCoord, 65, 12) * 1000; // standard academic bell curve of mu=65 sd=12
-
-                        let letterGrade = 'F';
-                        if (xCoord >= 70) letterGrade = 'A';
-                        else if (xCoord >= 60) letterGrade = 'B';
-                        else if (xCoord >= 50) letterGrade = 'C';
-                        else if (xCoord >= 40) letterGrade = 'D';
-
-                        curvePoints.push({
-                          score: xCoord,
-                          'Class Curve': parseFloat(currentClassDensity.toFixed(4)),
-                          'Standard Normal Curve': parseFloat(defaultBenchmarkDensity.toFixed(4)),
-                          gradeLabel: letterGrade
-                        });
-                      }
-
-                      return (
-                        <div className="bg-white border border-slate-200 rounded-2xl p-4 md:p-5 shadow-xs space-y-4 animate-fade-in">
-                          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 pb-3">
-                            <div>
-                              <div className="flex items-center gap-1.5">
-                                <Sparkles className="w-4 h-4 text-emerald-500 animate-pulse" />
-                                <h4 className="font-extrabold text-xs text-slate-800 uppercase tracking-widest font-mono">
-                                  Grade Distribution Bell Curve Overlay
-                                </h4>
-                              </div>
-                              <p className="text-[10.5px] text-slate-500 mt-1">
-                                Comparative visual mapping of active Class Grades against standard university distribution benchmarks (Passmark: 40%).
-                              </p>
-                            </div>
-
-                            {/* Standard Percentile Badges */}
-                            <div className="flex flex-wrap items-center gap-2 text-[9.5px] font-bold font-mono">
-                              <span className="bg-emerald-55 text-emerald-700 px-2 py-0.5 rounded border border-emerald-100">Grade A: ≥70%</span>
-                              <span className="bg-blue-55 text-blue-750 px-2 py-0.5 rounded border border-blue-100">Grade B: 60-69%</span>
-                              <span className="bg-amber-55 text-amber-700 px-2 py-0.5 rounded border border-amber-100">Grade C: 50-59%</span>
-                              <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded border border-slate-150">Grade D: 40-49%</span>
-                              <span className="bg-rose-55 text-rose-700 px-2 py-0.5 rounded border border-rose-100 animate-pulse">Grade E/F: &lt;40%</span>
-                            </div>
-                          </div>
-
-                          {/* Stat Grid */}
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-150">
-                            <div className="space-y-0.5 text-center sm:text-left">
-                              <span className="block text-[9px] uppercase font-black text-slate-400">Class Ingress Size</span>
-                              <span className="block text-sm font-black text-slate-800 font-mono">{classCount} Students</span>
-                            </div>
-                            <div className="space-y-0.5 text-center sm:text-left border-l border-slate-150 pl-0 sm:pl-3">
-                              <span className="block text-[9px] uppercase font-black text-slate-400">Class Average (Mean)</span>
-                              <span className="block text-sm font-black text-blue-600 font-mono">{classMean.toFixed(1)}%</span>
-                            </div>
-                            <div className="space-y-0.5 text-center sm:text-left border-l border-slate-150 pl-0 sm:pl-3">
-                              <span className="block text-[9px] uppercase font-black text-slate-400">Variance Spread (StdDev)</span>
-                              <span className="block text-sm font-black text-emerald-600 font-mono">±{classStdDev.toFixed(1)}</span>
-                            </div>
-                            <div className="space-y-0.5 text-center sm:text-left border-l border-slate-150 pl-0 sm:pl-3">
-                              <span className="block text-[9px] uppercase font-black text-slate-400">Curve Alignment</span>
-                              <span className={`block text-[11px] font-extrabold ${classMean >= 60 ? 'text-emerald-700' : 'text-amber-700'}`}>
-                                {classMean >= 65 ? 'Right-Skewed (Excellent)' : classMean >= 50 ? 'Centered (Normal)' : 'Left-Skewed (Low)'}
+                  <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+                    <table className="w-full min-w-[640px] text-left text-xs">
+                      <thead className="border-b border-slate-100 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+                        <tr>
+                          <th className="px-4 py-3">Admission Number</th>
+                          <th className="px-4 py-3">Student Name</th>
+                          <th className="px-4 py-3">Email</th>
+                          <th className="px-4 py-3">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {subjectStudents
+                          .filter((student) => {
+                            const term = headerSearch.trim().toLowerCase();
+                            if (!term) return true;
+                            return student.name.toLowerCase().includes(term) || student.admissionNo.toLowerCase().includes(term);
+                          })
+                          .map((student) => (
+                          <tr key={student.id} className="border-b border-slate-100 last:border-0">
+                            <td className="px-4 py-3 font-mono font-semibold text-slate-800">{student.admissionNo}</td>
+                            <td className="px-4 py-3 font-medium text-slate-800">{student.name}</td>
+                            <td className="px-4 py-3 text-slate-600">{student.email}</td>
+                            <td className="px-4 py-3">
+                              <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${student.grades[selectedSubject] ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                                {student.grades[selectedSubject] ? 'Graded' : 'Pending grades'}
                               </span>
-                            </div>
-                          </div>
-
-                          {/* Recharts Area Curve Chart */}
-                          <div className="h-64 bg-slate-50/20 border border-slate-100 rounded-xl p-2.5">
-                            <ResponsiveContainer width="100%" height="100%">
-                              <AreaChart
-                                data={curvePoints}
-                                margin={{ top: 15, right: 15, left: -25, bottom: 5 }}
-                              >
-                                <defs>
-                                  <linearGradient id="classCurveGrad" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#2563eb" stopOpacity={0.25}/>
-                                    <stop offset="95%" stopColor="#2563eb" stopOpacity={0.00}/>
-                                  </linearGradient>
-                                  <linearGradient id="benchmarkCurveGrad" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#64748b" stopOpacity={0.10}/>
-                                    <stop offset="95%" stopColor="#64748b" stopOpacity={0.00}/>
-                                  </linearGradient>
-                                </defs>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                                <XAxis 
-                                  dataKey="score" 
-                                  tick={{ fill: '#64748b', fontSize: 10, fontWeight: 600, fontFamily: 'monospace' }} 
-                                  axisLine={{ stroke: '#cbd5e1' }}
-                                  tickLine={{ stroke: '#cbd5e1' }}
-                                  domain={[10, 100]}
-                                  type="number"
-                                  ticks={[10, 20, 30, 40, 50, 60, 70, 80, 90, 100]}
-                                />
-                                <YAxis 
-                                  tick={{ fill: '#64748b', fontSize: 9 }} 
-                                  axisLine={{ stroke: '#cbd5e1' }}
-                                  tickLine={{ stroke: '#cbd5e1' }}
-                                />
-                                <Tooltip
-                                  content={({ active, payload }) => {
-                                    if (active && payload && payload.length) {
-                                      const data = payload[0].payload;
-                                      return (
-                                        <div className="bg-slate-900 border border-slate-800 text-white p-3 rounded-xl shadow-xl text-xs space-y-1">
-                                          <p className="font-extrabold text-[11px] text-slate-100 font-mono">Grade Score Point: {data.score}%</p>
-                                          <div className="flex justify-between items-center gap-6 text-[10px]">
-                                            <span className="text-slate-400">Class Frequency Density:</span>
-                                            <span className="font-bold text-blue-400">{payload[0] ? payload[0].value : 0}</span>
-                                          </div>
-                                          {payload[1] && (
-                                            <div className="flex justify-between items-center gap-6 text-[10px]">
-                                              <span className="text-slate-400">Standard Norm Density:</span>
-                                              <span className="font-bold text-slate-400">{payload[1].value}</span>
-                                            </div>
-                                          )}
-                                          <div className="flex justify-between items-center gap-6 pt-1 text-[10px] border-t border-slate-800">
-                                            <span className="text-slate-400">Standard Percentile:</span>
-                                            <span className="font-extrabold text-emerald-400">Grade {data.gradeLabel}</span>
-                                          </div>
-                                        </div>
-                                      );
-                                    }
-                                    return null;
-                                  }}
-                                />
-                                <Legend 
-                                  wrapperStyle={{ fontSize: 10, fontWeight: 700, fontFamily: 'monospace' }} 
-                                  verticalAlign="top"
-                                  height={36}
-                                />
-                                
-                                {/* Vertical threshold indicators representing standard university percentiles */}
-                                <ReferenceLine 
-                                  x={70} 
-                                  stroke="#10b981" 
-                                  strokeDasharray="3 3" 
-                                  label={{ value: 'A (70%)', fill: '#10b981', position: 'top', fontSize: 9, fontWeight: 800, fontFamily: 'monospace' }} 
-                                />
-                                <ReferenceLine 
-                                  x={60} 
-                                  stroke="#3b82f6" 
-                                  strokeDasharray="3 3" 
-                                  label={{ value: 'B (60%)', fill: '#3b82f6', position: 'top', fontSize: 9, fontWeight: 800, fontFamily: 'monospace' }} 
-                                />
-                                <ReferenceLine 
-                                  x={50} 
-                                  stroke="#f59e0b" 
-                                  strokeDasharray="3 3" 
-                                  label={{ value: 'C (50%)', fill: '#f59e0b', position: 'top', fontSize: 9, fontWeight: 800, fontFamily: 'monospace' }} 
-                                />
-                                <ReferenceLine 
-                                  x={40} 
-                                  stroke="#ef4444" 
-                                  strokeWidth={1.5}
-                                  strokeDasharray="3 3" 
-                                  label={{ value: 'Pass Bar (40%)', fill: '#ef4444', position: 'top', fontSize: 9, fontWeight: 900, fontFamily: 'monospace' }} 
-                                />
-
-                                <Area 
-                                  type="monotone" 
-                                  dataKey="Class Curve" 
-                                  stroke="#2563eb" 
-                                  strokeWidth={2.5} 
-                                  fillOpacity={1} 
-                                  fill="url(#classCurveGrad)" 
-                                />
-                                <Area 
-                                  type="monotone" 
-                                  dataKey="Standard Normal Curve" 
-                                  stroke="#64748b" 
-                                  strokeWidth={1.5} 
-                                  strokeDasharray="4 4" 
-                                  fillOpacity={1} 
-                                  fill="url(#benchmarkCurveGrad)" 
-                                />
-                              </AreaChart>
-                            </ResponsiveContainer>
-                          </div>
-
-                          <div className="text-[10px] bg-slate-50 border border-slate-100 p-3 rounded-xl text-slate-550 leading-relaxed font-sans">
-                            <strong>Interpretation Guide:</strong> The <span className="text-blue-600 font-bold">Class Curve</span> represents actual student score distribution, calculated dynamically using continuous marks. The <span className="text-slate-600 font-bold">Standard Normal Curve</span> simulates an ideal academic cohort performance with an average score of 65% and spread of ±12%. Comparing these curves highlights cohort grade skewness and identifies potential Grade Inflation or Remedial Intervention gaps.
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left font-sans text-xs border-collapse">
-                        <thead>
-                          <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider text-[11px] border-b border-slate-100">
-                            <th className="py-3 px-4">Student Name</th>
-                            <th className="py-3 px-4">Admission No.</th>
-                            <th className="py-3 px-4 text-center">CAT Grade (Max 30)</th>
-                            <th className="py-3 px-4 text-center">Final Exam (Max 70)</th>
-                            <th className="py-3 px-4 text-center">Calculated Total</th>
-                            <th className="py-3 px-4 text-right">Synchronization Action</th>
+                            </td>
                           </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {subjectStudents.map((student) => {
-                            const currentGrade = student.grades[selectedSubject] || { cat: 0, exam: 0 };
-                            const targetInput = gradeInputs[student.id];
-                            const totalPercentage = currentGrade.cat + currentGrade.exam;
-
-                            return (
-                              <tr key={student.id} className="hover:bg-slate-50/40">
-                                <td className="py-4 px-4 font-bold text-slate-800">{student.name}</td>
-                                <td className="py-4 px-4 font-mono text-slate-500">{student.admissionNo}</td>
-                                
-                                {/* CAT scores input */}
-                                <td className="py-3 px-4 text-center">
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    max="30"
-                                    placeholder={String(currentGrade.cat)}
-                                    value={targetInput?.cat !== undefined ? targetInput.cat : ''}
-                                    onChange={(e) => handleGradeInputChange(student.id, 'cat', e.target.value)}
-                                    className="w-16 bg-white border border-slate-220 text-center rounded p-1 text-xs text-slate-850 font-bold focus:outline-hidden focus:border-blue-500"
-                                  />
-                                </td>
-
-                                {/* Exam scores input */}
-                                <td className="py-3 px-4 text-center">
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    max="70"
-                                    placeholder={String(currentGrade.exam)}
-                                    value={targetInput?.exam !== undefined ? targetInput.exam : ''}
-                                    onChange={(e) => handleGradeInputChange(student.id, 'exam', e.target.value)}
-                                    className="w-16 bg-white border border-slate-220 text-center rounded p-1 text-xs text-slate-850 font-bold focus:outline-hidden focus:border-blue-500"
-                                  />
-                                </td>
-
-                                <td className="py-4 px-4 text-center bg-slate-50/40">
-                                  <span className="font-extrabold text-sm text-slate-900">{totalPercentage}%</span>
-                                </td>
-
-                                <td className="py-3 px-4 text-right">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleSaveStudentGrade(student)}
-                                    className="bg-blue-600 hover:bg-blue-700 text-white hover:text-white px-3 py-1.5 rounded-md font-bold text-[10px] inline-flex items-center gap-1 cursor-pointer transition-colors"
-                                  >
-                                    <Save className="w-3.5 h-3.5" />
-                                    <span>Sync Grade</span>
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </div>
             )}
 
-            {/* VIEW 2: ROSTERS AND SCHEDULES */}
             {activeTab === 'schedule' && (
               <div className="space-y-8">
                 {/* 2.1 SUBJECTS TIMETABLE */}
@@ -1861,7 +1400,7 @@ subjects.forEach(subj => {
                           : null;
 
                       const checkedPresentCount = subjectStudents.filter(
-                        (s) => attendanceRecords[s.id]
+                        (s) => attendanceRecords[s.id] === 'present' || attendanceRecords[s.id] === 'late'
                       ).length;
                       const hasActiveInteraction =
                         Object.keys(attendanceRecords).length > 0;
@@ -1887,13 +1426,14 @@ subjects.forEach(subj => {
                         .sort((a, b) => a.date.localeCompare(b.date));
 
                       const trendData = pastSessions.map((session) => {
-                        const total =
+                          const total =
                           (session.presentStudents?.length || 0) +
+                          (session.lateStudents?.length || 0) +
                           (session.absentStudents?.length || 0);
                         const rate =
                           total > 0
                             ? Math.round(
-                                ((session.presentStudents?.length || 0) / total) *
+                                (((session.presentStudents?.length || 0) + (session.lateStudents?.length || 0)) / total) *
                                   100
                               )
                             : 0;
@@ -2076,7 +1616,7 @@ subjects.forEach(subj => {
 
                       <select
                         value={selectedSubject}
-                        onChange={(e) => { setSelectedSubject(e.target.value); setAttendanceRecords({}); }}
+                        onChange={(e) => { handleModuleSelection(e.target.value); setAttendanceRecords({}); setAttendanceSessionOpen(false); }}
                         className="bg-white border border-slate-200 rounded p-1.5 text-xs text-slate-800 font-bold focus:outline-hidden"
                         title="Choose active class"
                         disabled={assignedCodes.length === 0}
@@ -2089,6 +1629,14 @@ subjects.forEach(subj => {
                           ))
                         )}
                       </select>
+                      <button
+                        type="button"
+                        onClick={openAttendanceSession}
+                        disabled={assignedCodes.length === 0 || subjectStudents.length === 0}
+                        className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                      >
+                        {attendanceSessionOpen ? 'Session Open' : 'Open Session'}
+                      </button>
                     </div>
                   </div>
 
@@ -2100,11 +1648,17 @@ subjects.forEach(subj => {
 )}
                   {subjectStudents.length === 0 ? (
                     <p className="text-slate-400 italic text-xs py-8 text-center">Select an active class with registered students.</p>
+                  ) : !attendanceSessionOpen ? (
+                    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-10 text-center">
+                      <UserCheck className="mx-auto mb-2 h-8 w-8 text-slate-300" />
+                      <p className="text-sm font-semibold text-slate-700">Attendance session is closed.</p>
+                      <p className="mt-1 text-xs text-slate-500">Open the session to mark Present, Late, or Absent.</p>
+                    </div>
                   ) : (
                     <div className="space-y-3">
                       <div className="border border-slate-100 rounded-xl divide-y divide-slate-100 overflow-hidden bg-white">
                         {subjectStudents.map((s) => {
-                          const isPresent = !!attendanceRecords[s.id];
+                          const status = attendanceRecords[s.id] || 'absent';
                           return (
                             <div key={s.id} className="p-3.5 flex justify-between items-center text-xs hover:bg-slate-50/30">
                               <div className="space-y-0.5">
@@ -2112,17 +1666,22 @@ subjects.forEach(subj => {
                                 <span className="text-slate-400 font-mono text-[10px] block">{s.admissionNo} • Registered</span>
                               </div>
 
-                              <button
-                                type="button"
-                                onClick={() => toggleAttendanceCheckbox(s.id)}
-                                className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                                  isPresent
-                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                    : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
-                                }`}
-                              >
-                                {isPresent ? '✓ Mark Present' : '○ Mark Absent'}
-                              </button>
+                              <div className="flex items-center gap-1.5">
+                                {([
+                                  ['present', 'Present', 'bg-emerald-50 text-emerald-700 border-emerald-200'],
+                                  ['late', 'Late', 'bg-amber-50 text-amber-700 border-amber-200'],
+                                  ['absent', 'Absent', 'bg-rose-50 text-rose-700 border-rose-200'],
+                                ] as const).map(([value, label, activeClass]) => (
+                                  <button
+                                    key={value}
+                                    type="button"
+                                    onClick={() => setAttendanceStatus(s.id, value)}
+                                    className={`rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition-all ${status === value ? activeClass : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'}`}
+                                  >
+                                    {status === value ? '✓ ' : ''}{label}
+                                  </button>
+                                ))}
+                              </div>
                             </div>
                           );
                         })}
@@ -2160,8 +1719,9 @@ subjects.forEach(subj => {
                       return (
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                           {pastSessions.map(session => {
-                            const total = session.presentStudents.length + session.absentStudents.length;
-                            const rate = total > 0 ? Math.round((session.presentStudents.length / total) * 100) : 0;
+                            const lateCount = session.lateStudents?.length || 0;
+                            const total = session.presentStudents.length + lateCount + session.absentStudents.length;
+                            const rate = total > 0 ? Math.round(((session.presentStudents.length + lateCount) / total) * 100) : 0;
                             return (
                               <div 
                                 key={session.id} 
@@ -2173,7 +1733,7 @@ subjects.forEach(subj => {
                                 <div>
                                   <span className="text-xs font-bold text-slate-850 block">{session.date}</span>
                                   <span className="text-[10px] text-slate-400 font-medium">
-                                    {session.presentStudents.length} present, {session.absentStudents.length} absent ({total} total)
+                                    {session.presentStudents.length} present, {lateCount} late, {session.absentStudents.length} absent ({total} total)
                                   </span>
                                 </div>
                                 <div className="text-right shrink-0">
@@ -2239,13 +1799,12 @@ subjects.forEach(subj => {
           )}
 
           <form onSubmit={handleLogHoursSubmit} className="space-y-4">
-            
             <div className="space-y-1.5">
-              <label htmlFor="sidebar-log-class" className="block text-[11px] font-bold text-slate-650">Select Session Course</label>
+              <label htmlFor="sidebar-log-class" className="block text-[11px] font-bold text-slate-650">Module</label>
               <select
                 id="sidebar-log-class"
                 value={selectedSubject}
-                onChange={(e) => setSelectedSubject(e.target.value)}
+                onChange={(e) => handleModuleSelection(e.target.value)}
                 className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs text-slate-800 focus:outline-hidden"
                 required
                 disabled={assignedCodes.length === 0}
@@ -2260,43 +1819,68 @@ subjects.forEach(subj => {
               </select>
             </div>
 
-            <div className="space-y-1.5">
-              <label htmlFor="sidebar-log-topic" className="block text-[11px] font-bold text-slate-650">Session Topic Delivered</label>
-              <input
-                id="sidebar-log-topic"
-                type="text"
-                value={logTopic}
-                onChange={(e) => setLogTopic(e.target.value)}
-                placeholder="Introduced Big-O notation & graphs theory"
-                className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs text-slate-850 focus:outline-hidden"
-                required
-                disabled={assignedCodes.length === 0}
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label htmlFor="sidebar-log-date" className="block text-[11px] font-bold text-slate-650">Date</label>
+                <input
+                  id="sidebar-log-date"
+                  type="date"
+                  value={logSessionDate}
+                  onChange={(e) => setLogSessionDate(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-white p-2.5 text-xs text-slate-850 focus:outline-hidden"
+                  required
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-bold text-slate-650">Duration</label>
+                <output className={`block w-full rounded-lg border p-2.5 text-xs font-bold ${computedSessionDuration > 0 ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
+                  {computedSessionDuration > 0 ? `${computedSessionDuration} hour${computedSessionDuration === 1 ? '' : 's'} (automatic)` : 'Set a valid time range'}
+                </output>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label htmlFor="sidebar-log-start" className="block text-[11px] font-bold text-slate-650">Start Time</label>
+                <input id="sidebar-log-start" type="time" value={logStartTime} onChange={(e) => setLogStartTime(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white p-2.5 text-xs text-slate-850 focus:outline-hidden" required />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="sidebar-log-end" className="block text-[11px] font-bold text-slate-650">End Time</label>
+                <input id="sidebar-log-end" type="time" value={logEndTime} onChange={(e) => setLogEndTime(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white p-2.5 text-xs text-slate-850 focus:outline-hidden" required />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label htmlFor="sidebar-log-room" className="block text-[11px] font-bold text-slate-650">Room</label>
+                <input id="sidebar-log-room" type="text" value={logRoom} onChange={(e) => setLogRoom(e.target.value)} placeholder={logTeachingMode === 'Online' ? 'Online / virtual room' : 'e.g. Lab 2'} className="w-full rounded-lg border border-slate-200 bg-white p-2.5 text-xs text-slate-850 focus:outline-hidden" required />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="sidebar-log-mode" className="block text-[11px] font-bold text-slate-650">Mode</label>
+                <select id="sidebar-log-mode" value={logTeachingMode} onChange={(e) => setLogTeachingMode(e.target.value as 'Physical' | 'Online' | 'Hybrid')} className="w-full rounded-lg border border-slate-200 bg-white p-2.5 text-xs text-slate-850 focus:outline-hidden">
+                  <option value="Physical">Physical</option>
+                  <option value="Online">Online</option>
+                  <option value="Hybrid">Hybrid</option>
+                </select>
+              </div>
             </div>
 
             <div className="space-y-1.5">
-              <label htmlFor="sidebar-log-hours" className="block text-[11px] font-bold text-slate-650">Duration (Hourly)</label>
-              <input
-                id="sidebar-log-hours"
-                type="number"
-                step="0.5"
-                min="0.5"
-                max="10"
-                value={logSessionHours}
-                onChange={(e) => setLogSessionHours(e.target.value)}
-                placeholder="3"
-                className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs text-slate-850 focus:outline-hidden"
-                required
-                disabled={assignedCodes.length === 0}
-              />
+              <label htmlFor="sidebar-log-topic" className="block text-[11px] font-bold text-slate-650">Topic</label>
+              <input id="sidebar-log-topic" type="text" value={logTopic} onChange={(e) => setLogTopic(e.target.value)} placeholder="Introduced Big-O notation and graph theory" className="w-full rounded-lg border border-slate-200 bg-white p-2.5 text-xs text-slate-850 focus:outline-hidden" required />
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="sidebar-log-remarks" className="block text-[11px] font-bold text-slate-650">Remarks</label>
+              <textarea id="sidebar-log-remarks" value={logRemarks} onChange={(e) => setLogRemarks(e.target.value)} placeholder="Optional notes about the session" rows={3} className="w-full resize-y rounded-lg border border-slate-200 bg-white p-2.5 text-xs text-slate-850 focus:outline-hidden" />
             </div>
 
             <button
               type="submit"
-              disabled={assignedCodes.length === 0 || isLogging}
+              disabled={assignedCodes.length === 0 || isLogging || computedSessionDuration <= 0}
               className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 rounded-lg text-xs cursor-pointer transition-colors"
             >
-              {isLogging ? 'Saving Session…' : 'Log Active Lecturing Session'}
+              {isLogging ? 'Saving Session…' : 'Save Teaching Session'}
             </button>
           </form>
 
