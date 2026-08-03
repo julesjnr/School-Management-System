@@ -132,7 +132,7 @@ export const UnitRegister: React.FC<UnitRegisterProps> = ({
   subjectMap = {},
   studentProgramme,
 }) => {
-  const { showError, showConfirm } = useNotification();
+  const { showError, showSuccess, showConfirm } = useNotification();
   const enrollSelectRef = useRef<HTMLSelectElement>(null);
   const enrollPanelRef = useRef<HTMLDivElement>(null);
 
@@ -141,6 +141,16 @@ export const UnitRegister: React.FC<UnitRegisterProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Drop Workflow & Deadline States
+  const [isPastDeadline, setIsPastDeadline] = useState<boolean>(false);
+  const [registrationDeadline, setRegistrationDeadline] = useState<string>('');
+  const [dropRequests, setDropRequests] = useState<any[]>([]);
+
+  // Modal States
+  const [requestDropUnit, setRequestDropUnit] = useState<EnrolledUnit | null>(null);
+  const [dropReasonText, setDropReasonText] = useState<string>('');
+  const [isSubmittingDropRequest, setIsSubmittingDropRequest] = useState<boolean>(false);
 
   const fetchRegisteredUnits = useCallback(async () => {
     if (!studentId) {
@@ -166,9 +176,32 @@ export const UnitRegister: React.FC<UnitRegisterProps> = ({
     }
   }, [studentId]);
 
+  const fetchDeadlineAndDropRequests = useCallback(async () => {
+    try {
+      const [deadlineRes, dropRes] = await Promise.all([
+        fetch('/api/system/registration-deadline'),
+        studentId ? fetch(`/api/unit-drop-requests?studentId=${encodeURIComponent(studentId)}`) : null,
+      ]);
+
+      if (deadlineRes.ok) {
+        const dData = await deadlineRes.json();
+        setIsPastDeadline(!!dData.isPastDeadline);
+        setRegistrationDeadline(dData.deadline || '');
+      }
+
+      if (dropRes && dropRes.ok) {
+        const rData = await dropRes.json();
+        setDropRequests(Array.isArray(rData) ? rData : []);
+      }
+    } catch (err) {
+      console.error('Error fetching registration deadline or drop requests:', err);
+    }
+  }, [studentId]);
+
   useEffect(() => {
     fetchRegisteredUnits();
-  }, [fetchRegisteredUnits]);
+    fetchDeadlineAndDropRequests();
+  }, [fetchRegisteredUnits, fetchDeadlineAndDropRequests]);
 
   const handleAddUnitRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -195,6 +228,7 @@ export const UnitRegister: React.FC<UnitRegisterProps> = ({
       }
 
       setSelectedUnitCode('');
+      showSuccess('Module Registered', `Successfully registered module ${selectedUnitCode}`);
       await fetchRegisteredUnits();
     } catch (err: any) {
       console.error('Error registering module:', err);
@@ -204,34 +238,110 @@ export const UnitRegister: React.FC<UnitRegisterProps> = ({
     }
   };
 
-  const handleDeregisterUnit = async (code: string) => {
-    const confirmed = await showConfirm({
-      title: 'Drop Unit Module',
-      message: `Are you absolutely sure you want to drop unit: ${code}?\nThis will clear any uploaded grades associated with it.`,
-      confirmText: 'Drop Unit',
-      variant: 'danger',
-    });
-    if (!confirmed) {
+  // Direct Drop Before Deadline
+  const handleDirectDropUnit = async (unit: EnrolledUnit) => {
+    const unitName = resolveUnitName(unit.courseCode, unit.courseTitle, subjectMap);
+
+    // Validation: Cannot drop completed units
+    if (unit.completionPercentage === 100 || unit.overallProgress === 100) {
+      showError('Drop Not Allowed', `Unit ${unit.courseCode} has already been completed and cannot be dropped.`);
       return;
     }
 
+    const confirmed = await showConfirm({
+      title: 'Confirm Unit Drop',
+      message: `Are you sure you want to drop unit: ${unit.courseCode} — ${unitName}?\nThis action will immediately remove your registration record.`,
+      confirmText: 'Confirm Drop',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+
     try {
       const res = await fetch(
-        `/api/student-enrollments?studentId=${encodeURIComponent(studentId)}&courseCode=${encodeURIComponent(code)}`,
+        `/api/student-enrollments?studentId=${encodeURIComponent(studentId)}&courseCode=${encodeURIComponent(unit.courseCode)}`,
         { method: 'DELETE' }
       );
-
-      if (onDeregisterUnit) {
-        await onDeregisterUnit(code);
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to drop unit module');
       }
 
+      if (onDeregisterUnit) {
+        await onDeregisterUnit(unit.courseCode);
+      }
+
+      showSuccess('Unit Dropped', `Unit ${unit.courseCode} has been successfully dropped.`);
       await fetchRegisteredUnits();
+      await fetchDeadlineAndDropRequests();
     } catch (err: any) {
       console.error('Error dropping module:', err);
-      if (onDeregisterUnit) {
-        await onDeregisterUnit(code);
+      showError('Drop Failed', err.message || 'Could not drop unit module.');
+    }
+  };
+
+  // Open Request Drop Modal After Deadline
+  const handleOpenRequestDropModal = (unit: EnrolledUnit) => {
+    // Validation: Cannot drop completed units
+    if (unit.completionPercentage === 100 || unit.overallProgress === 100) {
+      showError('Drop Not Allowed', `Unit ${unit.courseCode} has already been completed and cannot be dropped.`);
+      return;
+    }
+
+    // Validation: Duplicate check
+    const existingPending = dropRequests.find(
+      (r) => r.courseCode === unit.courseCode && r.status === 'Pending Approval'
+    );
+    if (existingPending) {
+      showError('Duplicate Drop Request', `A drop request for unit ${unit.courseCode} is already pending approval.`);
+      return;
+    }
+
+    setRequestDropUnit(unit);
+    setDropReasonText('');
+  };
+
+  // Submit Drop Request After Deadline
+  const handleSubmitDropRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!requestDropUnit || isSubmittingDropRequest) return;
+
+    const unitName = resolveUnitName(requestDropUnit.courseCode, requestDropUnit.courseTitle, subjectMap);
+    const confirmed = await showConfirm({
+      title: 'Confirm Drop Request',
+      message: `Submit a drop request for ${requestDropUnit.courseCode} — ${unitName}? An administrator must approve it before your registration is removed.`,
+      confirmText: 'Submit Request',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+
+    setIsSubmittingDropRequest(true);
+
+    try {
+      const res = await fetch('/api/unit-drop-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          studentId,
+          courseCode: requestDropUnit.courseCode,
+          unitName,
+          reason: dropReasonText.trim() || 'Requested unit drop after registration deadline',
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to submit unit drop request');
       }
-      await fetchRegisteredUnits();
+
+      showSuccess('Drop Request Submitted', `Your drop request for ${requestDropUnit.courseCode} has been submitted. Status: Pending Approval.`);
+      setRequestDropUnit(null);
+      setDropReasonText('');
+      await fetchDeadlineAndDropRequests();
+    } catch (err: any) {
+      console.error('Error submitting drop request:', err);
+      showError('Submission Failed', err.message || 'Could not submit drop request.');
+    } finally {
+      setIsSubmittingDropRequest(false);
     }
   };
 
@@ -288,13 +398,25 @@ export const UnitRegister: React.FC<UnitRegisterProps> = ({
               {SEMESTER_LABEL}
             </span>
             <span
+              className={`inline-flex items-center rounded-lg border px-2.5 py-1.5 text-xs font-bold ${
+                isPastDeadline
+                  ? 'bg-rose-50 text-rose-700 border-rose-200'
+                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+              }`}
+            >
+              {isPastDeadline ? 'Past Deadline (Requests Only)' : 'Registration Open'}
+            </span>
+            <span
               className={`inline-flex items-center rounded-lg border px-2.5 py-1.5 text-xs font-bold ${status.className}`}
             >
               {status.label}
             </span>
             <button
               type="button"
-              onClick={() => fetchRegisteredUnits()}
+              onClick={() => {
+                fetchRegisteredUnits();
+                fetchDeadlineAndDropRequests();
+              }}
               disabled={isLoading}
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:text-blue-700 transition-colors disabled:opacity-50"
               title="Refresh Registrations"
@@ -439,9 +561,9 @@ export const UnitRegister: React.FC<UnitRegisterProps> = ({
           )}
 
           <div className="rounded-lg border border-blue-100 bg-blue-50/60 px-3.5 py-3 text-[11px] text-blue-900/80 leading-relaxed space-y-1">
-            <p className="font-bold text-blue-900 text-xs">Academic policy</p>
-            <p>• Adding a unit registers you on the lecturer class list immediately.</p>
-            <p>• Retakes and supplementary marks use the same module indices.</p>
+            <p className="font-bold text-blue-900 text-xs">Academic policy & Drop Rules</p>
+            <p>• Before registration deadline: Direct unit drop with instant removal.</p>
+            <p>• After registration deadline: Controlled drop request submitted for Academic Admin approval.</p>
           </div>
         </div>
 
@@ -517,6 +639,11 @@ export const UnitRegister: React.FC<UnitRegisterProps> = ({
                   {registeredUnits.map((unit) => {
                     const unitName = resolveUnitName(unit.courseCode, unit.courseTitle, subjectMap);
                     const lecturerName = resolveLecturerName(unit.courseCode, lecturers);
+                    const pendingRequest = dropRequests.find(
+                      (r) => r.courseCode === unit.courseCode && r.status === 'Pending Approval'
+                    );
+                    const isCompleted = unit.completionPercentage === 100 || unit.overallProgress === 100;
+
                     return (
                       <tr
                         key={unit.courseCode}
@@ -547,20 +674,43 @@ export const UnitRegister: React.FC<UnitRegisterProps> = ({
                           </span>
                         </td>
                         <td className="px-4 sm:px-5 py-3.5">
-                          <span className="inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
-                            Active
-                          </span>
+                          {pendingRequest ? (
+                            <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-700">
+                              <Hourglass className="w-3 h-3 text-amber-600 animate-pulse" />
+                              Pending Approval
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
+                              Active
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 sm:px-5 py-3.5 text-right">
-                          <button
-                            type="button"
-                            onClick={() => handleDeregisterUnit(unit.courseCode)}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 hover:border-rose-200 transition-colors"
-                            title="Deregister Module"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            Drop
-                          </button>
+                          {pendingRequest ? (
+                            <span className="text-xs text-amber-700 font-semibold italic">Drop Requested</span>
+                          ) : isPastDeadline ? (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenRequestDropModal(unit)}
+                              disabled={isCompleted}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                              title={isCompleted ? 'Completed units cannot be dropped' : 'Request Drop Approval'}
+                            >
+                              <Hourglass className="w-3.5 h-3.5" />
+                              Request Drop
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleDirectDropUnit(unit)}
+                              disabled={isCompleted}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 hover:border-rose-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                              title={isCompleted ? 'Completed units cannot be dropped' : 'Drop Unit'}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              Drop
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
@@ -571,9 +721,75 @@ export const UnitRegister: React.FC<UnitRegisterProps> = ({
           )}
         </div>
       </section>
+
+      {/* Modal: Request Drop Reason Form (Post-Deadline Workflow) */}
+      {requestDropUnit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden space-y-4 p-5 sm:p-6">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <Hourglass className="w-5 h-5 text-amber-600" />
+                  Request Unit Drop
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Registration deadline has passed. Submitting this request sends it to Academic Administration for review.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900 space-y-1">
+              <p className="font-semibold">Target Unit:</p>
+              <p className="font-mono text-amber-800 font-bold">
+                {requestDropUnit.courseCode} — {resolveUnitName(requestDropUnit.courseCode, requestDropUnit.courseTitle, subjectMap)}
+              </p>
+            </div>
+
+            <form onSubmit={handleSubmitDropRequest} className="space-y-4">
+              <div className="space-y-1.5">
+                <label htmlFor="drop-reason" className="block text-xs font-semibold text-slate-700">
+                  Reason for Drop Request <span className="text-slate-400 font-normal">(Optional)</span>
+                </label>
+                <textarea
+                  id="drop-reason"
+                  rows={3}
+                  value={dropReasonText}
+                  onChange={(e) => setDropReasonText(e.target.value)}
+                  placeholder="State reason for dropping this module after registration deadline…"
+                  className="w-full rounded-lg border border-slate-300 p-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-400"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setRequestDropUnit(null)}
+                  disabled={isSubmittingDropRequest}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingDropRequest}
+                  className="px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                >
+                  {isSubmittingDropRequest ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Submitting…
+                    </>
+                  ) : (
+                    'Submit Drop Request'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 export default UnitRegister;
-

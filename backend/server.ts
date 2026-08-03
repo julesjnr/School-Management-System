@@ -1688,8 +1688,6 @@ const publicAPIPaths = [
   "/api/auth/reset-request",
   "/api/auth/reset-requests",
   "/api/data",
-  "/api/student/registered-units",
-  "/api/student-enrollments",
   "/api/courses",
   "/api/students"
 ];
@@ -1708,21 +1706,21 @@ app.use("/api", (req: any, res: any, next: any) => {
   const lecturerLookupProtected =
     relativePath.startsWith("/api/lecturer/student-lookup") ||
     relativePath.startsWith("/api/lecturer/students");
-  const isPublicStudentRoute =
-    relativePath === "/api/student" || relativePath.startsWith("/api/student/");
-  const isPublicLecturerRoute =
-    relativePath === "/api/lecturer" || relativePath.startsWith("/api/lecturer/");
-  const isPublicEnrollmentRoute =
+  const isProtectedStudentRegistrationRoute =
+    relativePath === "/api/student/registered-units" ||
     relativePath === "/api/student-enrollments" ||
     relativePath.startsWith("/api/student-enrollments/");
-
+  const isPublicStudentRoute =
+    !isProtectedStudentRegistrationRoute &&
+    (relativePath === "/api/student" || relativePath.startsWith("/api/student/"));
+  const isPublicLecturerRoute =
+    relativePath === "/api/lecturer" || relativePath.startsWith("/api/lecturer/");
   const isPublic =
     !lecturerLookupProtected &&
     (publicAPIPaths.includes(fullPath) ||
       publicAPIPaths.includes(relativePath) ||
       isPublicStudentRoute ||
-      isPublicLecturerRoute ||
-      isPublicEnrollmentRoute);
+      isPublicLecturerRoute);
   if (isPublic) {
     return next();
   }
@@ -5781,25 +5779,13 @@ app.post("/api/lecturer/attendance-sessions", async (req, res) => {
   }
 });
 
-app.get("/api/student/registered-units", async (req, res) => {
+app.get("/api/student/registered-units", checkRBAC(["student"]), async (req: any, res) => {
   try {
-    let studentId = (req.query.studentId as string) || (req.headers["x-student-id"] as string);
+    const requestedStudentId = (req.query.studentId as string) || (req.headers["x-student-id"] as string);
+    const studentId = req.user.userId as string;
 
-    if (!studentId) {
-      const [cateStudent] = await db
-        .select()
-        .from(students)
-        .where(and(eq(students.name, "Cate Wanjiru"), activeResourceCondition("student", students.id)))
-        .limit(1);
-
-      if (cateStudent) {
-        studentId = cateStudent.id;
-      } else {
-        const [firstStudent] = await db.select().from(students).where(activeResourceCondition("student", students.id)).limit(1);
-        if (firstStudent) {
-          studentId = firstStudent.id;
-        }
-      }
+    if (requestedStudentId && requestedStudentId !== studentId) {
+      return res.status(403).json({ error: "Students can only view their own unit registrations." });
     }
 
     if (!studentId) {
@@ -5882,7 +5868,7 @@ app.get("/api/student/registered-units", async (req, res) => {
   }
 });
 
-app.post("/api/student-enrollments", async (req, res) => {
+app.post("/api/student-enrollments", checkRBAC(["student"]), async (req: any, res) => {
   try {
     const { studentId, courseCode } = req.body;
 
@@ -5890,6 +5876,9 @@ app.post("/api/student-enrollments", async (req, res) => {
       return res.status(400).json({
         error: "studentId and courseCode are required",
       });
+    }
+    if (studentId !== req.user.userId) {
+      return res.status(403).json({ error: "Students can only manage their own unit registrations." });
     }
 
     const [activeStudent, activeCourse] = await Promise.all([
@@ -5954,13 +5943,21 @@ app.post("/api/student-enrollments", async (req, res) => {
   }
 });
 
-app.delete("/api/student-enrollments", async (req, res) => {
+app.delete("/api/student-enrollments", checkRBAC(["student"]), async (req: any, res) => {
   try {
     const studentId = (req.query.studentId as string) || (req.body?.studentId as string);
     const courseCode = (req.query.courseCode as string) || (req.body?.courseCode as string);
 
     if (!studentId || !courseCode) {
       return res.status(400).json({ error: "studentId and courseCode are required" });
+    }
+    if (studentId !== req.user.userId) {
+      return res.status(403).json({ error: "Students can only manage their own unit registrations." });
+    }
+
+    const deadline = cachedDb?.registrationDeadline || "2026-08-15T23:59:59.000Z";
+    if (Date.now() > new Date(deadline).getTime()) {
+      return res.status(409).json({ error: "The registration deadline has passed. Submit a drop request for administrator approval." });
     }
 
     const [activeStudent] = await db
@@ -5994,6 +5991,190 @@ app.delete("/api/student-enrollments", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// Unit Drop Requests & Registration Deadline Endpoints
+app.get("/api/system/registration-deadline", (req, res) => {
+  const deadline = cachedDb?.registrationDeadline || "2026-08-15T23:59:59.000Z";
+  const isPastDeadline = Date.now() > new Date(deadline).getTime();
+  res.json({ deadline, isPastDeadline });
+});
+
+app.post("/api/system/registration-deadline", checkRBAC(["admin"]), (req, res) => {
+  const { deadline } = req.body;
+  if (!deadline) {
+    return res.status(400).json({ error: "deadline date string is required" });
+  }
+  if (!cachedDb) cachedDb = {};
+  cachedDb.registrationDeadline = deadline;
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(cachedDb, null, 2), "utf-8");
+  } catch (e) {
+    console.error("Error updating registration deadline in DB store:", e);
+  }
+  const isPastDeadline = Date.now() > new Date(deadline).getTime();
+  res.json({ success: true, deadline, isPastDeadline });
+});
+
+app.get("/api/unit-drop-requests", checkRBAC(["student", "admin"]), (req: any, res) => {
+  const requestedStudentId = req.query.studentId as string;
+  const studentId = req.user.role === "student" ? req.user.userId : requestedStudentId;
+  if (req.user.role === "student" && requestedStudentId && requestedStudentId !== studentId) {
+    return res.status(403).json({ error: "Students can only view their own drop requests." });
+  }
+  if (!cachedDb) cachedDb = {};
+  if (!Array.isArray(cachedDb.dropRequests)) {
+    cachedDb.dropRequests = [];
+  }
+  let list = cachedDb.dropRequests;
+  if (studentId) {
+    list = list.filter((r: any) => r.studentId === studentId);
+  }
+  res.json(list);
+});
+
+app.post("/api/unit-drop-requests", checkRBAC(["student"]), async (req: any, res) => {
+  try {
+    const { studentId, courseCode, unitName, reason } = req.body;
+    if (!studentId || !courseCode) {
+      return res.status(400).json({ error: "studentId and courseCode are required" });
+    }
+    if (studentId !== req.user.userId) {
+      return res.status(403).json({ error: "Students can only manage their own unit registrations." });
+    }
+
+    const deadline = cachedDb?.registrationDeadline || "2026-08-15T23:59:59.000Z";
+    if (Date.now() <= new Date(deadline).getTime()) {
+      return res.status(409).json({ error: "Units can be dropped directly while registration is open." });
+    }
+
+    const [enrollment] = await db
+      .select({ courseCode: studentEnrollments.courseCode })
+      .from(studentEnrollments)
+      .where(and(eq(studentEnrollments.studentId, studentId), eq(studentEnrollments.courseCode, courseCode)))
+      .limit(1);
+    if (!enrollment) {
+      return res.status(404).json({ error: "Active unit registration not found." });
+    }
+
+    if (!cachedDb) cachedDb = {};
+    if (!Array.isArray(cachedDb.dropRequests)) {
+      cachedDb.dropRequests = [];
+    }
+
+    // Validation: Check for duplicate pending drop request
+    const existingPending = cachedDb.dropRequests.find(
+      (r: any) => r.studentId === studentId && r.courseCode === courseCode && r.status === "Pending Approval"
+    );
+    if (existingPending) {
+      return res.status(400).json({ error: "A drop request for this unit is already pending approval." });
+    }
+
+    // Find student details
+    const student = cachedDb.students?.find((s: any) => s.id === studentId);
+
+    const newRequest = {
+      id: crypto.randomUUID(),
+      studentId,
+      studentName: student ? student.name : "Student",
+      admissionNo: student ? student.admissionNo || "" : "",
+      courseCode,
+      unitName: unitName || courseCode,
+      reason: reason || "Requested unit drop after registration deadline",
+      status: "Pending Approval",
+      requestedAt: new Date().toISOString(),
+    };
+
+    cachedDb.dropRequests.unshift(newRequest);
+
+    try {
+      fs.writeFileSync(DB_FILE, JSON.stringify(cachedDb, null, 2), "utf-8");
+    } catch (e) {
+      console.error("Error saving drop request to db_store.json:", e);
+    }
+
+    res.status(201).json({ success: true, dropRequest: newRequest });
+  } catch (error: any) {
+    console.error("Error creating unit drop request:", error);
+    res.status(500).json({ error: error.message || "Failed to submit drop request" });
+  }
+});
+
+app.post("/api/unit-drop-requests/:id/approve", checkRBAC(["admin"]), async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    if (!cachedDb || !Array.isArray(cachedDb.dropRequests)) {
+      return res.status(404).json({ error: "Drop request not found" });
+    }
+
+    const request = cachedDb.dropRequests.find((r: any) => r.id === id);
+    if (!request) {
+      return res.status(404).json({ error: "Drop request not found" });
+    }
+    if (request.status !== "Pending Approval") {
+      return res.status(409).json({ error: "Only pending drop requests can be approved." });
+    }
+
+    request.status = "Approved";
+    request.processedBy = req.user.userId;
+    request.processedAt = new Date().toISOString();
+
+    // Remove registration from database
+    await db
+      .delete(studentEnrollments)
+      .where(and(eq(studentEnrollments.studentId, request.studentId), eq(studentEnrollments.courseCode, request.courseCode)));
+
+    if (cachedDb.students) {
+      const student = cachedDb.students.find((s: any) => s.id === request.studentId);
+      if (student && student.enrolledUnits) {
+        student.enrolledUnits = student.enrolledUnits.filter((code: string) => code !== request.courseCode);
+      }
+    }
+
+    try {
+      fs.writeFileSync(DB_FILE, JSON.stringify(cachedDb, null, 2), "utf-8");
+    } catch (e) {
+      console.error("Error updating DB store on drop approve:", e);
+    }
+
+    res.json({ success: true, message: `Approved drop request for ${request.courseCode}`, dropRequest: request });
+  } catch (error: any) {
+    console.error("Error approving drop request:", error);
+    res.status(500).json({ error: error.message || "Failed to approve drop request" });
+  }
+});
+
+app.post("/api/unit-drop-requests/:id/reject", checkRBAC(["admin"]), (req: any, res) => {
+  try {
+    const { id } = req.params;
+    if (!cachedDb || !Array.isArray(cachedDb.dropRequests)) {
+      return res.status(404).json({ error: "Drop request not found" });
+    }
+
+    const request = cachedDb.dropRequests.find((r: any) => r.id === id);
+    if (!request) {
+      return res.status(404).json({ error: "Drop request not found" });
+    }
+    if (request.status !== "Pending Approval") {
+      return res.status(409).json({ error: "Only pending drop requests can be rejected." });
+    }
+
+    request.status = "Rejected";
+    request.processedBy = req.user.userId;
+    request.processedAt = new Date().toISOString();
+
+    try {
+      fs.writeFileSync(DB_FILE, JSON.stringify(cachedDb, null, 2), "utf-8");
+    } catch (e) {
+      console.error("Error updating DB store on drop reject:", e);
+    }
+
+    res.json({ success: true, message: `Rejected drop request for ${request.courseCode}`, dropRequest: request });
+  } catch (error: any) {
+    console.error("Error rejecting drop request:", error);
+    res.status(500).json({ error: error.message || "Failed to reject drop request" });
+  }
+});
+
 //--payments
 app.post("/api/payments", async (req, res) => {
   try {
