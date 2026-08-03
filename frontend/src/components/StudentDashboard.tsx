@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNotification } from './notifications';
 import { 
   User, Award, FileText, CreditCard, BookOpen, 
@@ -10,7 +10,6 @@ import {
 } from 'lucide-react';
 import { Student, Course, Grade, Invoice, Payment, StockItem, Lecturer, CourseReview, Book, Loan, Reservation, LMSReadingList, BookReview, BookRequest, ExamPaper, LibraryGateLog, AttendanceSession } from '../types';
 import { subjectMap } from '../data';
-import GlobalSearchBar from './GlobalSearchBar';
 import StudentTranscript from './StudentTranscript';
 import PerformanceInsights from './PerformanceInsights';
 import DegreeProgress from './DegreeProgress';
@@ -67,6 +66,77 @@ interface StudentDashboardProps {
   onCheckoutBook: (bookId: string, patronId: string, patronName: string, patronRole: 'student' | 'lecturer', loanDays?: number) => void;
   onReturnBook: (loanId: string, returnStatus: 'returned' | 'damaged' | 'lost', damageFee?: number) => void;
   onLogout: () => void;
+}
+
+type StudentTab = 'dashboard' | 'grades' | 'financials' | 'materials' | 'units' | 'officeHours' | 'library';
+
+function StudentPortalSearch({
+  student,
+  courses,
+  books,
+  readingLists,
+  examPapers,
+  onNavigate,
+}: {
+  student: Student;
+  courses: Course[];
+  books: Book[];
+  readingLists: LMSReadingList[];
+  examPapers: ExamPaper[];
+  onNavigate: (tab: StudentTab) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const term = query.trim().toLowerCase();
+  const results = useMemo(() => {
+    if (!term) return [] as Array<{ label: string; detail: string; tab: StudentTab }>;
+    const registered = courses
+      .filter((course) => student.enrolledUnits.includes(course.code) && `${course.code} ${course.title}`.toLowerCase().includes(term))
+      .map((course) => ({ label: course.title, detail: `Registered unit · ${course.code}`, tab: 'units' as StudentTab }));
+    const materials = [
+      ...readingLists
+        .filter((list) => student.enrolledUnits.includes(list.subjectCode) && `${list.subjectCode} ${list.notes || ''}`.toLowerCase().includes(term))
+        .map((list) => ({ label: list.notes || 'Reading list', detail: `Study material · ${list.subjectCode}`, tab: 'materials' as StudentTab })),
+      ...examPapers
+        .filter((paper) => student.enrolledUnits.includes(paper.subjectCode) && `${paper.title} ${paper.subjectCode}`.toLowerCase().includes(term))
+        .map((paper) => ({ label: paper.title, detail: `Past paper · ${paper.subjectCode}`, tab: 'materials' as StudentTab })),
+    ];
+    const library = books
+      .filter((book) => `${book.title} ${book.author} ${book.category}`.toLowerCase().includes(term))
+      .map((book) => ({ label: book.title, detail: `Library resource · ${book.author}`, tab: 'library' as StudentTab }));
+    return [...registered, ...materials, ...library].slice(0, 6);
+  }, [books, courses, examPapers, readingLists, student.enrolledUnits, term]);
+
+  return (
+    <div className="relative w-full">
+      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+      <input
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="Search units, materials or library"
+        className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-xs text-slate-800 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+        aria-label="Search registered units, study materials, and library resources"
+      />
+      {term && (
+        <div className="absolute z-40 mt-2 max-h-72 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+          {results.length === 0 ? (
+            <p className="p-3 text-center text-xs text-slate-500">No matching units, study materials, or library resources.</p>
+          ) : (
+            results.map((result, index) => (
+              <button
+                key={`${result.label}-${index}`}
+                type="button"
+                onClick={() => { onNavigate(result.tab); setQuery(''); }}
+                className="w-full rounded-lg px-3 py-2 text-left hover:bg-blue-50"
+              >
+                <span className="block truncate text-xs font-semibold text-slate-800">{result.label}</span>
+                <span className="block truncate text-[11px] text-slate-500">{result.detail}</span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function StudentDashboard({
@@ -634,6 +704,18 @@ export default function StudentDashboard({
   const areaPathD = simPlanChartData.length > 0
     ? `M ${getChartX(0)} ${getChartY(0)} ${simPlanChartData.map((d, i) => `L ${getChartX(i)} ${getChartY(d.runningAvg)}`).join(' ')} L ${getChartX(simPlanChartData.length - 1)} ${getChartY(0)} Z`
     : '';
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good Morning' : hour < 18 ? 'Good Afternoon' : 'Good Evening';
+  const academicYear = student.cohort || 'Not recorded';
+  const programmeLabel = student.programme || student.department || 'Programme not recorded';
+  const currentSemester = useMemo(() => {
+    if (!examPapers.length) return 'Not recorded';
+    const relevant = examPapers.filter((paper) => student.enrolledUnits.includes(paper.subjectCode));
+    const pool = relevant.length > 0 ? relevant : examPapers;
+    const latest = [...pool].sort((a, b) => Number(b.year) - Number(a.year))[0];
+    return latest?.semester || 'Not recorded';
+  }, [examPapers, student.enrolledUnits]);
+  const hasPublishedResults = Object.keys(student.grades || {}).length > 0;
 
   return (
     <div className="min-h-screen flex bg-slate-50 dark:bg-slate-950 font-sans transition-colors duration-300 w-full animate-fade-in" id="student-dashboard-root">
@@ -672,18 +754,22 @@ export default function StudentDashboard({
 
             {/* Navigation Menu */}
             <nav className="flex-1 space-y-1.5 overflow-y-auto pr-2">
+              <p className="px-2 pt-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">Dashboard</p>
               <button type="button" onClick={() => { setActiveTab('dashboard'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'dashboard' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
                 <Sliders className="w-4 h-4" />
                 <span>My Dashboard</span>
               </button>
+              <p className="px-2 pt-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">Academics</p>
               <button type="button" onClick={() => { setActiveTab('grades'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'grades' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
                 <Award className="w-4 h-4" />
                 <span>Academic Marks</span>
               </button>
+              <p className="px-2 pt-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">Finance</p>
               <button type="button" onClick={() => { setActiveTab('financials'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'financials' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
                 <Landmark className="w-4 h-4" />
                 <span>My Financials</span>
               </button>
+              <p className="px-2 pt-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">Resources</p>
               <button type="button" onClick={() => { setActiveTab('materials'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'materials' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
                 <BookOpen className="w-4 h-4" />
                 <span>Supplementary</span>
@@ -704,6 +790,7 @@ export default function StudentDashboard({
 
             {/* Profile Info & Logout */}
             <div className="p-4 border-t border-slate-800/60 bg-slate-950/40 space-y-3 shrink-0">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Account</p>
               <div className="flex items-center gap-3">
                 {student.avatar ? (
                   <img src={student.avatar} alt={student.name} className="w-9 h-9 rounded-lg object-cover border border-slate-700" referrerPolicy="no-referrer" />
@@ -712,9 +799,10 @@ export default function StudentDashboard({
                     {student.name.charAt(0)}
                   </div>
                 )}
-                <div>
-                  <h4 className="text-xs font-bold text-white leading-none">{student.name}</h4>
+                <div className="min-w-0">
+                  <h4 className="text-xs font-bold text-white leading-none truncate">{student.name}</h4>
                   <span className="text-[9px] text-slate-500 font-mono block mt-1">{student.admissionNo}</span>
+                  <span className="text-[9px] text-slate-500 block mt-1 truncate">{programmeLabel} · {academicYear}</span>
                 </div>
               </div>
               <button type="button" onClick={() => { setMobileMenuOpen(false); onLogout(); }} className="w-full py-2.5 bg-slate-800 hover:bg-rose-955/30 hover:text-rose-455 text-slate-400 hover:text-white text-xs font-bold rounded-lg uppercase tracking-wider transition-colors flex items-center justify-center gap-1.5 cursor-pointer">
@@ -742,18 +830,22 @@ export default function StudentDashboard({
           
           {/* Navigation Menu */}
           <nav className="space-y-1.5 overflow-y-auto max-h-[calc(100vh-220px)]">
+            <p className="px-3 pt-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">Dashboard</p>
             <button type="button" onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'dashboard' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
               <Sliders className="w-4 h-4" />
               <span>My Dashboard</span>
             </button>
+            <p className="px-3 pt-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">Academics</p>
             <button type="button" onClick={() => setActiveTab('grades')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'grades' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
               <Award className="w-4 h-4" />
               <span>Academic Marks</span>
             </button>
+            <p className="px-3 pt-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">Finance</p>
             <button type="button" onClick={() => setActiveTab('financials')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'financials' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
               <Landmark className="w-4 h-4" />
               <span>My Financials</span>
             </button>
+            <p className="px-3 pt-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">Resources</p>
             <button type="button" onClick={() => setActiveTab('materials')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'materials' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
               <BookOpen className="w-4 h-4" />
               <span>Supplementary</span>
@@ -775,6 +867,7 @@ export default function StudentDashboard({
         
         {/* Profile Info & Logout */}
         <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3 shrink-0">
+          <p className="px-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Account</p>
           <div className="flex items-center gap-3 p-2 rounded-2xl bg-slate-50 dark:bg-slate-800/50">
             {student.avatar ? (
               <img src={student.avatar} alt={student.name} className="w-9 h-9 rounded-xl object-cover border border-slate-200" referrerPolicy="no-referrer" />
@@ -786,6 +879,7 @@ export default function StudentDashboard({
             <div className="truncate min-w-0 flex-1">
               <h4 className="text-xs font-bold text-slate-900 dark:text-white leading-none truncate">{student.name}</h4>
               <span className="text-[10px] text-slate-400 font-medium block mt-1 truncate">{student.admissionNo}</span>
+              <span className="text-[9px] text-slate-400 block mt-1 truncate">{programmeLabel} · {academicYear}</span>
             </div>
           </div>
           <button type="button" onClick={onLogout} className="w-full py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-rose-50 hover:text-rose-600 text-slate-600 dark:text-slate-300 text-xs font-semibold rounded-2xl transition-all flex items-center justify-center gap-2 cursor-pointer">
@@ -809,13 +903,14 @@ export default function StudentDashboard({
               <Menu className="w-5 h-5" />
             </button>
             <div className="space-y-0.5 text-left">
-              <h2 className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Welcome back</h2>
+              <h2 className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">{greeting}</h2>
               <h1 className="text-lg font-bold text-slate-900 dark:text-white leading-tight">{student.name}</h1>
+              <p className="text-[10px] text-slate-500">{student.admissionNo} · {programmeLabel} · Semester: {currentSemester} · Academic year: {academicYear}</p>
             </div>
           </div>
           <div className="flex items-center gap-4 w-full sm:w-auto justify-end">
             <div className="w-full sm:w-64 md:w-80">
-              <GlobalSearchBar students={students} courses={allCourses} inventory={inventory} />
+              <StudentPortalSearch student={student} courses={allCourses} books={books} readingLists={readingLists} examPapers={examPapers} onNavigate={setActiveTab} />
             </div>
             <span className="hidden sm:inline-block w-px h-6 bg-slate-200 dark:bg-slate-800"></span>
             
@@ -824,19 +919,26 @@ export default function StudentDashboard({
               <button 
                 type="button" 
                 className="relative p-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-all cursor-pointer"
+                title="Notifications"
+                aria-label="Notifications"
               >
                 <Bell className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Student Avatar */}
-            <div className="hidden md:flex items-center gap-3 pl-2">
-              <div className="w-9 h-9 rounded-2xl bg-[#2563EB] text-white flex items-center justify-center font-bold text-sm shadow-sm">
-                {student.name.charAt(0)}
-              </div>
-              <div className="text-left leading-tight">
-                <span className="block text-xs font-bold text-slate-900 dark:text-white">{student.name}</span>
-                <span className="block text-[10px] text-slate-400 font-medium">Student ({student.cohort})</span>
+            {/* Student profile */}
+            <div className="hidden md:flex items-center gap-3 pl-2 min-w-0">
+              {student.avatar ? (
+                <img src={student.avatar} alt={student.name} className="w-9 h-9 rounded-2xl object-cover border border-slate-200 shadow-sm" referrerPolicy="no-referrer" />
+              ) : (
+                <div className="w-9 h-9 rounded-2xl bg-[#2563EB] text-white flex items-center justify-center font-bold text-sm shadow-sm">
+                  {student.name.charAt(0)}
+                </div>
+              )}
+              <div className="text-left leading-tight min-w-0">
+                <span className="block text-xs font-bold text-slate-900 dark:text-white truncate">{student.name}</span>
+                <span className="block text-[10px] text-slate-400 font-medium truncate">{student.admissionNo}</span>
+                <span className="block text-[10px] text-slate-400 font-medium truncate">{programmeLabel} · {academicYear}</span>
               </div>
             </div>
           </div>
@@ -1239,22 +1341,36 @@ export default function StudentDashboard({
               </div>
 
               {student.enrolledUnits.length > 0 && (
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={() => setShowTranscript(true)}
-                    className="bg-indigo-650 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-xl text-xs flex items-center gap-2 transition-all active:scale-95 cursor-pointer no-print shadow-xs"
+                    onClick={() => hasPublishedResults && setShowTranscript(true)}
+                    disabled={!hasPublishedResults}
+                    title={hasPublishedResults ? 'Generate academic transcript' : 'Transcript available after published results.'}
+                    className="bg-blue-600 hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 text-white font-bold py-2 px-4 rounded-xl text-xs flex items-center gap-2 transition-all active:scale-95 cursor-pointer no-print shadow-xs"
                   >
-                    <FileText className="w-4 h-4 text-indigo-300" />
+                    <FileText className="w-4 h-4" />
                     <span>Generate Academic Transcript</span>
                   </button>
                   <button
                     type="button"
-                    onClick={() => window.print()}
-                    className="bg-slate-900 hover:bg-slate-805 text-white font-bold py-2 px-4 rounded-xl text-xs flex items-center gap-2 transition-all active:scale-95 cursor-pointer no-print shadow-xs"
+                    onClick={() => hasPublishedResults && setShowTranscript(true)}
+                    disabled={!hasPublishedResults}
+                    title={hasPublishedResults ? 'Open transcript for download or print' : 'PDF available after published results.'}
+                    className="border border-blue-200 bg-white hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 text-blue-700 font-bold py-2 px-3 rounded-xl text-xs flex items-center gap-2 transition-all active:scale-95 cursor-pointer no-print"
                   >
-                    <Printer className="w-4 h-4 text-blue-400" />
-                    <span>Print Report Card</span>
+                    <Download className="w-4 h-4" />
+                    <span>Download PDF</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => hasPublishedResults && window.print()}
+                    disabled={!hasPublishedResults}
+                    title={hasPublishedResults ? 'Print report card' : 'Print available after published results.'}
+                    className="border border-slate-200 bg-white hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 text-slate-700 font-bold py-2 px-3 rounded-xl text-xs flex items-center gap-2 transition-all active:scale-95 cursor-pointer no-print"
+                  >
+                    <Printer className="w-4 h-4" />
+                    <span>Print</span>
                   </button>
                 </div>
               )}

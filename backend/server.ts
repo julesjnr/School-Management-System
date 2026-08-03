@@ -4863,10 +4863,27 @@ app.get("/api/student/dashboard-summary", checkRBAC(["student"]), async (req: an
       }
     }
 
+    // Prefer a real semester label from exam papers for enrolled units when available.
+    const paperRows = await db
+      .select({ semester: examPapers.semester, year: examPapers.year, subjectCode: examPapers.subjectCode })
+      .from(examPapers)
+      .orderBy(desc(examPapers.year))
+      .limit(50);
+    const relevantPapers = paperRows.filter((paper) => enrolledCodes.includes(paper.subjectCode));
+    const latestPaper = (relevantPapers.length > 0 ? relevantPapers : paperRows)[0];
+    const academicYear = studentRow.cohort || null;
+
     res.json({
       studentId,
+      admissionNo: studentRow.admissionNo,
+      programme: studentRow.programme || studentRow.department || null,
+      semester: latestPaper?.semester || null,
+      academicYear,
       gpa,
       gpaLabel,
+      // Course credit hours are not stored in the current course/enrollment schema.
+      creditsEarned: null,
+      modulesPassed: completedUnits,
       attendanceRate,
       activeModules: enrolledCodes.length,
       // Programme-specific unit requirements are not stored in the current schema.
