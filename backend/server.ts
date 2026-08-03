@@ -3,15 +3,11 @@ dotenv.config({ override: true });
 import express from "express";
 import path from "path";
 import fs from "fs";
-import http from "http";
-import net from "net";
-import { execSync } from "child_process";
 import crypto from "crypto";
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { createCorsMiddleware } from "./src/cors.ts";
-import { db, closePool } from "./src/db/index.ts";
-import { runMigrations } from "./src/db/migrate.ts";
+import { db } from "./src/db/index.ts";
 import {
   systemState,
   students,
@@ -46,16 +42,8 @@ import {
   transactions,
   studentLedger,
   users,
-  teachingSessions,
-  lectureSchedules,
-  syllabusTopics,
-  academicRanks,
-  classAttendanceSessions,
-  departments,
-  archiveRecords,
-  archiveAuditLogs,
 } from "./src/db/schema.ts";
-import { eq, notInArray, and, or, desc, asc, count, ilike, inArray, sql, gte } from "drizzle-orm";
+import { eq, notInArray, and, or, desc, asc, count, ilike, inArray, sql } from "drizzle-orm";
 import { supabase } from "./src/db/supabaseClient.ts";
 import {
   hashPassword,
@@ -64,14 +52,10 @@ import {
   upsertUserAuthRecord,
   sanitizeProfile,
   issueAuthToken,
-  issueAccessToken,
-  issueRefreshToken,
   migrateAuthSchemaAndData,
   authenticateUser,
   changeUserPassword,
   adminResetUserPassword,
-  PasswordResetError,
-  resetStudentPassword,
   findUserByIdentifier,
 } from "./src/auth.ts";
 
@@ -86,7 +70,7 @@ import {
 } from "./src/data";
 
 const app = express();
-const PORT = Number(process.env.PORT) || 8000;
+const PORT = process.env.PORT || 8000;
 
 // Set up larger limit for full state synchronizations
 app.use(express.json({ limit: "20mb" }));
@@ -102,80 +86,6 @@ const DB_FILE = path.join(process.cwd(), "db_store.json");
 // Local cache for Postgres DB state to support synchronous access inside existing API controllers
 let cachedDb: any = null;
 
-type ArchivableResource = "student" | "lecturer" | "course" | "department" | "book" | "user";
-
-const archiveResourceTables: Record<ArchivableResource, any> = {
-  student: students,
-  lecturer: lecturers,
-  course: courses,
-  department: departments,
-  book: books,
-  user: users,
-};
-
-function activeResourceCondition(resourceType: ArchivableResource, idColumn: any) {
-  return sql`NOT EXISTS (
-    SELECT 1 FROM archive_records
-    WHERE resource_type = ${resourceType} AND resource_id = ${idColumn}::text
-  )`;
-}
-
-async function activeStudentExists(studentId: string): Promise<boolean> {
-  const rows = await db.select({ id: students.id })
-    .from(students)
-    .where(and(eq(students.id, studentId), activeResourceCondition("student", students.id)))
-    .limit(1);
-  return rows.length === 1;
-}
-
-function archiveDisplayName(resourceType: ArchivableResource, record: any): string {
-  switch (resourceType) {
-    case "student": return `${record.name} (${record.admissionNo})`;
-    case "lecturer": return `${record.name} (${record.designatorCode})`;
-    case "course": return `${record.code} — ${record.title}`;
-    case "department": return `${record.code} — ${record.name}`;
-    case "book": return `${record.title} — ${record.author}`;
-    case "user": return record.username || record.email || record.uid;
-  }
-}
-
-async function getArchivableRecord(resourceType: ArchivableResource, resourceId: string) {
-  const table = archiveResourceTables[resourceType];
-  if (resourceType === "user") {
-    const userId = Number(resourceId);
-    return Number.isInteger(userId) ? (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0] : undefined;
-  }
-  return (await db.select().from(table).where(eq(table.id, resourceId)).limit(1))[0];
-}
-
-async function dependencySummary(resourceType: ArchivableResource, resourceId: string): Promise<string[]> {
-  const countRows = async (table: any, condition: any) => Number((await db.select({ total: count() }).from(table).where(condition))[0]?.total || 0);
-  const dependencies: string[] = [];
-  if (resourceType === "student") {
-    const checks = [[studentEnrollments, studentEnrollments.studentId, "enrollments"], [grades, grades.studentId, "grades"], [invoices, invoices.studentId, "invoices"], [payments, payments.studentId, "payments"], [studentLedger, studentLedger.studentId, "ledger entries"], [studentAttendance, studentAttendance.studentId, "attendance records"]] as const;
-    for (const [table, column, label] of checks) { const total = await countRows(table, eq(column, resourceId)); if (total) dependencies.push(`${total} ${label}`); }
-  } else if (resourceType === "lecturer") {
-    const checks = [[lecturerSubjects, lecturerSubjects.lecturerId, "subject allocations"], [officeHourSlots, officeHourSlots.lecturerId, "office-hour slots"], [readingLists, readingLists.lecturerId, "reading lists"]] as const;
-    for (const [table, column, label] of checks) { const total = await countRows(table, eq(column, resourceId)); if (total) dependencies.push(`${total} ${label}`); }
-  } else if (resourceType === "book") {
-    const checks = [[loans, loans.bookId, "loan records"], [reservations, reservations.bookId, "reservations"], [bookReviews, bookReviews.bookId, "reviews"]] as const;
-    for (const [table, column, label] of checks) { const total = await countRows(table, eq(column, resourceId)); if (total) dependencies.push(`${total} ${label}`); }
-  } else if (resourceType === "course") {
-    const record = await getArchivableRecord(resourceType, resourceId);
-    const reviews = await countRows(courseReviews, eq(courseReviews.courseId, resourceId));
-    const enrollments = record ? await countRows(studentEnrollments, eq(studentEnrollments.courseCode, (record as any).code)) : 0;
-    if (reviews) dependencies.push(`${reviews} reviews`);
-    if (enrollments) dependencies.push(`${enrollments} enrollments`);
-  } else if (resourceType === "department") {
-    const heads = await countRows(departments, eq(departments.headOfDepartmentId, resourceId));
-    if (heads) dependencies.push(`${heads} department-head assignments`);
-  } else if (resourceType === "user") {
-    const user = await getArchivableRecord(resourceType, resourceId);
-    if (user?.roleId) dependencies.push("linked role profile");
-  }
-  return dependencies;
-}
-
 // Load full state from individual database tables
 export async function loadFullDatabaseState(): Promise<any> {
   const existing = await db.select().from(systemState).where(eq(systemState.id, 1));
@@ -189,25 +99,8 @@ export async function loadFullDatabaseState(): Promise<any> {
     };
   }
 
-  // Class roll-call sessions (relational source of truth)
-  try {
-    const attendanceSessionRows = await db.select().from(classAttendanceSessions);
-    dbState.attendanceSessions = attendanceSessionRows.map((s) => ({
-      id: s.id,
-      date: s.sessionDate,
-      subjectCode: s.subjectCode,
-      presentStudents: Array.isArray(s.presentStudentIds) ? s.presentStudentIds : [],
-      lateStudents: Array.isArray(s.lateStudentIds) ? s.lateStudentIds : [],
-      absentStudents: Array.isArray(s.absentStudentIds) ? s.absentStudentIds : [],
-      lecturerId: s.lecturerId,
-    }));
-  } catch (e) {
-    console.warn("attendance_sessions table not available yet:", e);
-    dbState.attendanceSessions = dbState.attendanceSessions || [];
-  }
-
   // 1. Courses
-  const courseRows = await db.select().from(courses).where(activeResourceCondition("course", courses.id));
+  const courseRows = await db.select().from(courses);
   dbState.courses = courseRows.map(c => ({
     id: c.id,
     code: c.code,
@@ -233,7 +126,7 @@ export async function loadFullDatabaseState(): Promise<any> {
   }));
 
   // 3. Lecturers
-  const lecturerRows = await db.select().from(lecturers).where(activeResourceCondition("lecturer", lecturers.id));
+  const lecturerRows = await db.select().from(lecturers);
   const lecturerSubjRows = await db.select().from(lecturerSubjects);
   const lecturerPubRows = await db.select().from(lecturerPublications);
   const lecturerResRows = await db.select().from(lecturerResearchInterests);
@@ -270,7 +163,7 @@ export async function loadFullDatabaseState(): Promise<any> {
   }));
 
   // 4. Students
-  const studentRows = await db.select().from(students).where(activeResourceCondition("student", students.id));
+  const studentRows = await db.select().from(students);
   const enrollmentRows = await db.select().from(studentEnrollments);
   const gradeRows = await db.select().from(grades);
   const invoiceRows = await db.select().from(invoices);
@@ -282,12 +175,11 @@ export async function loadFullDatabaseState(): Promise<any> {
   dbState.students = studentRows.map(s => {
     const enrolledUnits = enrollmentRows.filter(e => e.studentId === s.id).map(e => e.courseCode);
     
-    const studentGrades: Record<string, { cat: number; exam: number; gradedAt?: string }> = {};
+    const studentGrades: Record<string, { cat: number; exam: number }> = {};
     gradeRows.filter(g => g.studentId === s.id).forEach(g => {
       studentGrades[g.subjectCode] = {
         cat: g.catScore ? Number(g.catScore) : 0,
-        exam: g.examScore ? Number(g.examScore) : 0,
-        gradedAt: g.gradedAt ?? undefined,
+        exam: g.examScore ? Number(g.examScore) : 0
       };
     });
 
@@ -318,7 +210,7 @@ export async function loadFullDatabaseState(): Promise<any> {
 
     const matchedCachedStudent = oldStudents.find((cs: any) => cs.id === s.id);
     const cachedStatus = matchedCachedStudent?.accountStatus;
-    const accountStatus = s.accountStatus || cachedStatus || "Active";
+    const accountStatus = cachedStatus || "Active";
 
     return {
       id: s.id,
@@ -327,8 +219,6 @@ export async function loadFullDatabaseState(): Promise<any> {
       phone: s.phone,
       admissionNo: s.admissionNo,
       cohort: s.cohort,
-      programme: s.programme ?? undefined,
-      department: s.department ?? undefined,
       avatar: s.avatar ?? undefined,
       accountStatus,
       createdAt: s.createdAt ?? undefined,
@@ -383,7 +273,7 @@ export async function loadFullDatabaseState(): Promise<any> {
   }));
 
   // 9. Books
-  const bookRows = await db.select().from(books).where(activeResourceCondition("book", books.id));
+  const bookRows = await db.select().from(books);
   dbState.books = bookRows.map(b => ({
     id: b.id,
     title: b.title,
@@ -403,7 +293,7 @@ export async function loadFullDatabaseState(): Promise<any> {
   }));
 
   // 10. Loans
-  const loanRows = await db.select().from(loans).where(activeResourceCondition("book", loans.bookId));
+  const loanRows = await db.select().from(loans);
   dbState.loans = loanRows.map(l => ({
     id: l.id,
     bookId: l.bookId,
@@ -419,7 +309,7 @@ export async function loadFullDatabaseState(): Promise<any> {
   }));
 
   // 11. Reservations
-  const reservationRows = await db.select().from(reservations).where(activeResourceCondition("book", reservations.bookId));
+  const reservationRows = await db.select().from(reservations);
   dbState.reservations = reservationRows.map(r => ({
     id: r.id,
     bookId: r.bookId,
@@ -431,8 +321,8 @@ export async function loadFullDatabaseState(): Promise<any> {
   }));
 
   // 12. Reading Lists
-  const readingListRows = await db.select().from(readingLists).where(activeResourceCondition("lecturer", readingLists.lecturerId));
-  const readingListBookRows = await db.select().from(readingListBooks).where(activeResourceCondition("book", readingListBooks.bookId));
+  const readingListRows = await db.select().from(readingLists);
+  const readingListBookRows = await db.select().from(readingListBooks);
   dbState.readingLists = readingListRows.map(rl => ({
     id: rl.id,
     subjectCode: rl.subjectCode,
@@ -442,7 +332,7 @@ export async function loadFullDatabaseState(): Promise<any> {
   }));
 
   // 13. Book Reviews
-  const bookReviewRows = await db.select().from(bookReviews).where(activeResourceCondition("book", bookReviews.bookId));
+  const bookReviewRows = await db.select().from(bookReviews);
   dbState.bookReviews = bookReviewRows.map(br => ({
     id: br.id,
     bookId: br.bookId,
@@ -586,49 +476,21 @@ const THROTTLE_LIMIT = 5000;
 let syncFailureCount = 0;
 let isSyncPausedUntil = 0;
 
-function isTransientDbError(err: any): boolean {
-  if (!err) return false;
-  const msg = (err.message || err.toString() || '').toLowerCase();
-  const code = err.code || err.errno;
-
-  const transientCodes = [
-    'ETIMEDOUT', 'ECONNRESET', 'EPIPE', '57P01', '57P02',
-    '08006', '08003', '08001', '08004', '57000', -110
-  ];
-  if (transientCodes.includes(code)) return true;
-
-  const transientPhrases = [
-    'connection terminated',
-    'connection timeout',
-    'connection terminated unexpectedly',
-    'timeout',
-    'socket hang up',
-    'terminating connection',
-    'could not connect',
-    'drizzlequeryerror',
-    'econnreset',
-    'etimedout'
-  ];
-
-  return transientPhrases.some(phrase => msg.includes(phrase));
-}
-
 async function performDatabaseSync(dbState: any): Promise<void> {
   isSavingFullState = true;
   lastSaveTime = Date.now();
 
-  const maxAttempts = 3;
-  let attempt = 0;
-
   try {
-    while (attempt < maxAttempts) {
-      attempt++;
-      try {
-        const tx = db;
-        // await db.transaction(async (tx) => {
-        // 1. Courses
+    const tx = db;
+    // await db.transaction(async (tx) => {
+    // 1. Courses
     if (dbState.courses) {
-      // State sync is upsert-only: omitted IDs may be archived records.
+      const ids = dbState.courses.map((c: any) => c.id).filter(Boolean);
+      if (ids.length > 0) {
+        await tx.delete(courses).where(notInArray(courses.id, ids));
+      } else {
+        await tx.delete(courses);
+      }
       for (const c of dbState.courses) {
         const val = {
           id: c.id,
@@ -675,6 +537,13 @@ async function performDatabaseSync(dbState: any): Promise<void> {
 
     // 3. Lecturers
     if (dbState.lecturers) {
+      const ids = dbState.lecturers.map((l: any) => l.id).filter(Boolean);
+      if (ids.length > 0) {
+        await tx.delete(lecturers).where(notInArray(lecturers.id, ids));
+      } else {
+        await tx.delete(lecturers);
+      }
+
       for (const l of dbState.lecturers) {
         const lecturerVal = {
           id: l.id,
@@ -755,6 +624,13 @@ async function performDatabaseSync(dbState: any): Promise<void> {
 
     // 4. Students
     if (dbState.students) {
+      const ids = dbState.students.map((s: any) => s.id).filter(Boolean);
+      if (ids.length > 0) {
+        await tx.delete(students).where(notInArray(students.id, ids));
+      } else {
+        await tx.delete(students);
+      }
+
       for (const s of dbState.students) {
         const studentVal = {
           id: s.id,
@@ -763,10 +639,7 @@ async function performDatabaseSync(dbState: any): Promise<void> {
           phone: s.phone,
           admissionNo: s.admissionNo,
           cohort: s.cohort,
-          programme: s.programme || null,
-          department: s.department || null,
           avatar: s.avatar || null,
-          accountStatus: s.accountStatus || "Active",
         };
         await tx.insert(students).values(studentVal).onConflictDoUpdate({
           target: students.id,
@@ -950,6 +823,12 @@ async function performDatabaseSync(dbState: any): Promise<void> {
 
     // 9. Books
     if (dbState.books) {
+      const ids = dbState.books.map((b: any) => b.id).filter(Boolean);
+      if (ids.length > 0) {
+        await tx.delete(books).where(notInArray(books.id, ids));
+      } else {
+        await tx.delete(books);
+      }
       for (const b of dbState.books) {
         const val = {
           id: b.id,
@@ -1261,23 +1140,12 @@ async function performDatabaseSync(dbState: any): Promise<void> {
       });
 
     syncFailureCount = 0; // Reset on successful write
-        break; // Exit retry loop on successful completion
-      } catch (err: any) {
-        const isTransient = isTransientDbError(err);
-        if (isTransient && attempt < maxAttempts) {
-          const retryDelay = Math.pow(2, attempt - 1) * 1000;
-          console.warn(`[DB Sync] Transient DB disconnect/timeout on attempt ${attempt}/${maxAttempts} (${err?.message || err}). Retrying in ${retryDelay}ms...`);
-          await new Promise(resolve => setTimeout(resolve, retryDelay));
-          continue;
-        }
-
-        syncFailureCount++;
-        const backoffDelay = Math.min(30000 * Math.pow(2, syncFailureCount - 1), 300000);
-        isSyncPausedUntil = Date.now() + backoffDelay;
-        console.error(`[DB TUNER] Relational database synchronization failed (${syncFailureCount} consecutive failures). Pausing database writes for ${backoffDelay / 1000} seconds. Error:`, err);
-        throw err;
-      }
-    }
+  } catch (err: any) {
+    syncFailureCount++;
+    const backoffDelay = Math.min(30000 * Math.pow(2, syncFailureCount - 1), 300000);
+    isSyncPausedUntil = Date.now() + backoffDelay;
+    console.error(`[DB TUNER] Relational database synchronization failed (${syncFailureCount} consecutive failures). Pausing database writes for ${backoffDelay / 1000} seconds. Error:`, err);
+    throw err;
   } finally {
     isSavingFullState = false;
     if (pendingSaveState) {
@@ -1332,8 +1200,8 @@ export async function saveFullDatabaseState(dbState: any): Promise<void> {
 // Helper to initialize database state directly from PostgreSQL
 async function initPostgresDB() {
   try {
-    if (!process.env.DATABASE_URL && (!process.env.SQL_HOST || !process.env.SQL_PASSWORD || !process.env.SQL_USER || !process.env.SQL_DB_NAME)) {
-      throw new Error("Missing database environment variables (DATABASE_URL or SQL_HOST, SQL_PASSWORD, SQL_USER, or SQL_DB_NAME). Please configure your local .env file.");
+    if (!process.env.SQL_HOST || !process.env.SQL_PASSWORD || !process.env.SQL_USER || !process.env.SQL_DB_NAME) {
+      throw new Error("Missing database environment variables (SQL_HOST, SQL_PASSWORD, SQL_USER, or SQL_DB_NAME). Please configure your local .env file.");
     }
     cachedDb = await loadFullDatabaseState();
     console.log("Successfully loaded database state from PostgreSQL!");
@@ -1372,32 +1240,28 @@ function getDatabase() {
   return cachedDb || {};
 }
 
-/**
- * Drops the obsolete `passcode` field from profile records before anything is persisted.
- * Authentication moved to the `users` table and the column was dropped from `students` /
- * `lecturers`, so a stray passcode is only a way to leak or resurrect a stale credential.
- */
-function stripLegacyProfilePasscodes(dbState: any) {
-  if (!dbState) return dbState;
-  for (const key of ['students', 'lecturers']) {
-    if (Array.isArray(dbState[key])) {
-      dbState[key] = dbState[key].map((record: any) => {
-        if (record && 'passcode' in record) {
-          const { passcode: _legacyPasscode, ...rest } = record;
-          return rest;
-        }
-        return record;
-      });
+// Helper to hash plain-text passcodes in memory before writing to DB
+function hashPasscodesInState(dbState: any) {
+  if (!dbState) return;
+  if (Array.isArray(dbState.students)) {
+    for (const s of dbState.students) {
+      if (s.passcode && typeof s.passcode === 'string' && !s.passcode.startsWith('$2b$') && !s.passcode.startsWith('$2a$') && !s.passcode.startsWith('$2y$')) {
+        s.passcode = bcrypt.hashSync(s.passcode, 10);
+      }
     }
   }
-  return dbState;
+  if (Array.isArray(dbState.lecturers)) {
+    for (const l of dbState.lecturers) {
+      if (l.passcode && typeof l.passcode === 'string' && !l.passcode.startsWith('$2b$') && !l.passcode.startsWith('$2a$') && !l.passcode.startsWith('$2y$')) {
+        l.passcode = bcrypt.hashSync(l.passcode, 10);
+      }
+    }
+  }
 }
 
 // Helper to save database state
 function saveDatabase(dbState: any) {
-  // Credentials live exclusively in the `users` table; the profile tables no longer carry
-  // a `passcode` column, so nothing password-related is hashed or persisted from here.
-  dbState = stripLegacyProfilePasscodes(dbState);
+  hashPasscodesInState(dbState);
   dbState = sanitizeStateIds(dbState);
   cachedDb = dbState;
   
@@ -1420,217 +1284,43 @@ function saveDatabase(dbState: any) {
 // Role-Based Access Control (RBAC) Protection Middleware
 function checkRBAC(allowedRoles: string[]) {
   return (req: any, res: any, next: any) => {
-    // The global /api middleware verifies the JWT before protected routes run.
-    // Never authorize this action from a client-controlled role header.
-    const userRole = req.user?.role;
-
-    if (!userRole) {
+    // Only trust the verified role propagated from the JWT token header
+    const userRole = req.headers["x-user-role"];
+    
+    // Explicitly block students from administrative routes and restrict write access
+    if (userRole === "student" && (req.path.startsWith("/api/admin") || req.path.startsWith("/admin"))) {
       return res.status(403).json({
         success: false,
-        error: "Access Denied: Authentication required.",
-        code: "RBAC_UNAUTHENTICATED",
-        allowedRoles,
+        error: "Access Denied: Students are technically blocked from accessing administrative routes.",
+        code: "RBAC_STUDENT_RESTRICTED",
+        allowedRoles
       });
     }
 
-    if (!allowedRoles.includes(userRole)) {
-      return res.status(403).json({
-        success: false,
-        error: `Access Denied: Users with role '${userRole}' are not permitted to access this resource.`,
-        code: "RBAC_FORBIDDEN_ROLE",
-        allowedRoles,
-      });
+    // Default permission checks
+    if (req.path.startsWith("/api/admin")) {
+      if (!userRole) {
+        return res.status(403).json({
+          success: false,
+          error: "Access Denied: Unauthenticated access to administrative routes is strictly forbidden.",
+          code: "RBAC_UNAUTHENTICATED"
+        });
+      }
+      if (!allowedRoles.includes(userRole)) {
+        return res.status(403).json({
+          success: false,
+          error: `Access Denied: Users with role '${userRole}' are not permitted to access this administrative route.`,
+          code: "RBAC_FORBIDDEN_ROLE"
+        });
+      }
     }
 
     next();
   };
 }
 
-/** Teaching-safe student DTO — never includes passwords, ledger lines, or auth identifiers. */
-function buildLecturerStudentLookupView(params: {
-  student: typeof students.$inferSelect;
-  enrollments: Array<{ courseCode: string }>;
-  gradeRows: Array<{ subjectCode: string; catScore: string | null; examScore: string | null; gradedAt: string | null }>;
-  attendanceRows: Array<{ subjectCode: string; attendanceRate: number }>;
-  courseRows: Array<{ code: string; title: string; faculty: string }>;
-  invoiceRows: Array<{ status: string; amount: string | null }>;
-  advisorNotes: Array<{ id: string; day: string; timeSlot: string; notes: string; lecturerName?: string }>;
-  taughtSubjectCodes: string[];
-  semesterFromDb: string | null;
-}) {
-  const {
-    student,
-    enrollments,
-    gradeRows,
-    attendanceRows,
-    courseRows,
-    invoiceRows,
-    advisorNotes,
-    taughtSubjectCodes,
-    semesterFromDb,
-  } = params;
-
-  const courseByCode = new Map(courseRows.map((c) => [c.code, c]));
-  const enrolledUnits = enrollments.map((e) => e.courseCode);
-
-  const facultyCounts = new Map<string, number>();
-  for (const code of enrolledUnits) {
-    const faculty = courseByCode.get(code)?.faculty;
-    if (faculty) facultyCounts.set(faculty, (facultyCounts.get(faculty) || 0) + 1);
-  }
-  let department: string | null = null;
-  let maxFaculty = 0;
-  for (const [faculty, count] of facultyCounts) {
-    if (count > maxFaculty) {
-      maxFaculty = count;
-      department = faculty;
-    }
-  }
-
-  const markToGpa = (mark: number): number => {
-    if (mark >= 70) return 4.0;
-    if (mark >= 60) return 3.0;
-    if (mark >= 50) return 2.0;
-    if (mark >= 40) return 1.0;
-    return 0.0;
-  };
-
-  const gpaStanding = (gpa: number): string => {
-    if (gpa >= 3.7) return "Excellent";
-    if (gpa >= 3.0) return "Good";
-    if (gpa >= 2.0) return "Satisfactory";
-    if (gpa > 0) return "At Risk";
-    return "N/A";
-  };
-
-  const letterFromTotal = (total: number): string => {
-    if (total >= 70) return "A";
-    if (total >= 60) return "B";
-    if (total >= 50) return "C";
-    if (total >= 40) return "D";
-    return "F";
-  };
-
-  let gpa: number | null = null;
-  let academicStanding = "N/A";
-  if (gradeRows.length > 0) {
-    const total = gradeRows.reduce((sum, g) => {
-      const mark = Number(g.catScore || 0) + Number(g.examScore || 0);
-      return sum + markToGpa(mark);
-    }, 0);
-    gpa = Number((total / gradeRows.length).toFixed(2));
-    academicStanding = gpaStanding(gpa);
-  }
-
-  const attendanceByCode = new Map(
-    attendanceRows.map((a) => [a.subjectCode, Number(a.attendanceRate)])
-  );
-  const gradesByCode = new Map(
-    gradeRows.map((g) => [
-      g.subjectCode,
-      {
-        cat: Number(g.catScore || 0),
-        exam: Number(g.examScore || 0),
-        gradedAt: g.gradedAt || undefined,
-      },
-    ])
-  );
-
-  const registeredUnits = enrolledUnits.map((code) => {
-    const course = courseByCode.get(code);
-    const grade = gradesByCode.get(code);
-    const total = grade ? grade.cat + grade.exam : null;
-    return {
-      code,
-      title: course?.title || code,
-      faculty: course?.faculty || null,
-      isMyClass: taughtSubjectCodes.includes(code),
-      attendanceRate: attendanceByCode.has(code) ? attendanceByCode.get(code)! : null,
-      grade: grade
-        ? {
-            cat: grade.cat,
-            exam: grade.exam,
-            total: total as number,
-            letter: letterFromTotal(total as number),
-            gradedAt: grade.gradedAt,
-          }
-        : null,
-    };
-  });
-
-  const outstanding = invoiceRows
-    .filter((i) => i.status === "unpaid")
-    .reduce((sum, i) => sum + Number(i.amount || 0), 0);
-  const financeStatus: "Finance Cleared" | "Finance Hold" =
-    outstanding > 0 ? "Finance Hold" : "Finance Cleared";
-
-  // Year of study from cohort year when present (e.g. "2024 Intake") — cohort is stored in PostgreSQL
-  const cohortYearMatch = String(student.cohort || "").match(/(20\d{2})/);
-  const cohortYear = cohortYearMatch ? Number(cohortYearMatch[1]) : null;
-  const currentYear = new Date().getFullYear();
-  const yearOfStudy =
-    cohortYear && cohortYear <= currentYear
-      ? Math.min(Math.max(1, currentYear - cohortYear + 1), 6)
-      : null;
-
-  return {
-    id: student.id,
-    name: student.name,
-    admissionNo: student.admissionNo,
-    avatar: student.avatar || null,
-    cohort: student.cohort,
-    course: department || student.cohort || "Undergraduate Programme",
-    department: department,
-    yearOfStudy,
-    semester: semesterFromDb,
-    financeStatus,
-    gpa,
-    academicStanding,
-    registeredUnits,
-    advisorNotes,
-  };
-}
-
-async function isArchivedSessionIdentity(decoded: any): Promise<boolean> {
-  const role = String(decoded?.role || "");
-  const profileId = String(decoded?.roleId || decoded?.userId || "");
-  const email = String(decoded?.email || "").toLowerCase();
-  const profileType = role === "student" ? "student"
-    : ["lecturer", "accountant", "librarian"].includes(role) ? "lecturer"
-    : "";
-  const result = await db.execute(sql`
-    SELECT 1
-    FROM archive_records ar
-    WHERE (${profileType} <> '' AND ar.resource_type = ${profileType} AND ar.resource_id = ${profileId})
-       OR (
-         ar.resource_type = 'user'
-         AND ar.resource_id = (
-           SELECT u.id::text FROM users u WHERE LOWER(u.email) = ${email} LIMIT 1
-         )
-       )
-    LIMIT 1
-  `);
-  return result.rows.length > 0;
-}
-
-function parseCookies(req: any): Record<string, string> {
-  const list: Record<string, string> = {};
-  const cookieHeader = req.headers.cookie;
-  if (!cookieHeader) return list;
-
-  cookieHeader.split(';').forEach((cookie: string) => {
-    let [name, ...rest] = cookie.split('=');
-    name = name?.trim();
-    if (!name) return;
-    const value = rest.join('=').trim();
-    if (!value) return;
-    list[name] = decodeURIComponent(value);
-  });
-  return list;
-}
-
 // JWT Verification Middleware
-async function authenticateJWT(req: any, res: any, next: any) {
+function authenticateJWT(req: any, res: any, next: any) {
   const authHeader = req.headers.authorization;
   let token = null;
   if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
@@ -1648,19 +1338,6 @@ async function authenticateJWT(req: any, res: any, next: any) {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as any;
-    if (decoded.tokenType && decoded.tokenType !== 'access') {
-      return res.status(401).json({
-        success: false,
-        error: "Access Denied: Invalid token type for API access."
-      });
-    }
-    if (await isArchivedSessionIdentity(decoded)) {
-      return res.status(403).json({
-        success: false,
-        error: "Access Denied: This account is archived. Please contact System Administrator.",
-        code: "ACCOUNT_ARCHIVED",
-      });
-    }
     req.user = decoded;
     
     // Propagate role and ID to headers for downstream compatibility
@@ -1680,15 +1357,11 @@ async function authenticateJWT(req: any, res: any, next: any) {
 const publicAPIPaths = [
   "/api/health",
   "/api/auth/login",
-  "/api/auth/refresh",
-  // Forced first-login password changes happen before any token is issued, so this
-  // endpoint cannot sit behind the JWT gate. It authenticates the caller itself by
-  // verifying the current password before writing a new one.
-  "/api/auth/change-password",
-  "/api/auth/change-passcode",
   "/api/auth/reset-request",
   "/api/auth/reset-requests",
   "/api/data",
+  "/api/student/registered-units",
+  "/api/student-enrollments",
   "/api/courses",
   "/api/students"
 ];
@@ -1703,26 +1376,11 @@ app.use("/api", (req: any, res: any, next: any) => {
   const fullPath = req.baseUrl + pathWithoutQuery;
   const relativePath = '/api' + pathWithoutQuery;
   
-  // Lecturer student-lookup endpoints require JWT + RBAC (never public).
-  const lecturerLookupProtected =
-    relativePath.startsWith("/api/lecturer/student-lookup") ||
-    relativePath.startsWith("/api/lecturer/students");
-  const isProtectedStudentPortalRoute =
-    relativePath === "/api/student/registered-units" ||
-    relativePath === "/api/student/dashboard-summary" ||
-    relativePath === "/api/student-enrollments" ||
-    relativePath.startsWith("/api/student-enrollments/");
-  const isPublicStudentRoute =
-    !isProtectedStudentPortalRoute &&
-    (relativePath === "/api/student" || relativePath.startsWith("/api/student/"));
-  const isPublicLecturerRoute =
-    relativePath === "/api/lecturer" || relativePath.startsWith("/api/lecturer/");
-  const isPublic =
-    !lecturerLookupProtected &&
-    (publicAPIPaths.includes(fullPath) ||
-      publicAPIPaths.includes(relativePath) ||
-      isPublicStudentRoute ||
-      isPublicLecturerRoute);
+  const isPublic = 
+    publicAPIPaths.includes(fullPath) || 
+    publicAPIPaths.includes(relativePath) ||
+    relativePath.startsWith('/api/student') ||
+    relativePath.startsWith('/api/student-enrollments');
   if (isPublic) {
     return next();
   }
@@ -1919,7 +1577,8 @@ app.post("/api/supabase/sync", async (req, res) => {
         designator_code: l.designatorCode || l.designator_code || `LEC-${Math.floor(100 + Math.random() * 900)}`,
         bio: l.bio || "",
         avatar: l.avatar || "",
-        is_active: l.isActive !== false
+        is_active: l.isActive !== false,
+        passcode: l.passcode || "lecturer123"
       }));
       const { error: err } = await supabase.from('lecturers').upsert(lecturersToSync, { onConflict: 'email' });
       if (err) throw new Error(`Lecturers sync error: ${err.message}`);
@@ -1933,7 +1592,8 @@ app.post("/api/supabase/sync", async (req, res) => {
         phone: s.phone || "+254799000111",
         admission_no: s.admissionNo || s.admission_no || `ED-CS-2026-${Math.floor(100 + Math.random() * 900)}`,
         cohort: s.cohort || "2026 Cohort",
-        avatar: s.avatar || ""
+        avatar: s.avatar || "",
+        passcode: s.passcode || "student123"
       }));
       const { error: err } = await supabase.from('students').upsert(studentsToSync, { onConflict: 'email' });
       if (err) throw new Error(`Students sync error: ${err.message}`);
@@ -2142,11 +1802,7 @@ app.post("/api/auth/login", async (req: any, res: any) => {
     });
 
     if (!result.success) {
-      if (result.error && /deactivated/i.test(result.error)) {
-        res.status(403).json({ success: false, error: result.error });
-        return;
-      }
-      res.status(401).json({ success: false, error: "Invalid username or password." });
+      res.status(401).json({ success: false, error: result.error || "Authentication failed." });
       return;
     }
 
@@ -2155,7 +1811,6 @@ app.post("/api/auth/login", async (req: any, res: any) => {
         success: true,
         status: "REQUIRES_PASSWORD_CHANGE",
         userId: result.userId,
-        username: result.username,
         role: result.role,
         email: result.email,
         message: result.message
@@ -2163,25 +1818,11 @@ app.post("/api/auth/login", async (req: any, res: any) => {
       return;
     }
 
-    if (result.refreshToken) {
-      const isProduction = process.env.NODE_ENV === "production";
-      res.cookie("refreshToken", result.refreshToken, {
-        httpOnly: true,
-        secure: isProduction,
-        sameSite: "lax",
-        path: "/",
-        maxAge: 7 * 24 * 60 * 60 * 1000
-      });
-    }
-
     res.json({
       success: true,
       role: result.role,
       userId: result.userId,
-      username: result.username,
-      email: result.email,
       token: result.token,
-      refreshToken: result.refreshToken,
       profile: result.profile
     });
   } catch (err: any) {
@@ -2213,22 +1854,8 @@ app.post(["/api/auth/change-password", "/api/auth/change-passcode"], async (req:
     });
 
     if (!result.success) {
-      // 400, not 401: a wrong current password is a validation failure on this form, not an
-      // expired session. A 401 here would trip the client's global session-expiry handler
-      // and bounce the user to the login page before they can read the error.
-      res.status(400).json({ success: false, error: result.error });
+      res.status(401).json({ success: false, error: result.error });
       return;
-    }
-
-    if (result.refreshToken) {
-      const isProduction = process.env.NODE_ENV === "production";
-      res.cookie("refreshToken", result.refreshToken, {
-        httpOnly: true,
-        secure: isProduction,
-        sameSite: "lax",
-        path: "/",
-        maxAge: 7 * 24 * 60 * 60 * 1000
-      });
     }
 
     res.json(result);
@@ -2238,79 +1865,14 @@ app.post(["/api/auth/change-password", "/api/auth/change-passcode"], async (req:
   }
 });
 
-// Token Refresh Endpoint (/api/auth/refresh)
-app.all("/api/auth/refresh", async (req: any, res: any) => {
-  if (req.method !== 'POST' && req.method !== 'GET') {
-    return res.status(405).json({ success: false, error: 'Method not allowed' });
-  }
-  try {
-    const cookies = parseCookies(req);
-    const refreshToken =
-      cookies.refreshToken ||
-      cookies.zenti_refresh_token ||
-      req.body?.refreshToken ||
-      req.headers['x-refresh-token'] ||
-      (req.headers.authorization && req.headers.authorization.toLowerCase().startsWith('bearer ') ? req.headers.authorization.substring(7) : null);
-
-    if (!refreshToken) {
-      return res.status(401).json({ success: false, error: "Refresh token required." });
-    }
-
-    let decoded: any;
-    try {
-      decoded = jwt.verify(refreshToken, JWT_SECRET);
-    } catch (err) {
-      return res.status(401).json({ success: false, error: "Invalid or expired refresh token." });
-    }
-
-    if (decoded.tokenType && decoded.tokenType !== 'refresh') {
-      return res.status(401).json({ success: false, error: "Invalid token type for refresh." });
-    }
-
-    const user = await findUserByIdentifier(decoded.userId || decoded.username, decoded.role);
-    if (!user || user.is_active === false) {
-      return res.status(401).json({ success: false, error: "Account is inactive or not found." });
-    }
-
-    if (await isArchivedSessionIdentity(decoded)) {
-      return res.status(403).json({ success: false, error: "Account is archived." });
-    }
-
-    const profileId = user.role_id || user.username || String(user.id);
-    const newAccessToken = issueAccessToken(profileId, user.role, user.email, JWT_SECRET, user.role_id);
-    const newRefreshToken = issueRefreshToken(profileId, user.role, user.email, JWT_SECRET, user.role_id);
-
-    const isProduction = process.env.NODE_ENV === 'production';
-    res.cookie('refreshToken', newRefreshToken, {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    });
-
-    return res.json({
-      success: true,
-      token: newAccessToken,
-      refreshToken: newRefreshToken,
-      userId: profileId,
-      role: user.role,
-      email: user.email
-    });
-  } catch (err: any) {
-    console.error("Refresh endpoint error:", err);
-    return res.status(500).json({ success: false, error: "Failed to refresh token." });
-  }
-});
-
 // Protected Administrative System Statistics Route
 app.get("/api/admin/system-stats", checkRBAC(["admin", "accountant", "librarian"]), async (req, res) => {
   try {
     const [cCount, sCount, lCount, bCount] = await Promise.all([
-      db.select({ value: count() }).from(courses).where(activeResourceCondition("course", courses.id)),
-      db.select({ value: count() }).from(students).where(activeResourceCondition("student", students.id)),
-      db.select({ value: count() }).from(lecturers).where(activeResourceCondition("lecturer", lecturers.id)),
-      db.select({ value: count() }).from(books).where(activeResourceCondition("book", books.id)),
+      db.select({ value: count() }).from(courses),
+      db.select({ value: count() }).from(students),
+      db.select({ value: count() }).from(lecturers),
+      db.select({ value: count() }).from(books),
     ]);
     res.json({
       systemOnline: true,
@@ -2499,7 +2061,7 @@ app.post("/api/data", async (req, res) => {
 // 4. REST Resource: Courses
 app.get("/api/courses", async (req, res) => {
   try {
-    const courseRows = await db.select().from(courses).where(activeResourceCondition("course", courses.id));
+    const courseRows = await db.select().from(courses);
     const result = courseRows.map(c => ({
       id: c.id,
       code: c.code,
@@ -2557,286 +2119,77 @@ app.post("/api/courses", async (req, res) => {
 });
 
   // REST Resource: Invoices
-// REST Resource: Invoices
 app.get("/api/invoices", async (req, res) => {
   try {
-    const { studentId } = req.query;
-    if (studentId) {
-      let resolvedStudentId = String(studentId);
-      try {
-        const [st] = await db
-          .select({ id: students.id })
-          .from(students)
-          .where(or(eq(students.id, resolvedStudentId), eq(students.admissionNo, resolvedStudentId)));
-        if (st) resolvedStudentId = st.id;
-      } catch (_) {}
-
-      const invList = await db.select().from(invoices).where(eq(invoices.studentId, resolvedStudentId));
-      return res.json(invList);
-    }
     const result = await db.select().from(invoices);
     res.json(result);
   } catch (error: any) {
     console.error("Failed to fetch invoices:", error);
-    try {
-      const dbVal = getDatabase();
-      const allInvoices = dbVal.invoices || [];
-      if (req.query.studentId) {
-        const filtered = allInvoices.filter((i: any) => i.studentId === req.query.studentId || i.admissionNo === req.query.studentId);
-        return res.json(filtered);
-      }
-      res.json(allInvoices);
-    } catch (fallbackErr: any) {
-      res.status(500).json({ error: error.message });
-    }
+    res.status(500).json({ error: error.message });
   }
 });
-
-app.get("/api/students/:studentId/invoices", async (req, res) => {
+app.post("/api/invoices", async (req, res) => {
   try {
-    const { studentId } = req.params;
-    let resolvedId = studentId;
-    try {
-      const [st] = await db
-        .select({ id: students.id })
-        .from(students)
-        .where(or(eq(students.id, studentId), eq(students.admissionNo, studentId)));
-      if (st) resolvedId = st.id;
-    } catch (_) {}
+    const invoiceData = req.body;
 
-    const result = await db.select().from(invoices).where(eq(invoices.studentId, resolvedId));
-    res.json(result);
-  } catch (error: any) {
-    console.error("Failed to fetch student invoices:", error);
-    try {
-      const dbVal = getDatabase();
-      const allInvoices = dbVal.invoices || [];
-      const filtered = allInvoices.filter((i: any) => i.studentId === req.params.studentId || i.admissionNo === req.params.studentId);
-      res.json(filtered);
-    } catch (fallbackErr: any) {
-      res.status(500).json({ error: error.message });
-    }
-  }
-});
-
-app.post("/api/invoices", checkRBAC(["accountant", "admin"]), async (req: any, res: any) => {
-  try {
-    const { studentId, admissionNumber, admissionNo, feeCategory, voteHead, amount, description, term, invoiceNo, date } = req.body;
-
-    const targetIdentifier = studentId || admissionNumber || admissionNo;
-    if (!targetIdentifier || !amount || isNaN(Number(amount))) {
+    if (!invoiceData?.studentId || !invoiceData?.amount) {
       return res.status(400).json({
-        error: "Student ID or admission number, and a valid numeric amount are required",
+        error: "Student ID and amount are required",
       });
     }
 
-    const numAmount = Number(amount);
-    if (numAmount <= 0) {
-      return res.status(400).json({ error: "Amount must be a positive numeric value" });
-    }
+    const [invoice] = await db
+      .insert(invoices)
+      .values({
+        studentId: invoiceData.studentId,
+        invoiceNo: invoiceData.invoiceNo,
+        description: invoiceData.description,
+        amount: invoiceData.amount,
+        date: invoiceData.date,
+        status: invoiceData.status ?? "unpaid",
+      })
+      .returning();
 
-    // Resolve student record in PostgreSQL
-    let resolvedStudent: { id: string; name: string; admissionNo: string } | null = null;
-    try {
-      const [st] = await db
-        .select({ id: students.id, name: students.name, admissionNo: students.admissionNo })
-        .from(students)
-        .where(or(eq(students.id, String(targetIdentifier)), eq(students.admissionNo, String(targetIdentifier))));
-      if (st) resolvedStudent = st;
-    } catch (_) {}
-
-    // Fallback student lookup in JSON store
-    if (!resolvedStudent) {
-      const dbVal = getDatabase();
-      const st = dbVal.students?.find((s: any) => s.id === targetIdentifier || s.admissionNo === targetIdentifier);
-      if (st) {
-        resolvedStudent = { id: st.id, name: st.name, admissionNo: st.admissionNo };
-      }
-    }
-
-    if (!resolvedStudent) {
-      return res.status(404).json({ error: "Student not found with provided identifier" });
-    }
-
-    const categoryStr = feeCategory || voteHead || "Tuition";
-    const rawDesc = description || term || "Semester Fees";
-    const formattedDesc = rawDesc.toLowerCase().includes(categoryStr.toLowerCase()) 
-      ? rawDesc 
-      : `[${categoryStr}] ${rawDesc}`;
-
-    const finalInvoiceNo = invoiceNo || `INV-${Math.floor(100000 + Math.random() * 900000)}`;
-    const dateStr = date || new Date().toISOString().substring(0, 10);
-
-    let createdInvoice: any = null;
-    let createdLedgerEntry: any = null;
-
-    try {
-      // 1. Save invoice to PostgreSQL invoices table
-      const [inv] = await db
-        .insert(invoices)
-        .values({
-          studentId: resolvedStudent.id,
-          invoiceNo: finalInvoiceNo,
-          description: formattedDesc,
-          amount: String(numAmount),
-          date: dateStr,
-          status: "unpaid",
-        })
-        .returning();
-      createdInvoice = inv;
-
-      // 2. Save debit entry to PostgreSQL studentLedger table
-      const [led] = await db
-        .insert(studentLedger)
-        .values({
-          studentId: resolvedStudent.id,
-          entryType: "DEBIT",
-          voteHead: categoryStr,
-          amount: String(numAmount),
-          description: formattedDesc,
-        })
-        .returning();
-      createdLedgerEntry = led;
-
-      // Keep JSON file store updated for offline/mixed mode fallback consistency
-      try {
-        const dbVal = getDatabase();
-        dbVal.invoices = dbVal.invoices || [];
-        dbVal.student_ledger = dbVal.student_ledger || [];
-
-        const newInv = {
-          id: inv.id,
-          studentId: resolvedStudent.id,
-          invoiceNo: finalInvoiceNo,
-          description: formattedDesc,
-          amount: numAmount,
-          date: dateStr,
-          status: "unpaid",
-        };
-        dbVal.invoices.push(newInv);
-
-        const st = dbVal.students?.find((s: any) => s.id === resolvedStudent!.id);
-        if (st) {
-          st.ledger = st.ledger || [];
-          if (!st.ledger.some((existing: any) => existing.id === newInv.id)) {
-            st.ledger.push(newInv);
-          }
-        }
-        saveDatabase(dbVal);
-      } catch (_) {}
-
-    } catch (dbErr: any) {
-      console.warn("PostgreSQL invoice creation warning, executing JSON fallback:", dbErr.message);
-      const dbVal = getDatabase();
-      dbVal.invoices = dbVal.invoices || [];
-      dbVal.student_ledger = dbVal.student_ledger || [];
-
-      const newInv = {
-        id: `inv-${Date.now()}`,
-        studentId: resolvedStudent.id,
-        invoiceNo: finalInvoiceNo,
-        description: formattedDesc,
-        amount: numAmount,
-        date: dateStr,
-        status: "unpaid",
-      };
-
-      const newLedger = {
-        id: `ledger-${Date.now()}`,
-        studentId: resolvedStudent.id,
-        entryType: "DEBIT",
-        voteHead: categoryStr,
-        amount: numAmount,
-        description: formattedDesc,
-        createdAt: new Date().toISOString(),
-      };
-
-      dbVal.invoices.push(newInv);
-      dbVal.student_ledger.push(newLedger);
-
-      const st = dbVal.students?.find((s: any) => s.id === resolvedStudent.id);
-      if (st) {
-        st.ledger = st.ledger || [];
-        st.ledger.push(newInv);
-      }
-
-      saveDatabase(dbVal);
-      createdInvoice = newInv;
-      createdLedgerEntry = newLedger;
-    }
-
-    // Return sanitized JSON response (no sensitive user/hash data)
-    return res.status(201).json({
-      success: true,
-      invoice: createdInvoice,
-      invoiceNo: finalInvoiceNo,
-      ledgerEntry: createdLedgerEntry,
-      studentId: resolvedStudent.id,
-      studentName: resolvedStudent.name,
-      amount: numAmount,
-      feeCategory: categoryStr,
-      description: formattedDesc,
-      status: "unpaid",
-    });
-
+    res.status(201).json(invoice);
   } catch (error: any) {
     console.error("Failed to create invoice:", error);
-    res.status(500).json({ error: error.message || "Failed to create invoice" });
+    res.status(500).json({ error: error.message });
   }
 });
 
 app.post("/api/student-attendance", async (req, res) => {
   try {
-    const payload = req.body;
-    const records = Array.isArray(payload) ? payload : [payload];
+    const attendanceData = req.body;
 
-    if (records.length === 0) {
+    if (
+      !attendanceData?.studentId ||
+      !attendanceData?.subjectCode ||
+      attendanceData?.attendanceRate === undefined
+    ) {
       return res.status(400).json({
         error: "Student ID, subject code and attendance rate are required",
       });
     }
 
-    const saved = [];
-    for (const attendanceData of records) {
-      if (
-        !attendanceData?.studentId ||
-        !attendanceData?.subjectCode ||
-        attendanceData?.attendanceRate === undefined
-      ) {
-        return res.status(400).json({
-          error: "Student ID, subject code and attendance rate are required",
-        });
-      }
+    const [attendance] = await db
+      .insert(studentAttendance)
+      .values({
+        studentId: attendanceData.studentId,
+        subjectCode: attendanceData.subjectCode,
+        attendanceRate: attendanceData.attendanceRate,
+      })
+      .onConflictDoUpdate({
+        target: [
+          studentAttendance.studentId,
+          studentAttendance.subjectCode,
+        ],
+        set: {
+          attendanceRate: attendanceData.attendanceRate,
+        },
+      })
+      .returning();
 
-      const rate = Number(attendanceData.attendanceRate);
-      if (Number.isNaN(rate) || rate < 0 || rate > 100) {
-        return res.status(400).json({
-          error: "attendanceRate must be a number between 0 and 100",
-        });
-      }
-
-      const [attendance] = await db
-        .insert(studentAttendance)
-        .values({
-          studentId: attendanceData.studentId,
-          subjectCode: attendanceData.subjectCode,
-          attendanceRate: rate,
-        })
-        .onConflictDoUpdate({
-          target: [
-            studentAttendance.studentId,
-            studentAttendance.subjectCode,
-          ],
-          set: {
-            attendanceRate: rate,
-          },
-        })
-        .returning();
-
-      saved.push(attendance);
-    }
-
-    res.status(201).json(Array.isArray(payload) ? saved : saved[0]);
+    res.status(201).json(attendance);
   } catch (error: any) {
     console.error("Failed to save attendance:", error);
     res.status(500).json({
@@ -2864,8 +2217,7 @@ app.get("/api/lecturers", async (req, res) => {
         isAccountant: lecturers.isAccountant,
         isLibrarian: lecturers.isLibrarian,
       })
-      .from(lecturers)
-      .where(activeResourceCondition("lecturer", lecturers.id));
+      .from(lecturers);
 
     const subjectRows = await db.select().from(lecturerSubjects);
     const publicationRows = await db.select().from(lecturerPublications);
@@ -2992,7 +2344,7 @@ app.get("/api/transactions", async (req, res) => {
 });
 
 // GET API to search for a student by their admission_no
-app.get("/api/students/search", async (req: any, res: any) => {
+app.get("/api/students/search", async (req, res) => {
   try {
     const admissionNoQuery = req.query.admission_no || req.query.admissionNo;
     if (!admissionNoQuery || typeof admissionNoQuery !== "string") {
@@ -3000,17 +2352,6 @@ app.get("/api/students/search", async (req: any, res: any) => {
     }
 
     const admissionNo = admissionNoQuery.trim();
-    const userRole = req.headers["x-user-role"] || req.user?.role;
-
-    // Lecturers must use the redacted teaching-safe lookup endpoint
-    if (userRole === "lecturer") {
-      return res.status(403).json({
-        success: false,
-        error:
-          "Lecturers must use /api/lecturer/student-lookup for student profiles. Full student records are not available.",
-        code: "RBAC_USE_LECTURER_LOOKUP",
-      });
-    }
 
     // Query fully constructed students list (with all nested details like grades, ledger, etc.)
     const fullDb = await loadFullDatabaseState();
@@ -3022,17 +2363,17 @@ app.get("/api/students/search", async (req: any, res: any) => {
       // Fallback: check local database cache
       const cachedStudents = getDatabase().students || [];
       const cachedStudent = cachedStudents.find(
-        (s: any) => s.accountStatus !== "Archived" && s.admissionNo?.toLowerCase() === admissionNo.toLowerCase()
+        (s: any) => s.admissionNo?.toLowerCase() === admissionNo.toLowerCase()
       );
 
       if (cachedStudent) {
-        const { passcode, passwordHash, password, ...studentWithoutPasscode } = cachedStudent;
+        const { passcode, ...studentWithoutPasscode } = cachedStudent;
         return res.json(studentWithoutPasscode);
       }
       return res.status(404).json({ error: `Student with admission number ${admissionNo} not found.` });
     }
 
-    const { passcode, passwordHash, password, ...studentWithoutPasscode } = student;
+    const { passcode, ...studentWithoutPasscode } = student;
     res.json(studentWithoutPasscode);
   } catch (err: any) {
     console.error("Error searching student by admission_no:", err);
@@ -3044,7 +2385,7 @@ app.get("/api/students/search", async (req: any, res: any) => {
 // 1. GET /api/finance/students (fetches students with computed outstanding ledger balances)
 app.get("/api/finance/students", async (req, res) => {
   try {
-    const allStudents = await db.select().from(students).where(activeResourceCondition("student", students.id));
+    const allStudents = await db.select().from(students);
     const ledgerEntries = await db.select().from(studentLedger);
 
     const result = allStudents.map(s => {
@@ -3082,9 +2423,6 @@ app.post("/api/finance/bill", async (req, res) => {
 
   if (!studentId || !voteHead || !amount || isNaN(Number(amount))) {
     return res.status(400).json({ error: "Missing required billing fields or invalid amount" });
-  }
-  if (!await activeStudentExists(studentId)) {
-    return res.status(404).json({ error: "Active student not found" });
   }
 
   const invoiceNo = `INV-${Math.floor(100000 + Math.random() * 900000)}`;
@@ -3172,9 +2510,6 @@ app.post("/api/finance/grant", async (req, res) => {
   if (!studentId || !discountTypology || !amount || isNaN(Number(amount))) {
     return res.status(400).json({ error: "Missing required grant fields or invalid credit value" });
   }
-  if (!await activeStudentExists(studentId)) {
-    return res.status(404).json({ error: "Active student not found" });
-  }
 
   const creditNo = `CRD-${Math.floor(100000 + Math.random() * 900000)}`;
   const dateStr = new Date().toISOString().substring(0, 10);
@@ -3261,11 +2596,7 @@ app.post("/api/finance/reconcile", async (req, res) => {
 
   try {
     const allTransactions = await db.select().from(transactions);
-    const activeStudents = await db.select({ id: students.id }).from(students).where(activeResourceCondition("student", students.id));
-    const activeStudentIds = activeStudents.map((student) => student.id);
-    const unpaidInvoices = activeStudentIds.length
-      ? await db.select().from(invoices).where(and(eq(invoices.status, "unpaid"), inArray(invoices.studentId, activeStudentIds)))
-      : [];
+    const unpaidInvoices = await db.select().from(invoices).where(eq(invoices.status, "unpaid"));
     const allPayments = await db.select().from(payments);
 
     const usedRefs = new Set(allPayments.map(p => p.transactionId));
@@ -3417,556 +2748,6 @@ app.post("/api/finance/reconcile", async (req, res) => {
   }
 });
 
-// 5. GET /api/finance/payments & PATCH /api/finance/payments/:id/reconcile
-app.get("/api/finance/payments", async (req, res) => {
-  try {
-    const activeStudents = await db.select({ id: students.id }).from(students).where(activeResourceCondition("student", students.id));
-    const activeStudentIds = activeStudents.map((student) => student.id);
-    const paymentRows = activeStudentIds.length
-      ? await db.select().from(payments).where(inArray(payments.studentId, activeStudentIds))
-      : [];
-    const studentRows = await db.select().from(students).where(activeResourceCondition("student", students.id));
-
-    const result = paymentRows.map(p => {
-      const student = studentRows.find(s => s.id === p.studentId);
-      return {
-        id: p.id,
-        studentId: p.studentId,
-        studentName: student ? student.name : "Unknown Student",
-        studentAdmissionNo: student ? student.admissionNo : "",
-        invoiceId: p.invoiceId ?? "",
-        amount: Number(p.amount),
-        paymentMethod: p.paymentMethod,
-        transactionId: p.transactionId,
-        date: p.date,
-        status: p.status
-      };
-    });
-
-    res.json(result);
-  } catch (err: any) {
-    console.error("Failed to fetch payments from PostgreSQL:", err);
-    res.status(500).json({ error: "Failed to fetch payments" });
-  }
-});
-
-app.patch("/api/finance/payments/:id/reconcile", async (req, res) => {
-  const { id } = req.params;
-  try {
-    const [updatedPayment] = await db
-      .update(payments)
-      .set({ status: 'reconciled' })
-      .where(eq(payments.id, id))
-      .returning();
-
-    if (updatedPayment && updatedPayment.invoiceId) {
-      await db.update(invoices)
-        .set({ status: 'paid' })
-        .where(eq(invoices.id, updatedPayment.invoiceId));
-
-      await db.insert(studentLedger).values({
-        studentId: updatedPayment.studentId,
-        entryType: 'CREDIT',
-        voteHead: 'Tuition',
-        amount: String(updatedPayment.amount),
-        description: `Manual Reconciled Payment Ref: ${updatedPayment.transactionId}`
-      });
-    }
-
-    res.json({ success: true, payment: updatedPayment });
-  } catch (err: any) {
-    console.error("Failed to reconcile payment in PostgreSQL:", err);
-    res.status(500).json({ error: "Failed to reconcile payment" });
-  }
-});
-
-// 6. GET /api/finance/expenses & POST /api/finance/expenses
-app.get("/api/finance/expenses", async (req, res) => {
-  try {
-    const expenseRows = await db.select().from(expenses);
-    const result = expenseRows.map(e => ({
-      id: e.id,
-      description: e.description,
-      category: e.category,
-      amount: Number(e.amount),
-      date: e.date
-    }));
-    res.json(result);
-  } catch (err: any) {
-    console.error("Failed to fetch expenses from PostgreSQL:", err);
-    res.status(500).json({ error: "Failed to fetch expenses" });
-  }
-});
-
-app.post("/api/finance/expenses", async (req, res) => {
-  const { description, category, amount, date } = req.body;
-  if (!description || !category || !amount || isNaN(Number(amount))) {
-    return res.status(400).json({ error: "Invalid expense parameters" });
-  }
-  try {
-    const dateStr = date || new Date().toISOString().substring(0, 10);
-    const [newExpense] = await db.insert(expenses).values({
-      description,
-      category,
-      amount: String(amount),
-      date: dateStr
-    }).returning();
-
-    res.status(201).json({
-      id: newExpense.id,
-      description: newExpense.description,
-      category: newExpense.category,
-      amount: Number(newExpense.amount),
-      date: newExpense.date
-    });
-  } catch (err: any) {
-    console.error("Failed to insert expense into PostgreSQL:", err);
-    res.status(500).json({ error: "Failed to create expense" });
-  }
-});
-
-// 7. GET /api/finance/budgets & POST /api/finance/budgets
-app.get("/api/finance/budgets", async (req, res) => {
-  try {
-    const defaultBudgets = {
-      'Operations & IT': 180000,
-      'Estates & Facilities': 140000,
-      'Admissions & Outreach': 150000,
-      'Academic Affairs': 600000,
-      'General Administration': 95000
-    };
-
-    const dbState = await loadFullDatabaseState();
-    const budgets = dbState.budgets || defaultBudgets;
-    res.json(budgets);
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to fetch budgets" });
-  }
-});
-
-app.post("/api/finance/budgets", async (req, res) => {
-  const { department, amount } = req.body;
-  if (!department || isNaN(Number(amount))) {
-    return res.status(400).json({ error: "Invalid budget payload" });
-  }
-  try {
-    const dbState = await loadFullDatabaseState();
-    dbState.budgets = dbState.budgets || {
-      'Operations & IT': 180000,
-      'Estates & Facilities': 140000,
-      'Admissions & Outreach': 150000,
-      'Academic Affairs': 600000,
-      'General Administration': 95000
-    };
-    dbState.budgets[department] = Number(amount);
-    
-    await db.insert(systemState)
-      .values({ id: 1, data: dbState, updatedAt: new Date().toISOString() })
-      .onConflictDoUpdate({ target: systemState.id, set: { data: dbState, updatedAt: new Date().toISOString() } });
-
-    res.json({ success: true, budgets: dbState.budgets });
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to update budget ceiling" });
-  }
-});
-
-// 8. VOUCHERS API: GET, POST, PATCH approve
-app.get("/api/finance/vouchers", async (req, res) => {
-  try {
-    const dbState = await loadFullDatabaseState();
-    res.json(dbState.vouchers || []);
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to fetch vouchers" });
-  }
-});
-
-app.post("/api/finance/vouchers", async (req, res) => {
-  const { voucherNo, type, category, description, amount, date, approvedBy, status } = req.body;
-  if (!type || !category || !amount || isNaN(Number(amount))) {
-    return res.status(400).json({ error: "Invalid voucher fields" });
-  }
-  try {
-    const newVoucher = {
-      id: `v-${Date.now()}`,
-      voucherNo: voucherNo || `VOU-${Math.floor(100 + Math.random() * 900)}`,
-      type,
-      category,
-      description: description || "",
-      amount: Number(amount),
-      date: date || new Date().toISOString().substring(0, 10),
-      approvedBy: approvedBy || "Grace Wanjiku (Accountant)",
-      status: status || "Approved"
-    };
-
-    const dbState = await loadFullDatabaseState();
-    dbState.vouchers = [newVoucher, ...(dbState.vouchers || [])];
-
-    await db.insert(systemState)
-      .values({ id: 1, data: dbState, updatedAt: new Date().toISOString() })
-      .onConflictDoUpdate({ target: systemState.id, set: { data: dbState, updatedAt: new Date().toISOString() } });
-
-    // Insert into PostgreSQL expenses table if approved debit
-    if (type === 'Debit' && newVoucher.status === 'Approved') {
-      await db.insert(expenses).values({
-        description: `[Voucher ${newVoucher.voucherNo}] ${newVoucher.description}`,
-        category: newVoucher.category,
-        amount: String(newVoucher.amount),
-        date: newVoucher.date
-      });
-    }
-
-    res.status(201).json(newVoucher);
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to create voucher" });
-  }
-});
-
-app.patch("/api/finance/vouchers/:id/approve", async (req, res) => {
-  const { id } = req.params;
-  try {
-    const dbState = await loadFullDatabaseState();
-    dbState.vouchers = (dbState.vouchers || []).map((v: any) => {
-      if (v.id === id) {
-        return { ...v, status: 'Approved', approvedBy: 'System Admin' };
-      }
-      return v;
-    });
-
-    await db.insert(systemState)
-      .values({ id: 1, data: dbState, updatedAt: new Date().toISOString() })
-      .onConflictDoUpdate({ target: systemState.id, set: { data: dbState, updatedAt: new Date().toISOString() } });
-
-    const updatedVoucher = dbState.vouchers.find((v: any) => v.id === id);
-    if (updatedVoucher && updatedVoucher.type === 'Debit') {
-      await db.insert(expenses).values({
-        description: `[Voucher ${updatedVoucher.voucherNo}] ${updatedVoucher.description} (Approved by Admin)`,
-        category: updatedVoucher.category,
-        amount: String(updatedVoucher.amount),
-        date: updatedVoucher.date
-      });
-    }
-
-    res.json({ success: true, voucher: updatedVoucher });
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to approve voucher" });
-  }
-});
-
-// 9. IMPRESTS API: GET, POST, PATCH status
-app.get("/api/finance/imprests", async (req, res) => {
-  try {
-    const dbState = await loadFullDatabaseState();
-    res.json(dbState.imprests || []);
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to fetch imprests" });
-  }
-});
-
-app.post("/api/finance/imprests", async (req, res) => {
-  const { staffName, amount, purpose } = req.body;
-  if (!staffName || !amount || isNaN(Number(amount))) {
-    return res.status(400).json({ error: "Invalid imprest fields" });
-  }
-  try {
-    const newImprest = {
-      id: `imp-${Date.now()}`,
-      staffName,
-      amount: Number(amount),
-      purpose: purpose || "",
-      status: 'pending',
-      date: new Date().toISOString().substring(0, 10)
-    };
-    const dbState = await loadFullDatabaseState();
-    dbState.imprests = [...(dbState.imprests || []), newImprest];
-
-    await db.insert(systemState)
-      .values({ id: 1, data: dbState, updatedAt: new Date().toISOString() })
-      .onConflictDoUpdate({ target: systemState.id, set: { data: dbState, updatedAt: new Date().toISOString() } });
-
-    res.status(201).json(newImprest);
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to create imprest" });
-  }
-});
-
-app.patch("/api/finance/imprests/:id/status", async (req, res) => {
-  const { id } = req.params;
-  const { status } = req.body;
-  try {
-    const dbState = await loadFullDatabaseState();
-    let targetImp: any = null;
-
-    dbState.imprests = (dbState.imprests || []).map((imp: any) => {
-      if (imp.id === id) {
-        targetImp = { ...imp, status };
-        return targetImp;
-      }
-      return imp;
-    });
-
-    if (status === 'approved' && targetImp) {
-      const vouNo = `VOU-${Math.floor(100 + Math.random() * 900)}`;
-      const autoVoucher = {
-        id: `v-${Date.now()}`,
-        voucherNo: vouNo,
-        type: 'Debit',
-        category: 'General Administration',
-        description: `[Automatic Petty Cash Allocation] Dispatched KES ${targetImp.amount.toLocaleString()} petty cash to ${targetImp.staffName}. Purpose: ${targetImp.purpose}`,
-        amount: targetImp.amount,
-        date: new Date().toISOString().substring(0, 10),
-        approvedBy: 'Grace Wanjiku (Accountant)',
-        status: 'Approved'
-      };
-      dbState.vouchers = [autoVoucher, ...(dbState.vouchers || [])];
-      targetImp.voucherId = autoVoucher.id;
-
-      await db.insert(expenses).values({
-        description: `[Petty cash ${vouNo}] Allocated to ${targetImp.staffName}`,
-        category: 'General Administration',
-        amount: String(targetImp.amount),
-        date: new Date().toISOString().substring(0, 10)
-      });
-    }
-
-    await db.insert(systemState)
-      .values({ id: 1, data: dbState, updatedAt: new Date().toISOString() })
-      .onConflictDoUpdate({ target: systemState.id, set: { data: dbState, updatedAt: new Date().toISOString() } });
-
-    res.json({ success: true, imprest: targetImp });
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to update imprest status" });
-  }
-});
-
-// 10. SUPPLIERS API: GET, POST, POST po, PATCH po status
-app.get("/api/finance/suppliers", async (req, res) => {
-  try {
-    const dbState = await loadFullDatabaseState();
-    res.json(dbState.suppliers || []);
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to fetch suppliers" });
-  }
-});
-
-app.post("/api/finance/suppliers", async (req, res) => {
-  const { companyName, contactPerson } = req.body;
-  if (!companyName) return res.status(400).json({ error: "Supplier company name is required" });
-
-  try {
-    const newSup = {
-      id: `sup-${Date.now()}`,
-      companyName,
-      contactPerson: contactPerson || "General Partner",
-      status: "Active",
-      balance: 0,
-      purchaseOrders: []
-    };
-    const dbState = await loadFullDatabaseState();
-    dbState.suppliers = [...(dbState.suppliers || []), newSup];
-
-    await db.insert(systemState)
-      .values({ id: 1, data: dbState, updatedAt: new Date().toISOString() })
-      .onConflictDoUpdate({ target: systemState.id, set: { data: dbState, updatedAt: new Date().toISOString() } });
-
-    res.status(201).json(newSup);
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to add supplier" });
-  }
-});
-
-app.post("/api/finance/suppliers/po", async (req, res) => {
-  const { supplierId, itemName, amount } = req.body;
-  if (!supplierId || !itemName || !amount || isNaN(Number(amount))) {
-    return res.status(400).json({ error: "Invalid PO fields" });
-  }
-  try {
-    const val = Number(amount);
-    const newPO = {
-      id: `po-${Date.now()}`,
-      poNo: `PO-${Math.floor(8000 + Math.random() * 1999)}`,
-      itemName,
-      amount: val,
-      status: 'pending',
-      date: new Date().toISOString().substring(0, 10)
-    };
-
-    const dbState = await loadFullDatabaseState();
-    dbState.suppliers = (dbState.suppliers || []).map((sup: any) => {
-      if (sup.id === supplierId) {
-        return {
-          ...sup,
-          balance: (sup.balance || 0) + val,
-          purchaseOrders: [...(sup.purchaseOrders || []), newPO]
-        };
-      }
-      return sup;
-    });
-
-    await db.insert(systemState)
-      .values({ id: 1, data: dbState, updatedAt: new Date().toISOString() })
-      .onConflictDoUpdate({ target: systemState.id, set: { data: dbState, updatedAt: new Date().toISOString() } });
-
-    res.status(201).json(newPO);
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to raise PO" });
-  }
-});
-
-app.patch("/api/finance/suppliers/po/:id", async (req, res) => {
-  const poId = req.params.id;
-  const { supplierId, action } = req.body; // action: 'approve' | 'settle'
-  try {
-    const dbState = await loadFullDatabaseState();
-    dbState.suppliers = (dbState.suppliers || []).map((sup: any) => {
-      if (sup.id === supplierId) {
-        const updatedPOs = (sup.purchaseOrders || []).map((po: any) => {
-          if (po.id === poId) {
-            if (action === 'approve') {
-              return { ...po, status: 'approved' };
-            } else if (action === 'settle') {
-              return { ...po, status: 'paid' };
-            }
-          }
-          return po;
-        });
-
-        let newBalance = sup.balance || 0;
-        if (action === 'settle') {
-          const poObj = sup.purchaseOrders?.find((p: any) => p.id === poId);
-          if (poObj) newBalance = Math.max(0, newBalance - poObj.amount);
-        }
-
-        return { ...sup, balance: newBalance, purchaseOrders: updatedPOs };
-      }
-      return sup;
-    });
-
-    await db.insert(systemState)
-      .values({ id: 1, data: dbState, updatedAt: new Date().toISOString() })
-      .onConflictDoUpdate({ target: systemState.id, set: { data: dbState, updatedAt: new Date().toISOString() } });
-
-    res.json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to update PO" });
-  }
-});
-
-// 11. BANK STATEMENTS & MANUAL MATCHING API
-app.get("/api/finance/bank-statements", async (req, res) => {
-  try {
-    const allTx = await db.select().from(transactions);
-    const dbState = await loadFullDatabaseState();
-    const savedStatements = dbState.bankStatements || [];
-
-    const statementsFromTx = allTx.map(tx => ({
-      id: tx.id,
-      date: new Date(tx.createdAt).toISOString().substring(0, 10),
-      reference: tx.referenceNo,
-      details: `${tx.description} (${tx.recipientSender})`,
-      amount: Number(tx.amount),
-      isMatched: savedStatements.find((s: any) => s.id === tx.id)?.isMatched || false,
-      matchedTxId: savedStatements.find((s: any) => s.id === tx.id)?.matchedTxId
-    }));
-
-    res.json(statementsFromTx);
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to fetch bank statements" });
-  }
-});
-
-app.post("/api/finance/bank-statements/match", async (req, res) => {
-  const { statementId, studentId, invoiceId } = req.body;
-  if (!statementId || !studentId || !invoiceId) {
-    return res.status(400).json({ error: "Missing matching payload" });
-  }
-
-  try {
-    const allTx = await db.select().from(transactions);
-    const statement = allTx.find(t => t.id === statementId);
-    const txAmount = statement ? Number(statement.amount) : 0;
-    const txRef = statement ? statement.referenceNo : `TX-${Date.now()}`;
-
-    // 1. Update invoice status in PostgreSQL
-    await db.update(invoices)
-      .set({ status: 'paid' })
-      .where(eq(invoices.id, invoiceId));
-
-    // 2. Create payment record in PostgreSQL
-    await db.insert(payments).values({
-      studentId,
-      invoiceId,
-      amount: String(txAmount),
-      paymentMethod: txRef.toLowerCase().includes('mpesa') ? 'M-Pesa' : 'Bank Transfer',
-      transactionId: txRef,
-      date: new Date().toISOString().substring(0, 10),
-      status: 'reconciled'
-    });
-
-    // 3. Create credit ledger entry in PostgreSQL
-    await db.insert(studentLedger).values({
-      studentId,
-      entryType: 'CREDIT',
-      voteHead: 'Tuition',
-      amount: String(txAmount),
-      description: `Manual Bank Statement Reconciled Ref: ${txRef}`
-    });
-
-    // 4. Record matched status in system state
-    const dbState = await loadFullDatabaseState();
-    dbState.bankStatements = dbState.bankStatements || [];
-    dbState.bankStatements.push({ id: statementId, isMatched: true, matchedTxId: txRef });
-
-    await db.insert(systemState)
-      .values({ id: 1, data: dbState, updatedAt: new Date().toISOString() })
-      .onConflictDoUpdate({ target: systemState.id, set: { data: dbState, updatedAt: new Date().toISOString() } });
-
-    res.json({ success: true, message: "Bank statement matched successfully" });
-  } catch (err: any) {
-    console.error("Failed to match bank statement in PostgreSQL:", err);
-    res.status(500).json({ error: "Failed to match bank statement" });
-  }
-});
-
-// 12. AUDITS API: GET & POST
-app.get("/api/finance/audits", async (req, res) => {
-  try {
-    const dbState = await loadFullDatabaseState();
-    res.json(dbState.audits || []);
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to fetch audit logs" });
-  }
-});
-
-app.post("/api/finance/audits", async (req, res) => {
-  const { action, resource, status, user, role } = req.body;
-  if (!action || !resource) {
-    return res.status(400).json({ error: "Action and resource are required" });
-  }
-  try {
-    const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
-    const newLog = {
-      id: `aud-${Date.now()}`,
-      timestamp,
-      user: user || 'Grace Wanjiku (Accountant)',
-      role: role || 'Accountant',
-      action,
-      resource,
-      status: status || 'Success'
-    };
-
-    const dbState = await loadFullDatabaseState();
-    dbState.audits = [newLog, ...(dbState.audits || [])];
-
-    await db.insert(systemState)
-      .values({ id: 1, data: dbState, updatedAt: new Date().toISOString() })
-      .onConflictDoUpdate({ target: systemState.id, set: { data: dbState, updatedAt: new Date().toISOString() } });
-
-    res.status(201).json(newLog);
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to log audit" });
-  }
-});
-
 // 6. REST Resource: Students with Server-Side Pagination, Filtering, Sorting, and Search
 app.get("/api/students", async (req, res) => {
   try {
@@ -3985,7 +2766,7 @@ app.get("/api/students", async (req, res) => {
     const offset = (page - 1) * limit;
 
     // Build SQL conditions
-    const conditions = [activeResourceCondition("student", students.id)];
+    const conditions = [];
 
     if (searchParam) {
       const searchPattern = `%${searchParam}%`;
@@ -3994,9 +2775,7 @@ app.get("/api/students", async (req, res) => {
           ilike(students.name, searchPattern),
           ilike(students.admissionNo, searchPattern),
           ilike(students.email, searchPattern),
-          ilike(students.cohort, searchPattern),
-          ilike(students.programme, searchPattern),
-          ilike(students.department, searchPattern)
+          ilike(students.cohort, searchPattern)
         )
       );
     }
@@ -4039,12 +2818,6 @@ app.get("/api/students", async (req, res) => {
         break;
       case "cohort":
         orderByClause = sortOrderParam === "desc" ? desc(students.cohort) : asc(students.cohort);
-        break;
-      case "programme":
-        orderByClause = sortOrderParam === "desc" ? desc(students.programme) : asc(students.programme);
-        break;
-      case "department":
-        orderByClause = sortOrderParam === "desc" ? desc(students.department) : asc(students.department);
         break;
       case "accountStatus":
       case "status":
@@ -4145,8 +2918,6 @@ app.get("/api/students", async (req, res) => {
         phone: s.phone,
         admissionNo: s.admissionNo,
         cohort: s.cohort,
-        programme: s.programme ?? undefined,
-        department: s.department ?? undefined,
         avatar: s.avatar ?? "",
         accountStatus: s.accountStatus,
         createdAt: s.createdAt,
@@ -4175,7 +2946,6 @@ app.get("/api/students", async (req, res) => {
     // Fallback using cached database memory store
     const fullDb = getDatabase();
     let allStudents = fullDb.students || [];
-    allStudents = allStudents.filter((student: any) => student.accountStatus !== "Archived");
 
     const searchParam = ((req.query.search as string) || "").toLowerCase().trim();
     const cohortParam = ((req.query.cohort as string) || "").trim();
@@ -4190,9 +2960,7 @@ app.get("/api/students", async (req, res) => {
           s.name?.toLowerCase().includes(searchParam) ||
           s.admissionNo?.toLowerCase().includes(searchParam) ||
           s.email?.toLowerCase().includes(searchParam) ||
-          s.cohort?.toLowerCase().includes(searchParam) ||
-          s.programme?.toLowerCase().includes(searchParam) ||
-          s.department?.toLowerCase().includes(searchParam)
+          s.cohort?.toLowerCase().includes(searchParam)
       );
     }
 
@@ -4231,14 +2999,6 @@ app.get("/api/students", async (req, res) => {
         case "cohort":
           valA = a.cohort || "";
           valB = b.cohort || "";
-          break;
-        case "programme":
-          valA = a.programme || "";
-          valB = b.programme || "";
-          break;
-        case "department":
-          valA = a.department || "";
-          valB = b.department || "";
           break;
         case "accountStatus":
           valA = a.accountStatus || "";
@@ -4303,7 +3063,8 @@ app.post("/api/students", async (req, res) => {
         error: "Name and email required",
       });
     }
-    const { plain: rawPass } = resolvePassword(studentData.passcode, "student");
+    
+    const rawPass = studentData.passcode || "student123";
     const hashedPasscode = (rawPass.startsWith('$2b$') || rawPass.startsWith('$2a$') || rawPass.startsWith('$2y$'))
       ? rawPass
       : hashPassword(rawPass);
@@ -4318,8 +3079,6 @@ app.post("/api/students", async (req, res) => {
           phone: studentData.phone,
           admissionNo: studentData.admissionNo,
           cohort: studentData.cohort,
-          programme: studentData.programme ?? null,
-          department: studentData.department ?? null,
           avatar: studentData.avatar ?? null,
           accountStatus: "Pending Setup",
         })
@@ -4349,174 +3108,14 @@ app.post("/api/students", async (req, res) => {
   } catch (error: any) {
     console.error("Registration failed:", error);
 
-    const isUniqueViolation =
-      error?.code === "23505" ||
-      error?.cause?.code === "23505" ||
-      error?.originalError?.code === "23505" ||
-      /unique constraint|duplicate key|already exists/i.test(error?.message || "");
-
-    if (isUniqueViolation) {
-      return res.status(409).json({
-        message: "A student with this email already exists.",
-        error: "A student with this email already exists.",
-      });
-    }
-
     res.status(500).json({
       error: error.message,
     });
   }
 });
 
-// Admin Route: archive a student without removing their academic record
-app.patch("/api/students/:id/status", checkRBAC(["admin"]), async (req: any, res) => {
-  try {
-    const accountStatus = String(req.body?.accountStatus || "").trim();
-    if (!accountStatus) return res.status(400).json({ error: "Account status is required" });
-    if (accountStatus === "Archived") {
-      return res.status(400).json({ error: "Use the archive endpoint so the record remains restorable and audited." });
-    }
-
-    const [student] = await db.update(students)
-      .set({ accountStatus })
-      .where(eq(students.id, req.params.id))
-      .returning();
-    if (!student) return res.status(404).json({ error: "Student not found" });
-
-    const fullDb = await loadFullDatabaseState();
-    saveDatabase(fullDb);
-    res.json({ success: true, student });
-  } catch (error: any) {
-    console.error("Failed to update student status:", error);
-    res.status(500).json({ error: error.message || "Failed to update student status" });
-  }
-});
-
-// Archive registry: the normal delete action is a reversible soft delete.
-app.post("/api/archive/:resourceType/:id", checkRBAC(["admin"]), async (req: any, res: any) => {
-  const resourceType = req.params.resourceType as ArchivableResource;
-  const resourceId = String(req.params.id || "").trim();
-  if (!(resourceType in archiveResourceTables) || !resourceId) {
-    return res.status(400).json({ success: false, error: "Unsupported archive resource." });
-  }
-  try {
-    const record = await getArchivableRecord(resourceType, resourceId);
-    if (!record) return res.status(404).json({ success: false, error: "Record not found." });
-    const safeSnapshot = resourceType === "user"
-      ? (() => { const { passwordHash, ...safeUser } = record; return safeUser; })()
-      : record;
-    await db.transaction(async (tx) => {
-      await tx.insert(archiveRecords).values({
-        resourceType,
-        resourceId,
-        displayName: archiveDisplayName(resourceType, record),
-        snapshot: safeSnapshot,
-        archivedBy: req.user?.userId || null,
-      });
-      await tx.insert(archiveAuditLogs).values({
-        resourceType,
-        resourceId,
-        action: "ARCHIVED",
-        performedBy: req.user?.userId || null,
-        details: { displayName: archiveDisplayName(resourceType, record) },
-      });
-      if (resourceType === "student") {
-        await tx.update(students).set({ accountStatus: "Archived" }).where(eq(students.id, resourceId));
-      }
-    });
-    const fullDb = await loadFullDatabaseState();
-    saveDatabase(fullDb);
-    return res.json({ success: true, message: "Record archived. It can be restored later." });
-  } catch (error: any) {
-    if (error?.code === "23505") return res.status(409).json({ success: false, error: "This record is already archived." });
-    console.error("Archive record failed:", error);
-    return res.status(500).json({ success: false, error: "Unable to archive the record." });
-  }
-});
-
-app.get("/api/archive", checkRBAC(["admin"]), async (req: any, res: any) => {
-  try {
-    const type = String(req.query.type || "").trim();
-    const search = String(req.query.search || "").trim().toLowerCase();
-    const from = String(req.query.from || "").trim();
-    const to = String(req.query.to || "").trim();
-    const sort = String(req.query.sort || "archivedAtDesc").trim();
-    const page = Math.max(1, Number(req.query.page) || 1);
-    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
-    const orderBy = sort === "archivedAtAsc" ? asc(archiveRecords.archivedAt)
-      : sort === "nameAsc" ? asc(archiveRecords.displayName)
-      : sort === "nameDesc" ? desc(archiveRecords.displayName)
-      : desc(archiveRecords.archivedAt);
-    let records = await db.select().from(archiveRecords).orderBy(orderBy);
-    records = records.filter((record) =>
-      (!type || record.resourceType === type) &&
-      (!search || `${record.displayName} ${record.resourceId}`.toLowerCase().includes(search)) &&
-      (!from || record.archivedAt >= from) && (!to || record.archivedAt <= `${to}T23:59:59.999Z`),
-    );
-    const totalRecords = records.length;
-    return res.json({ records: records.slice((page - 1) * limit, page * limit), page, limit, sort, totalRecords, totalPages: Math.max(1, Math.ceil(totalRecords / limit)) });
-  } catch (error) {
-    console.error("List archive failed:", error);
-    return res.status(500).json({ success: false, error: "Unable to load archived records." });
-  }
-});
-
-app.post("/api/archive/:resourceType/:id/restore", checkRBAC(["admin"]), async (req: any, res: any) => {
-  const resourceType = req.params.resourceType as ArchivableResource;
-  const resourceId = String(req.params.id || "").trim();
-  if (!(resourceType in archiveResourceTables) || !resourceId) return res.status(400).json({ success: false, error: "Unsupported archive resource." });
-  try {
-    await db.transaction(async (tx) => {
-      const archived = await tx.delete(archiveRecords).where(and(eq(archiveRecords.resourceType, resourceType), eq(archiveRecords.resourceId, resourceId))).returning();
-      if (!archived.length) throw Object.assign(new Error("Record is not archived."), { statusCode: 404 });
-      if (resourceType === "student") {
-        const archivedStatus = typeof (archived[0].snapshot as any)?.accountStatus === "string"
-          ? (archived[0].snapshot as any).accountStatus
-          : "Active";
-        await tx.update(students).set({ accountStatus: archivedStatus === "Archived" ? "Active" : archivedStatus }).where(eq(students.id, resourceId));
-      }
-      await tx.insert(archiveAuditLogs).values({ resourceType, resourceId, action: "RESTORED", performedBy: req.user?.userId || null });
-    });
-    const fullDb = await loadFullDatabaseState();
-    saveDatabase(fullDb);
-    return res.json({ success: true, message: "Record restored." });
-  } catch (error: any) {
-    return res.status(error?.statusCode || 500).json({ success: false, error: error?.message || "Unable to restore the record." });
-  }
-});
-
-app.delete("/api/archive/:resourceType/:id/permanent", checkRBAC(["admin"]), async (req: any, res: any) => {
-  const resourceType = req.params.resourceType as ArchivableResource;
-  const resourceId = String(req.params.id || "").trim();
-  if (!(resourceType in archiveResourceTables) || !resourceId) return res.status(400).json({ success: false, error: "Unsupported archive resource." });
-  try {
-    const archived = await db.select().from(archiveRecords).where(and(eq(archiveRecords.resourceType, resourceType), eq(archiveRecords.resourceId, resourceId))).limit(1);
-    if (!archived.length) return res.status(409).json({ success: false, error: "Only archived records may be permanently deleted." });
-    const dependencies = await dependencySummary(resourceType, resourceId);
-    if (dependencies.length) return res.status(409).json({ success: false, error: "Permanent deletion is blocked by active references.", dependencies });
-    await db.transaction(async (tx) => {
-      const table = archiveResourceTables[resourceType];
-      if (resourceType === "user") await tx.delete(users).where(eq(users.id, Number(resourceId)));
-      else await tx.delete(table).where(eq(table.id, resourceId));
-      await tx.delete(archiveRecords).where(and(eq(archiveRecords.resourceType, resourceType), eq(archiveRecords.resourceId, resourceId)));
-      await tx.insert(archiveAuditLogs).values({ resourceType, resourceId, action: "PERMANENTLY_DELETED", performedBy: req.user?.userId || null });
-    });
-    return res.json({ success: true, message: "Record permanently deleted." });
-  } catch (error) {
-    console.error("Permanent archive deletion failed:", error);
-    return res.status(500).json({ success: false, error: "Unable to permanently delete the record." });
-  }
-});
-
 // Admin Route: Hard Delete / Purge User Account and automatically purge all associated relational records
 app.delete(["/api/admin/users/:id", "/api/admin/users/[id]", "/api/students/:id"], checkRBAC(["admin"]), async (req: any, res: any) => {
-  return res.status(410).json({
-    success: false,
-    error: "Direct deletion has been retired. Archive the record first; permanent deletion is available only from the Archive module after dependency checks.",
-  });
-
-  /* Legacy purge implementation intentionally retained below for historical reference,
-     but unreachable so routine delete calls can never physically remove records. */
   try {
     const targetId = req.params.id;
     if (!targetId) {
@@ -4589,1436 +3188,64 @@ app.delete(["/api/admin/users/:id", "/api/admin/users/[id]", "/api/students/:id"
 });
 
 // Admin Route: Generate temporary activation credentials / password reset
-app.post("/api/students/:id/reset-password", checkRBAC(["admin"]), async (req: any, res: any) => {
-  const studentId = typeof req.params.id === 'string' ? req.params.id.trim() : '';
-  const requestId = crypto.randomUUID();
-
+app.post("/api/students/:id/reset-password", async (req, res) => {
   try {
+    const studentId = req.params.id;
     if (!studentId) {
-      return res.status(400).json({
-        success: false,
-        code: 'STUDENT_ID_REQUIRED',
-        error: 'Student ID is required.',
-      });
+      return res.status(400).json({ error: "Student ID required" });
     }
 
-    // The student identifier is deliberately supplied only in the route path.
-    // Reject payloads so a client cannot accidentally target a different account
-    // through a body field that the endpoint would otherwise ignore.
-    if (req.body && Object.keys(req.body).length > 0) {
-      return res.status(400).json({
-        success: false,
-        code: 'REQUEST_BODY_NOT_ALLOWED',
-        error: 'This endpoint does not accept a request body; provide the student ID in the URL.',
-      });
+    const dbVal = getDatabase();
+    const studentIdx = (dbVal.students || []).findIndex((s: any) => s.id === studentId);
+    if (studentIdx === -1) {
+      return res.status(404).json({ error: "Student not found" });
     }
 
-    const { temporaryPasscode } = await resetStudentPassword(studentId);
+    // Generate a temporary, single-use activation credential passcode
+    const temporaryPasscode = "ZENTI-" + Math.floor(100000 + Math.random() * 900000).toString();
 
-    return res.status(200).json({
+    // Update in memory cache and flag as pending setup
+    dbVal.students[studentIdx].passcode = temporaryPasscode;
+    dbVal.students[studentIdx].accountStatus = "Pending Setup";
+
+    // Save database (hashes passcode automatically and writes to PG / fallback)
+    saveDatabase(dbVal);
+
+    res.status(200).json({
       success: true,
       message: "Student passcode reset successfully.",
       temporaryPasscode
     });
   } catch (error: any) {
-    const isExpected = error instanceof PasswordResetError;
-    const databaseErrorCode = error?.code || error?.cause?.code;
-    const databaseErrorMessage = `${error?.message || ''} ${error?.cause?.message || ''}`.toLowerCase();
-    const databaseUnavailable =
-      ['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', '57P01', '57P02'].includes(databaseErrorCode) ||
-      databaseErrorMessage.includes('connection terminated') ||
-      databaseErrorMessage.includes('connection timeout') ||
-      databaseErrorMessage.includes('timeout expired');
-    const status = isExpected ? error.statusCode : databaseUnavailable ? 503 : 500;
-    const code = isExpected ? error.code : databaseUnavailable ? 'DATABASE_UNAVAILABLE' : 'PASSWORD_RESET_FAILED';
-    const message = isExpected
-      ? error.message
-      : databaseUnavailable
-        ? 'The database is temporarily unavailable. Please try again shortly.'
-        : 'Unable to reset the student password. Please contact an administrator.';
-
-    console.error('[password-reset] Request failed', {
-      requestId,
-      studentId: studentId || undefined,
-      administratorId: req.user?.userId,
-      code,
-      error: error?.message,
-      databaseCode: databaseErrorCode,
+    console.error("Password reset failed:", error);
+    res.status(500).json({
+      error: error.message,
     });
-    return res.status(status).json({ success: false, code, error: message });
   }
 });
 
-app.get("/api/student/dashboard-summary", checkRBAC(["student"]), async (req: any, res) => {
+app.get("/api/student/registered-units", async (req, res) => {
   try {
-    const requestedStudentId = (req.query.studentId as string) || (req.headers["x-student-id"] as string);
-    const studentId = req.user.userId as string;
-    if (requestedStudentId && requestedStudentId !== studentId) {
-      return res.status(403).json({ error: "Students can only view their own dashboard." });
-    }
+    let studentId = (req.query.studentId as string) || (req.headers["x-student-id"] as string);
 
-    const [studentRow] = await db
-      .select()
-      .from(students)
-      .where(and(eq(students.id, studentId), activeResourceCondition("student", students.id)))
-      .limit(1);
-
-    if (!studentRow) {
-      return res.status(404).json({ error: "Student profile not found" });
-    }
-
-    const enrollmentRows = await db
-      .select()
-      .from(studentEnrollments)
-      .where(eq(studentEnrollments.studentId, studentId));
-
-    const gradeRows = await db
-      .select()
-      .from(grades)
-      .where(eq(grades.studentId, studentId));
-
-    const attendanceRows = await db
-      .select()
-      .from(studentAttendance)
-      .where(eq(studentAttendance.studentId, studentId));
-
-    const invoiceRows = await db
-      .select()
-      .from(invoices)
-      .where(eq(invoices.studentId, studentId));
-
-    const [paymentRows, notificationRows, scheduleRows, courseRows, lecturerRows, lecturerSubjectRows] = await Promise.all([
-      db.select().from(payments).where(eq(payments.studentId, studentId)),
-      db
+    if (!studentId) {
+      const [cateStudent] = await db
         .select()
-        .from(notifications)
-        .where(or(eq(notifications.targetUserId, studentId), eq(notifications.targetUserRole, "student"), eq(notifications.targetUserRole, "all")))
-        .orderBy(desc(notifications.dateTime))
-        .limit(5),
-      db.select().from(lectureSchedules),
-      db.select().from(courses).where(activeResourceCondition("course", courses.id)),
-      db.select().from(lecturers).where(eq(lecturers.isActive, true)),
-      db.select().from(lecturerSubjects),
-    ]);
-    const activeCourseCount = courseRows.filter((c) => c.active !== false).length;
-
-    const markToGpa = (mark: number): number => {
-      if (mark >= 70) return 4.0;
-      if (mark >= 60) return 3.0;
-      if (mark >= 50) return 2.0;
-      if (mark >= 40) return 1.0;
-      return 0.0;
-    };
-
-    const gpaStanding = (gpa: number): string => {
-      if (gpa >= 3.7) return "Excellent";
-      if (gpa >= 3.0) return "Good";
-      if (gpa >= 2.0) return "Satisfactory";
-      if (gpa > 0) return "At Risk";
-      return "N/A";
-    };
-
-    // GPA from real grades only
-    let gpa: number | null = null;
-    let gpaLabel = "N/A";
-    if (gradeRows.length > 0) {
-      const total = gradeRows.reduce((sum, g) => {
-        const mark = Number(g.catScore || 0) + Number(g.examScore || 0);
-        return sum + markToGpa(mark);
-      }, 0);
-      gpa = Number((total / gradeRows.length).toFixed(2));
-      gpaLabel = gpaStanding(gpa);
-    }
-
-    // Cumulative GPA trend ordered by graded_at
-    const sortedGrades = [...gradeRows].sort((a, b) =>
-      String(a.gradedAt || "").localeCompare(String(b.gradedAt || ""))
-    );
-    let runningGpaSum = 0;
-    const gpaTrend = sortedGrades.map((g, index) => {
-      const mark = Number(g.catScore || 0) + Number(g.examScore || 0);
-      runningGpaSum += markToGpa(mark);
-      const pointGpa = Number((runningGpaSum / (index + 1)).toFixed(2));
-      const dateLabel = g.gradedAt
-        ? new Date(g.gradedAt).toLocaleDateString("en-GB", { month: "short", year: "2-digit" })
-        : g.subjectCode;
-      return {
-        label: dateLabel,
-        semester: dateLabel,
-        GPA: pointGpa,
-        subjectCode: g.subjectCode,
-        gradedAt: g.gradedAt || null,
-      };
-    });
-
-    // Attendance average only from enrolled units that have DB records
-    const enrolledCodes = enrollmentRows.map((e) => e.courseCode);
-    const attendanceByCode = new Map(
-      attendanceRows.map((a) => [a.subjectCode, Number(a.attendanceRate)])
-    );
-    const attendanceValues = enrolledCodes
-      .map((code) => attendanceByCode.get(code))
-      .filter((v): v is number => typeof v === "number" && !Number.isNaN(v));
-
-    const attendanceRate =
-      attendanceValues.length > 0
-        ? Number(
-            (
-              attendanceValues.reduce((s, v) => s + v, 0) / attendanceValues.length
-            ).toFixed(1)
-          )
-        : null;
-
-    const outstandingFees = invoiceRows
-      .filter((i) => i.status === "unpaid")
-      .reduce((sum, i) => sum + Number(i.amount || 0), 0);
-    const totalFees = invoiceRows.reduce((sum, i) => sum + Number(i.amount || 0), 0);
-    const paidFees = paymentRows.reduce((sum, p) => sum + Number(p.amount || 0), 0);
-
-    const courseByCode = new Map(courseRows.map((course) => [course.code, course]));
-    const lecturerById = new Map(lecturerRows.map((lecturer) => [lecturer.id, lecturer]));
-    const lecturerIdByCourse = new Map(lecturerSubjectRows.map((assignment) => [assignment.subjectCode, assignment.lecturerId]));
-    const today = new Date().toISOString().slice(0, 10);
-    const todaySchedule = scheduleRows
-      .filter((schedule) => enrolledCodes.includes(schedule.subjectCode) && schedule.sessionDate === today)
-      .sort((a, b) => a.startTime.localeCompare(b.startTime))
-      .map((schedule) => ({
-        id: schedule.id,
-        time: `${schedule.startTime}–${schedule.endTime}`,
-        courseCode: schedule.subjectCode,
-        unitName: courseByCode.get(schedule.subjectCode)?.title || schedule.subjectCode,
-        lecturer: lecturerById.get(schedule.lecturerId)?.name || null,
-        room: schedule.room || null,
-      }));
-    const registeredUnits = enrolledCodes.map((courseCode) => ({
-      courseCode,
-      unitName: courseByCode.get(courseCode)?.title || courseCode,
-      credits: null,
-      lecturer: lecturerById.get(lecturerIdByCourse.get(courseCode) || "")?.name || null,
-      status: "Active",
-    }));
-
-    const completedUnits = gradeRows.filter((g) => {
-      const mark = Number(g.catScore || 0) + Number(g.examScore || 0);
-      return mark >= 40 && enrolledCodes.includes(g.subjectCode);
-    }).length;
-
-    // Curriculum size from active courses until a degree_requirements table exists
-    const requiredUnits = Math.max(activeCourseCount, completedUnits, 1);
-    const degreePercent = Math.min(
-      100,
-      Math.round((completedUnits / requiredUnits) * 100)
-    );
-
-    const gradedCodes = new Set(gradeRows.map((g) => g.subjectCode));
-    const deliverables: Array<{
-      id: string;
-      title: string;
-      detail: string;
-      priority: "high" | "normal" | "done";
-      type: string;
-    }> = [];
-
-    if (outstandingFees > 0) {
-      deliverables.push({
-        id: "fees",
-        title: "Settle outstanding tuition fees",
-        detail: `KES ${outstandingFees.toLocaleString()} unpaid on your finance ledger.`,
-        priority: "high",
-        type: "finance",
-      });
-    }
-
-    const remainingToEnroll = Math.max(0, activeCourseCount - enrolledCodes.length);
-    if (remainingToEnroll > 0) {
-      deliverables.push({
-        id: "enroll",
-        title: "Complete unit registration",
-        detail: `${remainingToEnroll} curriculum unit${remainingToEnroll === 1 ? "" : "s"} still available to enroll.`,
-        priority: "normal",
-        type: "enrollment",
-      });
-    }
-
-    const awaitingGrades = enrolledCodes.filter((code) => !gradedCodes.has(code));
-    if (awaitingGrades.length > 0) {
-      deliverables.push({
-        id: "grades",
-        title: "Awaiting published grades",
-        detail: `${awaitingGrades.length} enrolled module${awaitingGrades.length === 1 ? "" : "s"} without CAT/exam marks yet.`,
-        priority: "normal",
-        type: "grades",
-      });
-    }
-
-    for (const code of enrolledCodes) {
-      const rate = attendanceByCode.get(code);
-      if (typeof rate === "number" && rate < 75) {
-        deliverables.push({
-          id: `att-${code}`,
-          title: `Attendance below threshold (${code})`,
-          detail: `Current rate ${rate}% — exam eligibility requires at least 75%.`,
-          priority: "high",
-          type: "attendance",
-        });
-      }
-    }
-
-    // Prefer a real semester label from exam papers for enrolled units when available.
-    const paperRows = await db
-      .select({ semester: examPapers.semester, year: examPapers.year, subjectCode: examPapers.subjectCode })
-      .from(examPapers)
-      .orderBy(desc(examPapers.year))
-      .limit(50);
-    const relevantPapers = paperRows.filter((paper) => enrolledCodes.includes(paper.subjectCode));
-    const latestPaper = (relevantPapers.length > 0 ? relevantPapers : paperRows)[0];
-    const academicYear = studentRow.cohort || null;
-
-    res.json({
-      studentId,
-      admissionNo: studentRow.admissionNo,
-      programme: studentRow.programme || studentRow.department || null,
-      semester: latestPaper?.semester || null,
-      academicYear,
-      gpa,
-      gpaLabel,
-      // Course credit hours are not stored in the current course/enrollment schema.
-      creditsEarned: null,
-      modulesPassed: completedUnits,
-      attendanceRate,
-      activeModules: enrolledCodes.length,
-      // Programme-specific unit requirements are not stored in the current schema.
-      // Do not present the global course catalogue as a student's required-unit total.
-      requiredUnits: null,
-      outstandingFees,
-      feeSummary: {
-        total: totalFees,
-        paid: paidFees,
-        balance: Math.max(0, totalFees - paidFees),
-        status: outstandingFees > 0 ? "Outstanding" : totalFees > 0 ? "Paid" : "No fees posted",
-      },
-      gpaTrend,
-      todaySchedule,
-      registeredUnits,
-      notifications: notificationRows.map((notification) => ({
-        id: notification.id,
-        title: notification.title,
-        message: notification.message,
-        type: notification.type,
-        dateTime: notification.dateTime,
-      })),
-      degreeProgress: {
-        completed: completedUnits,
-        required: requiredUnits,
-        percent: degreePercent,
-        note:
-          "Required units currently equal active courses in the catalogue until a degree_requirements table is added.",
-      },
-      deliverables,
-      nextLecture: todaySchedule[0] || null,
-      scheduleAvailable: todaySchedule.length > 0,
-    });
-  } catch (error: any) {
-    console.error("Failed to build student dashboard summary:", error);
-    res.status(500).json({ error: error.message || "Failed to load dashboard summary" });
-  }
-});
-
-/** Resolve hourly rate: lecturer record first, else academic_ranks default when available. */
-async function resolveLecturerHourlyRate(lecturerRow: {
-  hourlyRate: string | number | null;
-}): Promise<{ hourlyRate: number; rateSource: "lecturer" | "academic_rank" | "default" }> {
-  const stored = Number(lecturerRow.hourlyRate);
-  if (!Number.isNaN(stored) && stored > 0) {
-    return { hourlyRate: stored, rateSource: "lecturer" };
-  }
-
-  try {
-    const ranks = await db.select().from(academicRanks).limit(20);
-    if (ranks.length > 0) {
-      const fallback = Number(ranks[0].defaultHourlyRate);
-      if (!Number.isNaN(fallback) && fallback > 0) {
-        return { hourlyRate: fallback, rateSource: "academic_rank" };
-      }
-    }
-  } catch {
-    // academic_ranks may not be migrated yet
-  }
-
-  return { hourlyRate: 0, rateSource: "default" };
-}
-
-function startOfIsoWeek(d: Date): Date {
-  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  const day = date.getUTCDay() || 7;
-  if (day !== 1) date.setUTCDate(date.getUTCDate() - (day - 1));
-  return date;
-}
-
-function formatIsoDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
-app.get("/api/lecturer/dashboard-summary", async (req, res) => {
-  try {
-    const lecturerId =
-      (req.query.lecturerId as string) || (req.headers["x-lecturer-id"] as string);
-    if (!lecturerId) {
-      return res.status(400).json({ error: "lecturerId is required" });
-    }
-
-    const [lecturerRow] = await db
-      .select()
-      .from(lecturers)
-      .where(and(eq(lecturers.id, lecturerId), activeResourceCondition("lecturer", lecturers.id)))
-      .limit(1);
-
-    if (!lecturerRow) {
-      return res.status(404).json({ error: "Lecturer profile not found" });
-    }
-
-    const assignedSubjectRows = await db
-      .select()
-      .from(lecturerSubjects)
-      .where(eq(lecturerSubjects.lecturerId, lecturerId));
-
-    const assignedCodes = assignedSubjectRows.map((s) => s.subjectCode);
-    const courseRows = await db.select().from(courses).where(activeResourceCondition("course", courses.id));
-    const courseByCode = new Map(courseRows.map((c) => [c.code, c]));
-
-    const assignedSubjects = assignedCodes.map((code) => ({
-      code,
-      title: courseByCode.get(code)?.title || code,
-      label: `${code} – ${courseByCode.get(code)?.title || code}`,
-      semester: null as string | null,
-      academicYear: null as string | null,
-    }));
-
-    // Enrich modules with semester / academic year from exam papers when available.
-    if (assignedCodes.length > 0) {
-      const paperRows = await db
-        .select({
-          subjectCode: examPapers.subjectCode,
-          semester: examPapers.semester,
-          year: examPapers.year,
-        })
-        .from(examPapers)
-        .where(inArray(examPapers.subjectCode, assignedCodes))
-        .orderBy(desc(examPapers.year))
-        .limit(80);
-      const paperByCode = new Map<string, { semester: string; year: number }>();
-      for (const paper of paperRows) {
-        if (!paperByCode.has(paper.subjectCode)) {
-          paperByCode.set(paper.subjectCode, { semester: paper.semester, year: paper.year });
-        }
-      }
-      const [globalPaper] = await db
-        .select({ semester: examPapers.semester, year: examPapers.year })
-        .from(examPapers)
-        .orderBy(desc(examPapers.year))
-        .limit(1);
-      for (const subject of assignedSubjects) {
-        const match = paperByCode.get(subject.code);
-        subject.semester = match?.semester || globalPaper?.semester || null;
-        subject.academicYear = match
-          ? String(match.year)
-          : globalPaper
-            ? String(globalPaper.year)
-            : null;
-      }
-    }
-
-    const sessionRows = await db
-      .select()
-      .from(teachingSessions)
-      .where(eq(teachingSessions.lecturerId, lecturerId))
-      .orderBy(desc(teachingSessions.sessionDate), desc(teachingSessions.createdAt));
-
-    const loggedHours = Number(
-      sessionRows
-        .reduce((sum, s) => sum + Number(s.durationHours || 0), 0)
-        .toFixed(2)
-    );
-
-    // Keep lecturers.logged_hours aligned with session totals (source of truth = sessions)
-    const storedHours = Number(lecturerRow.loggedHours || 0);
-    if (Math.abs(storedHours - loggedHours) > 0.001) {
-      await db
-        .update(lecturers)
-        .set({ loggedHours: String(loggedHours) })
-        .where(eq(lecturers.id, lecturerId));
-    }
-
-    const { hourlyRate, rateSource } = await resolveLecturerHourlyRate(lecturerRow);
-    const estimatedPayout = Number((loggedHours * hourlyRate).toFixed(2));
-
-    // Next scheduled class for an assigned subject only
-    let nextClass: {
-      subjectCode: string;
-      subjectTitle: string;
-      room: string;
-      date: string;
-      startTime: string;
-      endTime: string;
-    } | null = null;
-
-    if (assignedCodes.length > 0) {
-      const today = formatIsoDate(new Date());
-      const scheduleRows = await db
-        .select()
-        .from(lectureSchedules)
-        .where(
-          and(
-            eq(lectureSchedules.lecturerId, lecturerId),
-            gte(lectureSchedules.sessionDate, today),
-            inArray(lectureSchedules.subjectCode, assignedCodes)
-          )
-        )
-        .orderBy(asc(lectureSchedules.sessionDate), asc(lectureSchedules.startTime));
-
-      const nowMinutes = (() => {
-        const n = new Date();
-        return n.getHours() * 60 + n.getMinutes();
-      })();
-
-      const parseTimeToMinutes = (t: string): number => {
-        const cleaned = t.trim().toUpperCase();
-        const ampm = cleaned.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/);
-        if (ampm) {
-          let h = parseInt(ampm[1], 10);
-          const m = parseInt(ampm[2], 10);
-          if (ampm[3] === "PM" && h < 12) h += 12;
-          if (ampm[3] === "AM" && h === 12) h = 0;
-          return h * 60 + m;
-        }
-        const parts = cleaned.split(":");
-        return parseInt(parts[0] || "0", 10) * 60 + parseInt(parts[1] || "0", 10);
-      };
-
-      const upcoming = scheduleRows.find((row) => {
-        if (row.sessionDate > today) return true;
-        return parseTimeToMinutes(row.startTime) > nowMinutes;
-      });
-
-      if (upcoming) {
-        nextClass = {
-          subjectCode: upcoming.subjectCode,
-          subjectTitle: courseByCode.get(upcoming.subjectCode)?.title || upcoming.subjectCode,
-          room: upcoming.room,
-          date: upcoming.sessionDate,
-          startTime: upcoming.startTime,
-          endTime: upcoming.endTime,
-        };
-      }
-    }
-
-    // Weekly teaching hours (last 4 calendar weeks including current)
-    const weeklyHours: Array<{ name: string; hours: number; weekStart: string }> = [];
-    const thisWeekStart = startOfIsoWeek(new Date());
-    for (let i = 3; i >= 0; i--) {
-      const weekStart = new Date(thisWeekStart);
-      weekStart.setUTCDate(weekStart.getUTCDate() - i * 7);
-      const weekEnd = new Date(weekStart);
-      weekEnd.setUTCDate(weekEnd.getUTCDate() + 6);
-      const startStr = formatIsoDate(weekStart);
-      const endStr = formatIsoDate(weekEnd);
-      const hours = Number(
-        sessionRows
-          .filter((s) => s.sessionDate >= startStr && s.sessionDate <= endStr)
-          .reduce((sum, s) => sum + Number(s.durationHours || 0), 0)
-          .toFixed(2)
-      );
-      weeklyHours.push({
-        name: `Week ${4 - i}`,
-        hours,
-        weekStart: startStr,
-      });
-    }
-
-    // Syllabus coverage: completed sessions vs planned topics for assigned subjects
-    let plannedTopics = 0;
-    let completedSessions = 0;
-    let syllabusCoveragePercent: number | null = null;
-    let syllabusNote =
-      "No planned syllabus topics found for assigned subjects.";
-
-    if (assignedCodes.length > 0) {
-      const topicRows = await db
-        .select()
-        .from(syllabusTopics)
-        .where(inArray(syllabusTopics.subjectCode, assignedCodes));
-      plannedTopics = topicRows.length;
-      completedSessions = sessionRows.filter((s) =>
-        assignedCodes.includes(s.subjectCode)
-      ).length;
-
-      if (plannedTopics > 0) {
-        syllabusCoveragePercent = Math.min(
-          100,
-          Math.round((completedSessions / plannedTopics) * 100)
-        );
-        syllabusNote =
-          syllabusCoveragePercent >= 50
-            ? "Module syllabus coverage is currently meeting standard milestone pacing."
-            : "Syllabus coverage is below midpoint — log remaining planned topics.";
-      } else {
-        syllabusCoveragePercent = null;
-        syllabusNote =
-          "Add syllabus topics for assigned subjects to track curriculum coverage.";
-      }
-    } else {
-      syllabusNote = "Assign subjects to this lecturer to track syllabus coverage.";
-    }
-
-    // Faculty tasks from live data
-    const tasks: Array<{
-      id: string;
-      title: string;
-      detail: string;
-      priority: "high" | "normal" | "done";
-      type: string;
-      completed?: boolean;
-    }> = [];
-
-    if (assignedCodes.length > 0) {
-      const enrollmentRows = await db
-        .select()
-        .from(studentEnrollments)
-        .where(inArray(studentEnrollments.courseCode, assignedCodes));
-
-      const enrolledStudentIds = [...new Set(enrollmentRows.map((e) => e.studentId))];
-      const gradeRows =
-        enrolledStudentIds.length > 0
-          ? await db
-              .select()
-              .from(grades)
-              .where(
-                and(
-                  inArray(grades.studentId, enrolledStudentIds),
-                  inArray(grades.subjectCode, assignedCodes)
-                )
-              )
-          : [];
-
-      const gradeKey = (studentId: string, code: string) => `${studentId}::${code}`;
-      const gradeMap = new Map(
-        gradeRows.map((g) => [gradeKey(g.studentId, g.subjectCode), g])
-      );
-
-      let pendingCat = 0;
-      let pendingExam = 0;
-      for (const enr of enrollmentRows) {
-        const g = gradeMap.get(gradeKey(enr.studentId, enr.courseCode));
-        if (!g || Number(g.catScore) <= 0) pendingCat++;
-        if (!g || Number(g.examScore) <= 0) pendingExam++;
-      }
-
-      if (pendingCat > 0) {
-        tasks.push({
-          id: "pending-cat",
-          title: "Upload CAT Marks",
-          detail: `${pendingCat} enrolled student-subject pair${pendingCat === 1 ? "" : "s"} missing CAT scores.`,
-          priority: "high",
-          type: "grading",
-        });
-      }
-
-      if (pendingExam > 0) {
-        tasks.push({
-          id: "pending-exam",
-          title: "Pending Exam Grading",
-          detail: `${pendingExam} enrolled student-subject pair${pendingExam === 1 ? "" : "s"} without final exam marks.`,
-          priority: "high",
-          type: "grading",
-        });
-      }
-
-      const attendanceRows =
-        enrolledStudentIds.length > 0
-          ? await db
-              .select()
-              .from(studentAttendance)
-              .where(
-                and(
-                  inArray(studentAttendance.studentId, enrolledStudentIds),
-                  inArray(studentAttendance.subjectCode, assignedCodes)
-                )
-              )
-          : [];
-
-      const attKey = (studentId: string, code: string) => `${studentId}::${code}`;
-      const attSet = new Set(attendanceRows.map((a) => attKey(a.studentId, a.subjectCode)));
-      let missingAttendance = 0;
-      for (const enr of enrollmentRows) {
-        if (!attSet.has(attKey(enr.studentId, enr.courseCode))) missingAttendance++;
-      }
-
-      if (missingAttendance > 0) {
-        tasks.push({
-          id: "missing-attendance",
-          title: "Missing Attendance Submissions",
-          detail: `${missingAttendance} enrollment${missingAttendance === 1 ? "" : "s"} have no attendance record yet.`,
-          priority: "normal",
-          type: "attendance",
-        });
-      }
-    }
-
-    if (nextClass) {
-      tasks.push({
-        id: "upcoming-class",
-        title: `Upcoming Class: ${nextClass.subjectCode}`,
-        detail: `${nextClass.subjectTitle} · ${nextClass.date} ${nextClass.startTime}–${nextClass.endTime} · ${nextClass.room}`,
-        priority: "normal",
-        type: "schedule",
-      });
-    } else if (assignedCodes.length > 0) {
-      tasks.push({
-        id: "no-upcoming",
-        title: "No upcoming scheduled classes",
-        detail: "No future timetable entries for your assigned subjects.",
-        priority: "done",
-        type: "schedule",
-        completed: true,
-      });
-    }
-
-    if (assignedCodes.length === 0) {
-      tasks.push({
-        id: "no-subjects",
-        title: "No subjects assigned",
-        detail: "Ask an administrator to allocate modules under lecturer_subjects.",
-        priority: "high",
-        type: "assignment",
-      });
-    }
-
-    const recentSessions = sessionRows.slice(0, 50).map((s) => ({
-      id: s.id,
-      date: s.sessionDate,
-      courseCode: s.subjectCode,
-      topic: s.topic,
-      hours: Number(s.durationHours),
-      time: s.sessionTime,
-      status: s.status as "Pending" | "Approved",
-    }));
-
-    const todayStr = formatIsoDate(new Date());
-    const todayHours = Number(
-      sessionRows
-        .filter((s) => s.sessionDate === todayStr)
-        .reduce((sum, s) => sum + Number(s.durationHours || 0), 0)
-        .toFixed(2)
-    );
-    const currentWeekHours = weeklyHours.length > 0 ? weeklyHours[weeklyHours.length - 1].hours : 0;
-    const monthStart = new Date();
-    monthStart.setUTCDate(1);
-    const monthStartStr = formatIsoDate(monthStart);
-    const monthHours = Number(
-      sessionRows
-        .filter((s) => s.sessionDate >= monthStartStr && s.sessionDate <= todayStr)
-        .reduce((sum, s) => sum + Number(s.durationHours || 0), 0)
-        .toFixed(2)
-    );
-
-    let studentsTaught = 0;
-    if (assignedCodes.length > 0) {
-      const taughtEnrollmentRows = await db
-        .select({ studentId: studentEnrollments.studentId })
-        .from(studentEnrollments)
-        .where(inArray(studentEnrollments.courseCode, assignedCodes));
-      studentsTaught = new Set(taughtEnrollmentRows.map((row) => row.studentId)).size;
-    }
-
-    res.json({
-      lecturerId,
-      name: lecturerRow.name,
-      email: lecturerRow.email,
-      designatorCode: lecturerRow.designatorCode,
-      assignedSubjectsCount: assignedCodes.length,
-      assignedSubjects,
-      loggedHours,
-      hourlyRate,
-      rateSource,
-      estimatedPayout,
-      nextClass,
-      weeklyHours,
-      workload: {
-        todayHours,
-        weekHours: currentWeekHours,
-        monthHours,
-        assignedModules: assignedCodes.length,
-        studentsTaught,
-        estimatedPayroll: estimatedPayout,
-      },
-      syllabusCoverage: {
-        percent: syllabusCoveragePercent,
-        completedSessions,
-        plannedTopics,
-        note: syllabusNote,
-      },
-      tasks,
-      recentSessions,
-    });
-  } catch (error: any) {
-    console.error("Failed to build lecturer dashboard summary:", error);
-    res.status(500).json({ error: error.message || "Failed to load lecturer dashboard" });
-  }
-});
-
-/** Database-backed assessment metrics for one of the lecturer's assigned modules. */
-app.get("/api/lecturer/assessment-analytics", async (req, res) => {
-  try {
-    const lecturerId = req.query.lecturerId as string;
-    const subjectCode = req.query.subjectCode as string;
-    if (!lecturerId || !subjectCode) {
-      return res.status(400).json({ error: "lecturerId and subjectCode are required" });
-    }
-
-    const [assignment] = await db
-      .select({ subjectCode: lecturerSubjects.subjectCode })
-      .from(lecturerSubjects)
-      .where(and(eq(lecturerSubjects.lecturerId, lecturerId), eq(lecturerSubjects.subjectCode, subjectCode)))
-      .limit(1);
-    if (!assignment) {
-      return res.status(403).json({ error: "Module is not assigned to this lecturer" });
-    }
-
-    const enrollmentRows = await db
-      .select({ studentId: studentEnrollments.studentId })
-      .from(studentEnrollments)
-      .where(eq(studentEnrollments.courseCode, subjectCode));
-    const studentIds = enrollmentRows.map((row) => row.studentId);
-    const gradeRows = studentIds.length === 0
-      ? []
-      : await db
-          .select({ studentId: grades.studentId, catScore: grades.catScore, examScore: grades.examScore })
-          .from(grades)
-          .where(and(inArray(grades.studentId, studentIds), eq(grades.subjectCode, subjectCode)));
-
-    const totals = gradeRows.map((grade) => Number(grade.catScore || 0) + Number(grade.examScore || 0));
-    const graded = totals.length;
-    const pending = Math.max(0, studentIds.length - graded);
-    const passCount = totals.filter((total) => total >= 40).length;
-    const distribution = [
-      { name: "A", count: totals.filter((total) => total >= 70).length, color: "#10b981" },
-      { name: "B", count: totals.filter((total) => total >= 60 && total < 70).length, color: "#3b82f6" },
-      { name: "C", count: totals.filter((total) => total >= 50 && total < 60).length, color: "#f59e0b" },
-      { name: "D", count: totals.filter((total) => total >= 40 && total < 50).length, color: "#64748b" },
-      { name: "E/F", count: totals.filter((total) => total < 40).length, color: "#ef4444" },
-    ].map((bucket) => ({
-      ...bucket,
-      percent: graded === 0 ? 0 : Number(((bucket.count / graded) * 100).toFixed(1)),
-    }));
-
-    res.json({
-      average: graded === 0 ? null : Number((totals.reduce((sum, total) => sum + total, 0) / graded).toFixed(1)),
-      highest: graded === 0 ? null : Math.max(...totals),
-      lowest: graded === 0 ? null : Math.min(...totals),
-      passRate: graded === 0 ? null : Number(((passCount / graded) * 100).toFixed(1)),
-      failRate: graded === 0 ? null : Number((((graded - passCount) / graded) * 100).toFixed(1)),
-      graded,
-      pending,
-      distribution,
-    });
-  } catch (error: any) {
-    console.error("Failed to load lecturer assessment analytics:", error);
-    res.status(500).json({ error: error.message || "Failed to load assessment analytics" });
-  }
-});
-
-/** Lightweight student directory for lecturer autocomplete — identity fields only. */
-app.get(
-  "/api/lecturer/students",
-  checkRBAC(["lecturer"]),
-  async (req: any, res: any) => {
-    try {
-      const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
-      const lecturerId =
-        (req.query.lecturerId as string) ||
-        (req.headers["x-user-id"] as string) ||
-        req.user?.userId;
-
-      if (!lecturerId) {
-        return res.status(400).json({ error: "lecturerId is required" });
-      }
-
-      const [lecturerRow] = await db
-        .select({ id: lecturers.id })
-        .from(lecturers)
-        .where(and(eq(lecturers.id, lecturerId), activeResourceCondition("lecturer", lecturers.id)))
-        .limit(1);
-
-      if (!lecturerRow) {
-        return res.status(404).json({ error: "Lecturer profile not found" });
-      }
-
-      // Prefer students enrolled in this lecturer's subjects; fall back to all for advisor lookup
-      const assigned = await db
-        .select({ subjectCode: lecturerSubjects.subjectCode })
-        .from(lecturerSubjects)
-        .where(eq(lecturerSubjects.lecturerId, lecturerId));
-      const taughtCodes = assigned.map((a) => a.subjectCode);
-
-      let studentRows;
-      if (taughtCodes.length === 0) {
-        return res.json([]);
-      }
-
-      const enrolledIds = await db
-        .selectDistinct({ studentId: studentEnrollments.studentId })
-        .from(studentEnrollments)
-        .where(inArray(studentEnrollments.courseCode, taughtCodes));
-      const ids = enrolledIds.map((e) => e.studentId);
-      if (ids.length === 0) {
-        return res.json([]);
-      }
-      studentRows = await db
-        .select({
-          id: students.id,
-          name: students.name,
-          admissionNo: students.admissionNo,
-          cohort: students.cohort,
-          avatar: students.avatar,
-        })
         .from(students)
-        .where(and(inArray(students.id, ids), activeResourceCondition("student", students.id)));
-
-      const filtered = q
-        ? studentRows.filter(
-            (s) =>
-              s.admissionNo.toLowerCase().includes(q.toLowerCase()) ||
-              s.name.toLowerCase().includes(q.toLowerCase())
-          )
-        : studentRows;
-
-      res.json(
-        filtered.slice(0, 50).map((s) => ({
-          id: s.id,
-          name: s.name,
-          admissionNo: s.admissionNo,
-          cohort: s.cohort,
-          avatar: s.avatar || null,
-        }))
-      );
-    } catch (error: any) {
-      console.error("Failed to list lecturer students:", error);
-      res.status(500).json({ error: error.message || "Failed to list students" });
-    }
-  }
-);
-
-/** Full teaching-safe student profile for lecturer Student Lookup. */
-app.get(
-  "/api/lecturer/student-lookup",
-  checkRBAC(["lecturer"]),
-  async (req: any, res: any) => {
-    try {
-      const admissionNoQuery = req.query.admission_no || req.query.admissionNo;
-      const studentIdQuery = req.query.studentId || req.query.student_id;
-      const lecturerId =
-        (req.query.lecturerId as string) ||
-        (req.headers["x-user-id"] as string) ||
-        req.user?.userId;
-
-      if (!lecturerId) {
-        return res.status(400).json({ error: "lecturerId is required" });
-      }
-      if (
-        (!admissionNoQuery || typeof admissionNoQuery !== "string") &&
-        (!studentIdQuery || typeof studentIdQuery !== "string")
-      ) {
-        return res.status(400).json({
-          error: "admission_no or studentId query parameter is required",
-        });
-      }
-
-      const [lecturerRow] = await db
-        .select()
-        .from(lecturers)
-        .where(and(eq(lecturers.id, lecturerId), activeResourceCondition("lecturer", lecturers.id)))
+        .where(eq(students.name, "Cate Wanjiru"))
         .limit(1);
 
-      if (!lecturerRow) {
-        return res.status(404).json({ error: "Lecturer profile not found" });
-      }
-
-      let studentRow;
-      if (typeof studentIdQuery === "string" && studentIdQuery.trim()) {
-        [studentRow] = await db
-          .select()
-          .from(students)
-          .where(and(eq(students.id, studentIdQuery.trim()), activeResourceCondition("student", students.id)))
-          .limit(1);
+      if (cateStudent) {
+        studentId = cateStudent.id;
       } else {
-        const admissionNo = String(admissionNoQuery).trim();
-        [studentRow] = await db
-          .select()
-          .from(students)
-          .where(and(ilike(students.admissionNo, admissionNo), activeResourceCondition("student", students.id)))
-          .limit(1);
+        const [firstStudent] = await db.select().from(students).limit(1);
+        if (firstStudent) {
+          studentId = firstStudent.id;
+        }
       }
-
-      if (!studentRow) {
-        return res.status(404).json({ error: "Student not found" });
-      }
-
-      const [
-        enrollmentRows,
-        gradeRows,
-        attendanceRows,
-        courseRows,
-        invoiceRows,
-        assignedSubjects,
-        officeNotes,
-      ] = await Promise.all([
-        db
-          .select()
-          .from(studentEnrollments)
-          .where(eq(studentEnrollments.studentId, studentRow.id)),
-        db.select().from(grades).where(eq(grades.studentId, studentRow.id)),
-        db
-          .select()
-          .from(studentAttendance)
-          .where(eq(studentAttendance.studentId, studentRow.id)),
-        db.select().from(courses).where(activeResourceCondition("course", courses.id)),
-        db.select().from(invoices).where(eq(invoices.studentId, studentRow.id)),
-        db
-          .select({ subjectCode: lecturerSubjects.subjectCode })
-          .from(lecturerSubjects)
-          .where(eq(lecturerSubjects.lecturerId, lecturerId)),
-        db
-          .select()
-          .from(officeHourSlots)
-          .where(
-            and(
-              eq(officeHourSlots.studentId, studentRow.id),
-              eq(officeHourSlots.lecturerId, lecturerId)
-            )
-          ),
-      ]);
-
-      const advisorNotes = officeNotes
-        .filter((n) => n.studentNotes && n.studentNotes.trim())
-        .map((n) => ({
-          id: n.id,
-          day: n.day,
-          timeSlot: n.timeSlot,
-          notes: n.studentNotes as string,
-          lecturerName: lecturerRow.name,
-        }));
-
-      // Prefer a real semester label from exam_papers when available
-      const [latestPaper] = await db
-        .select({ semester: examPapers.semester })
-        .from(examPapers)
-        .orderBy(desc(examPapers.id))
-        .limit(1);
-
-      const view = buildLecturerStudentLookupView({
-        student: studentRow,
-        enrollments: enrollmentRows,
-        gradeRows,
-        attendanceRows,
-        courseRows,
-        invoiceRows,
-        advisorNotes,
-        taughtSubjectCodes: assignedSubjects.map((s) => s.subjectCode),
-        semesterFromDb: latestPaper?.semester || null,
-      });
-
-      res.json(view);
-    } catch (error: any) {
-      console.error("Failed lecturer student lookup:", error);
-      res.status(500).json({ error: error.message || "Failed to look up student" });
-    }
-  }
-);
-
-app.get("/api/lecturer/teaching-sessions", async (req, res) => {
-  try {
-    const lecturerId =
-      (req.query.lecturerId as string) || (req.headers["x-lecturer-id"] as string);
-    if (!lecturerId) {
-      return res.status(400).json({ error: "lecturerId is required" });
-    }
-
-    const rows = await db
-      .select()
-      .from(teachingSessions)
-      .where(eq(teachingSessions.lecturerId, lecturerId))
-      .orderBy(desc(teachingSessions.sessionDate), desc(teachingSessions.createdAt));
-
-    res.json(
-      rows.map((s) => ({
-        id: s.id,
-        date: s.sessionDate,
-        courseCode: s.subjectCode,
-        topic: s.topic,
-        hours: Number(s.durationHours),
-        time: s.sessionTime,
-        status: s.status,
-      }))
-    );
-  } catch (error: any) {
-    console.error("Failed to fetch teaching sessions:", error);
-    res.status(500).json({ error: error.message || "Failed to fetch teaching sessions" });
-  }
-});
-
-app.post("/api/lecturer/teaching-sessions", async (req, res) => {
-  try {
-    const {
-      lecturerId,
-      subjectCode,
-      topic,
-      durationHours,
-      sessionDate,
-      sessionTime,
-    } = req.body || {};
-
-    if (!lecturerId || !subjectCode || !topic || durationHours == null) {
-      return res.status(400).json({
-        error: "lecturerId, subjectCode, topic, and durationHours are required",
-      });
-    }
-
-    const hrs = Number(durationHours);
-    if (Number.isNaN(hrs) || hrs <= 0 || hrs > 12) {
-      return res.status(400).json({
-        error: "durationHours must be a number between 0.5 and 12",
-      });
-    }
-
-    const [lecturerRow] = await db
-      .select()
-      .from(lecturers)
-      .where(and(eq(lecturers.id, lecturerId), activeResourceCondition("lecturer", lecturers.id)))
-      .limit(1);
-
-    if (!lecturerRow) {
-      return res.status(404).json({ error: "Lecturer profile not found" });
-    }
-
-    const assignment = await db
-      .select()
-      .from(lecturerSubjects)
-      .where(
-        and(
-          eq(lecturerSubjects.lecturerId, lecturerId),
-          eq(lecturerSubjects.subjectCode, subjectCode)
-        )
-      )
-      .limit(1);
-
-    if (assignment.length === 0) {
-      return res.status(400).json({
-        error: "Selected subject is not assigned to this lecturer",
-      });
-    }
-
-    const dateStr =
-      typeof sessionDate === "string" && sessionDate
-        ? sessionDate
-        : formatIsoDate(new Date());
-    const timeStr =
-      typeof sessionTime === "string" && sessionTime
-        ? sessionTime
-        : new Date().toTimeString().slice(0, 5);
-
-    const [inserted] = await db
-      .insert(teachingSessions)
-      .values({
-        lecturerId,
-        subjectCode,
-        topic: String(topic).trim(),
-        durationHours: String(hrs),
-        sessionDate: dateStr,
-        sessionTime: timeStr,
-        status: "Pending",
-      })
-      .returning();
-
-    const allSessions = await db
-      .select()
-      .from(teachingSessions)
-      .where(eq(teachingSessions.lecturerId, lecturerId));
-
-    const totalLoggedHours = Number(
-      allSessions
-        .reduce((sum, s) => sum + Number(s.durationHours || 0), 0)
-        .toFixed(2)
-    );
-
-    await db
-      .update(lecturers)
-      .set({ loggedHours: String(totalLoggedHours) })
-      .where(eq(lecturers.id, lecturerId));
-
-    const { hourlyRate } = await resolveLecturerHourlyRate(lecturerRow);
-    const estimatedPayout = Number((totalLoggedHours * hourlyRate).toFixed(2));
-
-    // Refresh in-memory / json cache when available
-    try {
-      const fullDb = await loadFullDatabaseState();
-      saveDatabase(fullDb);
-    } catch (e) {
-      console.warn("Cache refresh after teaching session log failed:", e);
-    }
-
-    res.status(201).json({
-      session: {
-        id: inserted.id,
-        date: inserted.sessionDate,
-        courseCode: inserted.subjectCode,
-        topic: inserted.topic,
-        hours: Number(inserted.durationHours),
-        time: inserted.sessionTime,
-        status: inserted.status,
-      },
-      loggedHours: totalLoggedHours,
-      hourlyRate,
-      estimatedPayout,
-    });
-  } catch (error: any) {
-    console.error("Failed to log teaching session:", error);
-    res.status(500).json({ error: error.message || "Failed to log teaching session" });
-  }
-});
-
-function mapAttendanceSessionRow(s: {
-  id: string;
-  lecturerId: string;
-  subjectCode: string;
-  sessionDate: string;
-  presentStudentIds: string[] | null;
-  lateStudentIds: string[] | null;
-  absentStudentIds: string[] | null;
-}) {
-  return {
-    id: s.id,
-    lecturerId: s.lecturerId,
-    date: s.sessionDate,
-    subjectCode: s.subjectCode,
-    presentStudents: Array.isArray(s.presentStudentIds) ? s.presentStudentIds : [],
-    lateStudents: Array.isArray(s.lateStudentIds) ? s.lateStudentIds : [],
-    absentStudents: Array.isArray(s.absentStudentIds) ? s.absentStudentIds : [],
-  };
-}
-
-async function recomputeSubjectAttendanceRates(
-  subjectCode: string,
-  studentIds: string[]
-): Promise<Array<{ studentId: string; subjectCode: string; attendanceRate: number }>> {
-  if (studentIds.length === 0) return [];
-
-  const sessions = await db
-    .select()
-    .from(classAttendanceSessions)
-    .where(eq(classAttendanceSessions.subjectCode, subjectCode));
-
-  const rates: Array<{ studentId: string; subjectCode: string; attendanceRate: number }> = [];
-
-  for (const studentId of studentIds) {
-    const relevant = sessions.filter((s) => {
-      const present = Array.isArray(s.presentStudentIds) ? s.presentStudentIds : [];
-      const late = Array.isArray(s.lateStudentIds) ? s.lateStudentIds : [];
-      const absent = Array.isArray(s.absentStudentIds) ? s.absentStudentIds : [];
-      return present.includes(studentId) || late.includes(studentId) || absent.includes(studentId);
-    });
-
-    if (relevant.length === 0) continue;
-
-    const presentCount = relevant.filter((s) => {
-      const present = Array.isArray(s.presentStudentIds) ? s.presentStudentIds : [];
-      const late = Array.isArray(s.lateStudentIds) ? s.lateStudentIds : [];
-      return present.includes(studentId) || late.includes(studentId);
-    }).length;
-    const attendanceRate = Math.round((presentCount / relevant.length) * 100);
-
-    await db
-      .insert(studentAttendance)
-      .values({
-        studentId,
-        subjectCode,
-        attendanceRate,
-      })
-      .onConflictDoUpdate({
-        target: [studentAttendance.studentId, studentAttendance.subjectCode],
-        set: { attendanceRate },
-      });
-
-    rates.push({ studentId, subjectCode, attendanceRate });
-  }
-
-  return rates;
-}
-
-app.get("/api/lecturer/attendance-sessions", async (req, res) => {
-  try {
-    const lecturerId =
-      (req.query.lecturerId as string) || (req.headers["x-lecturer-id"] as string);
-    const subjectCode = req.query.subjectCode as string | undefined;
-
-    if (!lecturerId) {
-      return res.status(400).json({ error: "lecturerId is required" });
-    }
-
-    const rows = subjectCode
-      ? await db
-          .select()
-          .from(classAttendanceSessions)
-          .where(
-            and(
-              eq(classAttendanceSessions.lecturerId, lecturerId),
-              eq(classAttendanceSessions.subjectCode, subjectCode)
-            )
-          )
-          .orderBy(desc(classAttendanceSessions.sessionDate))
-      : await db
-          .select()
-          .from(classAttendanceSessions)
-          .where(eq(classAttendanceSessions.lecturerId, lecturerId))
-          .orderBy(desc(classAttendanceSessions.sessionDate));
-
-    res.json(rows.map(mapAttendanceSessionRow));
-  } catch (error: any) {
-    console.error("Failed to fetch attendance sessions:", error);
-    res.status(500).json({
-      error: error.message || "Failed to fetch attendance sessions",
-    });
-  }
-});
-
-app.post("/api/lecturer/attendance-sessions", async (req, res) => {
-  try {
-    const {
-      lecturerId,
-      subjectCode,
-      sessionDate,
-      presentStudentIds,
-      lateStudentIds,
-      absentStudentIds,
-    } = req.body || {};
-
-    if (!lecturerId || !subjectCode || !sessionDate) {
-      return res.status(400).json({
-        error: "lecturerId, subjectCode, and sessionDate are required",
-      });
-    }
-
-    const present = Array.isArray(presentStudentIds)
-      ? presentStudentIds.filter((id: unknown) => typeof id === "string" && id)
-      : [];
-    const absent = Array.isArray(absentStudentIds)
-      ? absentStudentIds.filter((id: unknown) => typeof id === "string" && id)
-      : [];
-    const late = Array.isArray(lateStudentIds)
-      ? lateStudentIds.filter((id: unknown) => typeof id === "string" && id)
-      : [];
-    const presentSet = new Set(present);
-    const lateUnique = late.filter((id: string) => !presentSet.has(id));
-    const presentOrLate = new Set([...present, ...lateUnique]);
-    const absentUnique = absent.filter((id: string) => !presentOrLate.has(id));
-
-    const [lecturerRow] = await db
-      .select()
-      .from(lecturers)
-      .where(and(eq(lecturers.id, lecturerId), activeResourceCondition("lecturer", lecturers.id)))
-      .limit(1);
-
-    if (!lecturerRow) {
-      return res.status(404).json({ error: "Lecturer profile not found" });
-    }
-
-    const assignment = await db
-      .select()
-      .from(lecturerSubjects)
-      .where(
-        and(
-          eq(lecturerSubjects.lecturerId, lecturerId),
-          eq(lecturerSubjects.subjectCode, subjectCode)
-        )
-      )
-      .limit(1);
-
-    if (assignment.length === 0) {
-      return res.status(400).json({
-        error: "Selected subject is not assigned to this lecturer",
-      });
-    }
-
-    const [upserted] = await db
-      .insert(classAttendanceSessions)
-      .values({
-        lecturerId,
-        subjectCode,
-        sessionDate,
-        presentStudentIds: present,
-        lateStudentIds: lateUnique,
-        absentStudentIds: absentUnique,
-      })
-      .onConflictDoUpdate({
-        target: [
-          classAttendanceSessions.lecturerId,
-          classAttendanceSessions.subjectCode,
-          classAttendanceSessions.sessionDate,
-        ],
-        set: {
-          presentStudentIds: present,
-          lateStudentIds: lateUnique,
-          absentStudentIds: absentUnique,
-        },
-      })
-      .returning();
-
-    const enrolled = await db
-      .select()
-      .from(studentEnrollments)
-      .where(eq(studentEnrollments.courseCode, subjectCode));
-
-    const enrolledIds = enrolled.map((e) => e.studentId);
-    const touchedIds = [...new Set([...present, ...lateUnique, ...absentUnique, ...enrolledIds])];
-    const rates = await recomputeSubjectAttendanceRates(subjectCode, touchedIds);
-
-    try {
-      const fullDb = await loadFullDatabaseState();
-      saveDatabase(fullDb);
-    } catch (e) {
-      console.warn("Cache refresh after attendance session failed:", e);
-    }
-
-    res.status(201).json({
-      session: mapAttendanceSessionRow(upserted),
-      rates,
-    });
-  } catch (error: any) {
-    console.error("Failed to save attendance session:", error);
-    res.status(500).json({
-      error: error.message || "Failed to save attendance session",
-    });
-  }
-});
-
-app.get("/api/student/registered-units", checkRBAC(["student"]), async (req: any, res) => {
-  try {
-    const requestedStudentId = (req.query.studentId as string) || (req.headers["x-student-id"] as string);
-    const studentId = req.user.userId as string;
-
-    if (requestedStudentId && requestedStudentId !== studentId) {
-      return res.status(403).json({ error: "Students can only view their own unit registrations." });
     }
 
     if (!studentId) {
-      return res.status(404).json({ error: "Student profile not found" });
-    }
-
-    const [activeStudent] = await db
-      .select({ id: students.id })
-      .from(students)
-      .where(and(eq(students.id, studentId), activeResourceCondition("student", students.id)))
-      .limit(1);
-    if (!activeStudent) {
       return res.status(404).json({ error: "Student profile not found" });
     }
 
@@ -6037,7 +3264,7 @@ app.get("/api/student/registered-units", checkRBAC(["student"]), async (req: any
         thumbnail: courses.thumbnail,
       })
       .from(studentEnrollments)
-      .leftJoin(courses, eq(studentEnrollments.courseCode, courses.code))
+      .innerJoin(courses, eq(studentEnrollments.courseCode, courses.code))
       .where(eq(studentEnrollments.studentId, studentId));
 
     const attendanceLogs = await db
@@ -6048,15 +3275,26 @@ app.get("/api/student/registered-units", checkRBAC(["student"]), async (req: any
     // Calculate and aggregate dynamic metrics for each enrolled unit
     const result = activeEnrollments.map((item) => {
       const code = item.courseCode;
+
+      let hash = 0;
+      for (let i = 0; i < code.length; i++) {
+        hash = code.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      const absHash = Math.abs(hash);
+
       const totalLectures = 16;
       const attRecord = attendanceLogs.find((a) => a.subjectCode === code);
-      const attendanceRate = attRecord ? Number(attRecord.attendanceRate) : null;
-      const attendedLectures =
-        attendanceRate !== null
-          ? Math.round((attendanceRate / 100) * totalLectures)
-          : null;
+      let attendedLectures = attRecord
+        ? Math.round((attRecord.attendanceRate / 100) * totalLectures)
+        : 12 + (absHash % 5);
+      const attendanceRate = Math.round((attendedLectures / totalLectures) * 100);
 
-      // Assignment submissions are not stored in a dedicated table yet.
+      const totalAssignments = 5;
+      const submittedAssignments = 3 + (Math.abs(hash >> 2) % 3);
+      const assignmentRate = Math.round((submittedAssignments / totalAssignments) * 100);
+
+      const overallProgress = Math.round((attendanceRate + assignmentRate) / 2);
+
       return {
         courseCode: item.courseCode,
         courseTitle: item.courseTitle,
@@ -6066,19 +3304,17 @@ app.get("/api/student/registered-units", checkRBAC(["student"]), async (req: any
         fees: item.fees,
         thumbnail: item.thumbnail,
         enrolledAt: item.enrolledAt,
+        // Aggregated dynamic metrics
         attendedLectures,
         totalLectures,
-        lectures:
-          attendedLectures !== null
-            ? `${attendedLectures}/${totalLectures} lectures`
-            : "No attendance recorded",
+        lectures: `${attendedLectures}/${totalLectures} lectures`,
         attendanceRate,
-        submittedAssignments: null,
-        totalAssignments: null,
-        assignments: "No assignment records",
-        assignmentRate: null,
-        overallProgress: attendanceRate,
-        completionPercentage: attendanceRate,
+        submittedAssignments,
+        totalAssignments,
+        assignments: `${submittedAssignments}/${totalAssignments} assignments`,
+        assignmentRate,
+        overallProgress,
+        completionPercentage: overallProgress,
       };
     });
 
@@ -6089,7 +3325,7 @@ app.get("/api/student/registered-units", checkRBAC(["student"]), async (req: any
   }
 });
 
-app.post("/api/student-enrollments", checkRBAC(["student"]), async (req: any, res) => {
+app.post("/api/student-enrollments", async (req, res) => {
   try {
     const { studentId, courseCode } = req.body;
 
@@ -6097,17 +3333,6 @@ app.post("/api/student-enrollments", checkRBAC(["student"]), async (req: any, re
       return res.status(400).json({
         error: "studentId and courseCode are required",
       });
-    }
-    if (studentId !== req.user.userId) {
-      return res.status(403).json({ error: "Students can only manage their own unit registrations." });
-    }
-
-    const [activeStudent, activeCourse] = await Promise.all([
-      db.select({ id: students.id }).from(students).where(and(eq(students.id, studentId), activeResourceCondition("student", students.id))).limit(1),
-      db.select({ id: courses.id }).from(courses).where(and(eq(courses.code, courseCode), activeResourceCondition("course", courses.id))).limit(1),
-    ]);
-    if (!activeStudent || !activeCourse) {
-      return res.status(404).json({ error: "Active student or course not found." });
     }
 
     // Insert with onConflictDoNothing to gracefully handle duplicate enrollments
@@ -6164,30 +3389,13 @@ app.post("/api/student-enrollments", checkRBAC(["student"]), async (req: any, re
   }
 });
 
-app.delete("/api/student-enrollments", checkRBAC(["student"]), async (req: any, res) => {
+app.delete("/api/student-enrollments", async (req, res) => {
   try {
     const studentId = (req.query.studentId as string) || (req.body?.studentId as string);
     const courseCode = (req.query.courseCode as string) || (req.body?.courseCode as string);
 
     if (!studentId || !courseCode) {
       return res.status(400).json({ error: "studentId and courseCode are required" });
-    }
-    if (studentId !== req.user.userId) {
-      return res.status(403).json({ error: "Students can only manage their own unit registrations." });
-    }
-
-    const deadline = cachedDb?.registrationDeadline || "2026-08-15T23:59:59.000Z";
-    if (Date.now() > new Date(deadline).getTime()) {
-      return res.status(409).json({ error: "The registration deadline has passed. Submit a drop request for administrator approval." });
-    }
-
-    const [activeStudent] = await db
-      .select({ id: students.id })
-      .from(students)
-      .where(and(eq(students.id, studentId), activeResourceCondition("student", students.id)))
-      .limit(1);
-    if (!activeStudent) {
-      return res.status(404).json({ error: "Student profile not found" });
     }
 
     await db
@@ -6212,190 +3420,6 @@ app.delete("/api/student-enrollments", checkRBAC(["student"]), async (req: any, 
     res.status(500).json({ error: error.message });
   }
 });
-
-// Unit Drop Requests & Registration Deadline Endpoints
-app.get("/api/system/registration-deadline", (req, res) => {
-  const deadline = cachedDb?.registrationDeadline || "2026-08-15T23:59:59.000Z";
-  const isPastDeadline = Date.now() > new Date(deadline).getTime();
-  res.json({ deadline, isPastDeadline });
-});
-
-app.post("/api/system/registration-deadline", checkRBAC(["admin"]), (req, res) => {
-  const { deadline } = req.body;
-  if (!deadline) {
-    return res.status(400).json({ error: "deadline date string is required" });
-  }
-  if (!cachedDb) cachedDb = {};
-  cachedDb.registrationDeadline = deadline;
-  try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(cachedDb, null, 2), "utf-8");
-  } catch (e) {
-    console.error("Error updating registration deadline in DB store:", e);
-  }
-  const isPastDeadline = Date.now() > new Date(deadline).getTime();
-  res.json({ success: true, deadline, isPastDeadline });
-});
-
-app.get("/api/unit-drop-requests", checkRBAC(["student", "admin"]), (req: any, res) => {
-  const requestedStudentId = req.query.studentId as string;
-  const studentId = req.user.role === "student" ? req.user.userId : requestedStudentId;
-  if (req.user.role === "student" && requestedStudentId && requestedStudentId !== studentId) {
-    return res.status(403).json({ error: "Students can only view their own drop requests." });
-  }
-  if (!cachedDb) cachedDb = {};
-  if (!Array.isArray(cachedDb.dropRequests)) {
-    cachedDb.dropRequests = [];
-  }
-  let list = cachedDb.dropRequests;
-  if (studentId) {
-    list = list.filter((r: any) => r.studentId === studentId);
-  }
-  res.json(list);
-});
-
-app.post("/api/unit-drop-requests", checkRBAC(["student"]), async (req: any, res) => {
-  try {
-    const { studentId, courseCode, unitName, reason } = req.body;
-    if (!studentId || !courseCode) {
-      return res.status(400).json({ error: "studentId and courseCode are required" });
-    }
-    if (studentId !== req.user.userId) {
-      return res.status(403).json({ error: "Students can only manage their own unit registrations." });
-    }
-
-    const deadline = cachedDb?.registrationDeadline || "2026-08-15T23:59:59.000Z";
-    if (Date.now() <= new Date(deadline).getTime()) {
-      return res.status(409).json({ error: "Units can be dropped directly while registration is open." });
-    }
-
-    const [enrollment] = await db
-      .select({ courseCode: studentEnrollments.courseCode })
-      .from(studentEnrollments)
-      .where(and(eq(studentEnrollments.studentId, studentId), eq(studentEnrollments.courseCode, courseCode)))
-      .limit(1);
-    if (!enrollment) {
-      return res.status(404).json({ error: "Active unit registration not found." });
-    }
-
-    if (!cachedDb) cachedDb = {};
-    if (!Array.isArray(cachedDb.dropRequests)) {
-      cachedDb.dropRequests = [];
-    }
-
-    // Validation: Check for duplicate pending drop request
-    const existingPending = cachedDb.dropRequests.find(
-      (r: any) => r.studentId === studentId && r.courseCode === courseCode && r.status === "Pending Approval"
-    );
-    if (existingPending) {
-      return res.status(400).json({ error: "A drop request for this unit is already pending approval." });
-    }
-
-    // Find student details
-    const student = cachedDb.students?.find((s: any) => s.id === studentId);
-
-    const newRequest = {
-      id: crypto.randomUUID(),
-      studentId,
-      studentName: student ? student.name : "Student",
-      admissionNo: student ? student.admissionNo || "" : "",
-      courseCode,
-      unitName: unitName || courseCode,
-      reason: reason || "Requested unit drop after registration deadline",
-      status: "Pending Approval",
-      requestedAt: new Date().toISOString(),
-    };
-
-    cachedDb.dropRequests.unshift(newRequest);
-
-    try {
-      fs.writeFileSync(DB_FILE, JSON.stringify(cachedDb, null, 2), "utf-8");
-    } catch (e) {
-      console.error("Error saving drop request to db_store.json:", e);
-    }
-
-    res.status(201).json({ success: true, dropRequest: newRequest });
-  } catch (error: any) {
-    console.error("Error creating unit drop request:", error);
-    res.status(500).json({ error: error.message || "Failed to submit drop request" });
-  }
-});
-
-app.post("/api/unit-drop-requests/:id/approve", checkRBAC(["admin"]), async (req: any, res) => {
-  try {
-    const { id } = req.params;
-    if (!cachedDb || !Array.isArray(cachedDb.dropRequests)) {
-      return res.status(404).json({ error: "Drop request not found" });
-    }
-
-    const request = cachedDb.dropRequests.find((r: any) => r.id === id);
-    if (!request) {
-      return res.status(404).json({ error: "Drop request not found" });
-    }
-    if (request.status !== "Pending Approval") {
-      return res.status(409).json({ error: "Only pending drop requests can be approved." });
-    }
-
-    request.status = "Approved";
-    request.processedBy = req.user.userId;
-    request.processedAt = new Date().toISOString();
-
-    // Remove registration from database
-    await db
-      .delete(studentEnrollments)
-      .where(and(eq(studentEnrollments.studentId, request.studentId), eq(studentEnrollments.courseCode, request.courseCode)));
-
-    if (cachedDb.students) {
-      const student = cachedDb.students.find((s: any) => s.id === request.studentId);
-      if (student && student.enrolledUnits) {
-        student.enrolledUnits = student.enrolledUnits.filter((code: string) => code !== request.courseCode);
-      }
-    }
-
-    try {
-      fs.writeFileSync(DB_FILE, JSON.stringify(cachedDb, null, 2), "utf-8");
-    } catch (e) {
-      console.error("Error updating DB store on drop approve:", e);
-    }
-
-    res.json({ success: true, message: `Approved drop request for ${request.courseCode}`, dropRequest: request });
-  } catch (error: any) {
-    console.error("Error approving drop request:", error);
-    res.status(500).json({ error: error.message || "Failed to approve drop request" });
-  }
-});
-
-app.post("/api/unit-drop-requests/:id/reject", checkRBAC(["admin"]), (req: any, res) => {
-  try {
-    const { id } = req.params;
-    if (!cachedDb || !Array.isArray(cachedDb.dropRequests)) {
-      return res.status(404).json({ error: "Drop request not found" });
-    }
-
-    const request = cachedDb.dropRequests.find((r: any) => r.id === id);
-    if (!request) {
-      return res.status(404).json({ error: "Drop request not found" });
-    }
-    if (request.status !== "Pending Approval") {
-      return res.status(409).json({ error: "Only pending drop requests can be rejected." });
-    }
-
-    request.status = "Rejected";
-    request.processedBy = req.user.userId;
-    request.processedAt = new Date().toISOString();
-
-    try {
-      fs.writeFileSync(DB_FILE, JSON.stringify(cachedDb, null, 2), "utf-8");
-    } catch (e) {
-      console.error("Error updating DB store on drop reject:", e);
-    }
-
-    res.json({ success: true, message: `Rejected drop request for ${request.courseCode}`, dropRequest: request });
-  } catch (error: any) {
-    console.error("Error rejecting drop request:", error);
-    res.status(500).json({ error: error.message || "Failed to reject drop request" });
-  }
-});
-
 //--payments
 app.post("/api/payments", async (req, res) => {
   try {
@@ -6410,9 +3434,6 @@ app.post("/api/payments", async (req, res) => {
       return res.status(400).json({
         error: "Missing payment details",
       });
-    }
-    if (!await activeStudentExists(paymentData.studentId)) {
-      return res.status(404).json({ error: "Active student not found" });
     }
 
     const [payment] = await db
@@ -6447,7 +3468,7 @@ app.post("/api/payments", async (req, res) => {
 // 7. REST Resource: Books
 app.get("/api/books", async (req, res) => {
   try {
-    const bookRows = await db.select().from(books).where(activeResourceCondition("book", books.id));
+    const bookRows = await db.select().from(books);
     const result = bookRows.map(b => ({
       id: b.id,
       title: b.title,
@@ -6670,201 +3691,50 @@ app.post("/api/gate-logs", async (req, res) => {
 });
 
 // ==========================================
-// HTTP LISTENER LIFECYCLE (single instance)
+// VITE CLIENT INTEGRATION MIDDLEWARE
 // ==========================================
 
-/** Exactly one HTTP server per process. Hot-reload closes this before exit. */
-let httpServer: http.Server | null = null;
-/** Prevents overlapping startServer() calls in the same process. */
-let startupPromise: Promise<void> | null = null;
-let isShuttingDown = false;
-let shutdownHandlersRegistered = false;
-
-function describePortOccupant(port: number): string {
-  try {
-    const out = execSync(
-      `ss -tlnp "sport = :${port}" 2>/dev/null || lsof -nP -iTCP:${port} -sTCP:LISTEN 2>/dev/null || true`,
-      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
-    ).trim();
-    return out || "(unable to identify process)";
-  } catch {
-    return "(unable to identify process)";
-  }
-}
-
-function isPortFree(port: number, host = "0.0.0.0"): Promise<boolean> {
-  return new Promise((resolve) => {
-    const tester = net
-      .createServer()
-      .once("error", () => resolve(false))
-      .once("listening", () => {
-        tester.close(() => resolve(true));
-      })
-      .listen(port, host);
-  });
-}
-
-/** Wait briefly so a previous watcher process can release the port after SIGTERM. */
-async function waitForPortFree(port: number, attempts = 20, delayMs = 150): Promise<boolean> {
-  for (let i = 0; i < attempts; i++) {
-    if (await isPortFree(port)) return true;
-    await new Promise((r) => setTimeout(r, delayMs));
-  }
-  return false;
-}
-
-async function closeHttpServer(): Promise<void> {
-  if (!httpServer) return;
-  const server = httpServer;
-  httpServer = null;
-  await new Promise<void>((resolve) => {
-    server.close(() => resolve());
-    if (typeof server.closeAllConnections === "function") {
-      server.closeAllConnections();
-    }
-  });
-}
-
-function registerShutdownHandlers() {
-  if (shutdownHandlersRegistered) return;
-  shutdownHandlersRegistered = true;
-
-  const shutdown = async (signal: string) => {
-    if (isShuttingDown) return;
-    isShuttingDown = true;
-    console.log(
-      `Received ${signal}; closing HTTP listener and database pool (pid=${process.pid}, port=${PORT})`
-    );
-    try {
-      await closeHttpServer();
-      console.log(`HTTP listener closed gracefully (pid=${process.pid})`);
-    } catch (err) {
-      console.error(`Error while closing HTTP listener:`, err);
-    }
-    try {
-      await closePool();
-    } catch (err) {
-      console.error(`Error while closing database connection pool:`, err);
-    }
-    process.exit(0);
-  };
-
-  process.once("SIGTERM", () => void shutdown("SIGTERM"));
-  process.once("SIGINT", () => void shutdown("SIGINT"));
-  process.once("SIGUSR2", () => void shutdown("SIGUSR2"));
-}
-
-async function bindHttpServer(): Promise<"newly-started" | "reused"> {
-  let mode: "newly-started" | "reused" = "newly-started";
-
-  if (httpServer?.listening) {
-    console.log(
-      `Existing in-process listener found — closing before rebind (pid=${process.pid}, port=${PORT})`
-    );
-    await closeHttpServer();
-    mode = "reused";
-  }
-
-  const free = await waitForPortFree(PORT);
-  if (!free) {
-    const occupant = describePortOccupant(PORT);
-    console.error(
-      `Port ${PORT} is occupied by a stale or external process. Refusing to start a second listener.`
-    );
-    console.error(`Occupant:\n${occupant}`);
-    console.error(
-      `Fix: stop that process, then retry. Example: fuser -k ${PORT}/tcp`
-    );
-    process.exit(1);
-  }
-
-  await new Promise<void>((resolve, reject) => {
-    const server = app.listen(PORT, "0.0.0.0", () => resolve());
-    httpServer = server;
-    server.once("error", (err: NodeJS.ErrnoException) => {
-      httpServer = null;
-      if (err.code === "EADDRINUSE") {
-        const occupant = describePortOccupant(PORT);
-        console.error(
-          `Port ${PORT} became busy during bind (EADDRINUSE). Another process owns the port.`
-        );
-        console.error(`Occupant:\n${occupant}`);
-        console.error(
-          `Fix: stop that process, then retry. Example: fuser -k ${PORT}/tcp`
-        );
-      }
-      reject(err);
-    });
-  });
-
-  return mode;
-}
-
 async function startServer() {
-  // Idempotent: concurrent callers share one startup chain.
-  if (startupPromise) {
-    console.log(
-      `Startup already in progress — awaiting existing startup (pid=${process.pid}, port=${PORT})`
-    );
-    return startupPromise;
+  // Initialize the PostgreSQL database state (or fallback store if offline)
+  await initPostgresDB();
+  const dbStateForAuth = getDatabase();
+  await migrateAuthSchemaAndData(dbStateForAuth);
+
+  if (process.env.NODE_ENV !== "production") {
+    console.log("Backend API server running in development mode (port " + PORT + ")");
+  } else {
+    // Production Mode: Serve compiled static frontend bundle from frontend workspace
+    const distPath = path.resolve(process.cwd(), "../frontend/dist");
+    if (fs.existsSync(distPath)) {
+      app.use(express.static(distPath));
+      app.get("*", (req, res) => {
+        res.sendFile(path.join(distPath, "index.html"));
+      });
+      console.log("Production static build routing loaded from " + distPath);
+    } else {
+      app.get("/", (req, res) => {
+        res.json({ message: "Zenti School Portal Backend API is running." });
+      });
+      console.log("Production mode: frontend build directory not found, serving API only");
+    }
   }
 
-  startupPromise = (async () => {
-    try {
-      await runMigrations();
-    } catch (migrationErr) {
-      console.error("[Startup] Database migrations failed:", migrationErr);
-      console.warn("[Startup] Proceeding with database initialization...");
-    }
-    // Initialize the PostgreSQL database state (or fallback store if offline)
-    await initPostgresDB();
-    const dbStateForAuth = getDatabase();
-    await migrateAuthSchemaAndData(dbStateForAuth);
-
-    if (process.env.NODE_ENV !== "production") {
-      console.log(
-        `Development mode ready (pid=${process.pid}, port=${PORT})`
-      );
-    } else {
-      // Production Mode: Serve compiled static frontend bundle from frontend workspace
-      const distPath = path.resolve(process.cwd(), "../frontend/dist");
-      if (fs.existsSync(distPath)) {
-        app.use(express.static(distPath));
-        app.get("*", (req, res) => {
-          res.sendFile(path.join(distPath, "index.html"));
-        });
-        console.log("Production static build routing loaded from " + distPath);
+  if (!process.env.VERCEL) {
+    const serverInstance = app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server is running on port ${PORT}`);
+    });
+    serverInstance.on("error", (err: any) => {
+      if (err.code === "EADDRINUSE") {
+        console.error(`Port ${PORT} is already in use by another process (EADDRINUSE).`);
       } else {
-        app.get("/", (req, res) => {
-          res.json({ message: "Zenti School Portal Backend API is running." });
-        });
-        console.log("Production mode: frontend build directory not found, serving API only");
+        console.error("Server listener error:", err);
       }
-    }
-
-    if (process.env.VERCEL) {
-      console.log(`Vercel mode — skipping app.listen (pid=${process.pid})`);
-      return;
-    }
-
-    registerShutdownHandlers();
-    const startMode = await bindHttpServer();
-    console.log(
-      `${startMode === "reused" ? "Listener reused" : "Newly started"} | pid=${process.pid} | port=${PORT}`
-    );
-  })();
-
-  try {
-    await startupPromise;
-  } catch (err) {
-    startupPromise = null;
-    throw err;
+    });
   }
 }
 
 startServer().catch((err) => {
   console.error("Failed to start server:", err);
-  process.exit(1);
 });
 
 export default app;

@@ -27,6 +27,26 @@
   ],
   "books": [],
   "loans": [],
+  "audits": [
+    {
+      "id": "3a01c312-9bbd-047d-0286-b332bd14c0fe",
+      "role": "Accountant",
+      "user": "Grace Wanjiku (Accountant)",
+      "action": "WAIVER_GRANTED",
+      "status": "Success",
+      "resource": "Approved KES 14,000 Scholarship for student ID 7ec4af7b-8833-4920-aa33-23622e5d75ef",
+      "timestamp": "2026-08-03 15:22:29"
+    },
+    {
+      "id": "8a9b4c70-985b-228f-0ab7-724e0e4f76c9",
+      "role": "Accountant",
+      "user": "Grace Wanjiku (Accountant)",
+      "action": "WAIVER_GRANTED",
+      "status": "Success",
+      "resource": "Approved KES 14,000 Scholarship for student ID 7ec4af7b-8833-4920-aa33-23622e5d75ef",
+      "timestamp": "2026-08-03 15:08:09"
+    }
+  ],
   "courses": [
     {
       "id": "430353d5-bbf6-4f75-ba73-3e4b47681c9f",
@@ -104,15 +124,6 @@
       "invoiceNo": "INV-974178",
       "studentId": "7ec4af7b-8833-4920-aa33-23622e5d75ef",
       "description": "[Tuition] pay fees before start of semester"
-    },
-    {
-      "id": "f5a925e3-cc14-fa86-279f-ef3f3c4a4309",
-      "studentId": "7ec4af7b-8833-4920-aa33-23622e5d75ef",
-      "invoiceNo": "CRD-635002",
-      "description": "[Scholarship Approved] Bursary Award",
-      "amount": -14000,
-      "date": "2026-08-03",
-      "status": "paid"
     }
   ],
   "students": [
@@ -123,8 +134,6 @@
       "phone": "0787939725",
       "admissionNo": "ADM-001",
       "cohort": "2026",
-      "programme": "Data Science",
-      "department": "Information Technology",
       "accountStatus": "Pending Setup",
       "createdAt": "2026-07-30 13:42:33.316045+00",
       "enrolledUnits": [
@@ -139,15 +148,6 @@
           "amount": 20000,
           "date": "2026-07-30",
           "status": "unpaid"
-        },
-        {
-          "id": "f5a925e3-cc14-fa86-279f-ef3f3c4a4309",
-          "studentId": "7ec4af7b-8833-4920-aa33-23622e5d75ef",
-          "invoiceNo": "CRD-635002",
-          "description": "[Scholarship Approved] Bursary Award",
-          "amount": -14000,
-          "date": "2026-08-03",
-          "status": "paid"
         }
       ],
       "payments": [
@@ -222,24 +222,6 @@
   "reservations": [],
   "notifications": [
     {
-      "id": "09133505-00aa-4e03-b4fb-e42ad91ffa9a",
-      "targetUserRole": "all",
-      "type": "payment",
-      "title": " [Invoice Generated] New Billing Invoice #INV-974178",
-      "message": "Brian Otieno (brian.otieno@zenti.edu): Dear Brian Otieno,",
-      "status": "unread",
-      "dateTime": "2026-07-30 14:11:21+00"
-    },
-    {
-      "id": "77689915-b300-4fc2-b6ab-b8fa4ce9cd72",
-      "targetUserRole": "all",
-      "type": "library",
-      "title": " [Grade Posted] New Grade for Unit BDS",
-      "message": "Brian Otieno (brian.otieno@zenti.edu): Dear Brian Otieno,",
-      "status": "unread",
-      "dateTime": "2026-07-30 13:47:44+00"
-    },
-    {
       "id": "2fe609d8-12d2-44a3-b6fb-0e0d5e80a812",
       "targetUserRole": "all",
       "type": "library",
@@ -274,6 +256,24 @@
       "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
       "status": "unread",
       "dateTime": "2026-07-26 12:15:22+00"
+    },
+    {
+      "id": "09133505-00aa-4e03-b4fb-e42ad91ffa9a",
+      "targetUserRole": "all",
+      "type": "payment",
+      "title": " [Invoice Generated] New Billing Invoice #INV-974178",
+      "message": "Brian Otieno (brian.otieno@zenti.edu): Dear Brian Otieno,",
+      "status": "unread",
+      "dateTime": "2026-07-30 14:11:21+00"
+    },
+    {
+      "id": "77689915-b300-4fc2-b6ab-b8fa4ce9cd72",
+      "targetUserRole": "all",
+      "type": "library",
+      "title": " [Grade Posted] New Grade for Unit BDS",
+      "message": "Brian Otieno (brian.otieno@zenti.edu): Dear Brian Otieno,",
+      "status": "unread",
+      "dateTime": "2026-07-30 13:47:44+00"
     }
   ],
   "student_ledger": [
@@ -285,15 +285,6 @@
       "entryType": "CREDIT",
       "studentId": "b2b275e6-d090-4896-a631-46256f153527",
       "description": "[Scholarship Approved] Bursary Award"
-    },
-    {
-      "id": "c6c98334-c3c7-cac5-00a9-f557e493421e",
-      "studentId": "7ec4af7b-8833-4920-aa33-23622e5d75ef",
-      "entryType": "CREDIT",
-      "voteHead": "Scholarship",
-      "amount": 14000,
-      "description": "[Scholarship Approved] Bursary Award",
-      "createdAt": "2026-08-03T15:08:02.415Z"
     }
   ],
   "libraryGateLogs": [],
@@ -302,13 +293,13 @@
     {
       "id": "147fe449-54bd-4ceb-b943-927cc3fc1db2",
       "date": "2026-07-30",
+      "lecturerId": "09140292-7e95-453d-9f80-8f61c1419222",
       "subjectCode": "BDS",
-      "presentStudents": [
-        "7ec4af7b-8833-4920-aa33-23622e5d75ef"
-      ],
       "lateStudents": [],
       "absentStudents": [],
-      "lecturerId": "09140292-7e95-453d-9f80-8f61c1419222"
+      "presentStudents": [
+        "7ec4af7b-8833-4920-aa33-23622e5d75ef"
+      ]
     }
   ],
   "passwordResetRequests": [
