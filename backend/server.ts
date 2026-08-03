@@ -1706,12 +1706,13 @@ app.use("/api", (req: any, res: any, next: any) => {
   const lecturerLookupProtected =
     relativePath.startsWith("/api/lecturer/student-lookup") ||
     relativePath.startsWith("/api/lecturer/students");
-  const isProtectedStudentRegistrationRoute =
+  const isProtectedStudentPortalRoute =
     relativePath === "/api/student/registered-units" ||
+    relativePath === "/api/student/dashboard-summary" ||
     relativePath === "/api/student-enrollments" ||
     relativePath.startsWith("/api/student-enrollments/");
   const isPublicStudentRoute =
-    !isProtectedStudentRegistrationRoute &&
+    !isProtectedStudentPortalRoute &&
     (relativePath === "/api/student" || relativePath.startsWith("/api/student/"));
   const isPublicLecturerRoute =
     relativePath === "/api/lecturer" || relativePath.startsWith("/api/lecturer/");
@@ -4647,11 +4648,12 @@ app.post("/api/students/:id/reset-password", checkRBAC(["admin"]), async (req: a
   }
 });
 
-app.get("/api/student/dashboard-summary", async (req, res) => {
+app.get("/api/student/dashboard-summary", checkRBAC(["student"]), async (req: any, res) => {
   try {
-    const studentId = (req.query.studentId as string) || (req.headers["x-student-id"] as string);
-    if (!studentId) {
-      return res.status(400).json({ error: "studentId is required" });
+    const requestedStudentId = (req.query.studentId as string) || (req.headers["x-student-id"] as string);
+    const studentId = req.user.userId as string;
+    if (requestedStudentId && requestedStudentId !== studentId) {
+      return res.status(403).json({ error: "Students can only view their own dashboard." });
     }
 
     const [studentRow] = await db
@@ -4684,7 +4686,19 @@ app.get("/api/student/dashboard-summary", async (req, res) => {
       .from(invoices)
       .where(eq(invoices.studentId, studentId));
 
-    const courseRows = await db.select().from(courses).where(activeResourceCondition("course", courses.id));
+    const [paymentRows, notificationRows, scheduleRows, courseRows, lecturerRows, lecturerSubjectRows] = await Promise.all([
+      db.select().from(payments).where(eq(payments.studentId, studentId)),
+      db
+        .select()
+        .from(notifications)
+        .where(or(eq(notifications.targetUserId, studentId), eq(notifications.targetUserRole, "student"), eq(notifications.targetUserRole, "all")))
+        .orderBy(desc(notifications.dateTime))
+        .limit(5),
+      db.select().from(lectureSchedules),
+      db.select().from(courses).where(activeResourceCondition("course", courses.id)),
+      db.select().from(lecturers).where(eq(lecturers.isActive, true)),
+      db.select().from(lecturerSubjects),
+    ]);
     const activeCourseCount = courseRows.filter((c) => c.active !== false).length;
 
     const markToGpa = (mark: number): number => {
@@ -4757,6 +4771,31 @@ app.get("/api/student/dashboard-summary", async (req, res) => {
     const outstandingFees = invoiceRows
       .filter((i) => i.status === "unpaid")
       .reduce((sum, i) => sum + Number(i.amount || 0), 0);
+    const totalFees = invoiceRows.reduce((sum, i) => sum + Number(i.amount || 0), 0);
+    const paidFees = paymentRows.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+    const courseByCode = new Map(courseRows.map((course) => [course.code, course]));
+    const lecturerById = new Map(lecturerRows.map((lecturer) => [lecturer.id, lecturer]));
+    const lecturerIdByCourse = new Map(lecturerSubjectRows.map((assignment) => [assignment.subjectCode, assignment.lecturerId]));
+    const today = new Date().toISOString().slice(0, 10);
+    const todaySchedule = scheduleRows
+      .filter((schedule) => enrolledCodes.includes(schedule.subjectCode) && schedule.sessionDate === today)
+      .sort((a, b) => a.startTime.localeCompare(b.startTime))
+      .map((schedule) => ({
+        id: schedule.id,
+        time: `${schedule.startTime}–${schedule.endTime}`,
+        courseCode: schedule.subjectCode,
+        unitName: courseByCode.get(schedule.subjectCode)?.title || schedule.subjectCode,
+        lecturer: lecturerById.get(schedule.lecturerId)?.name || null,
+        room: schedule.room || null,
+      }));
+    const registeredUnits = enrolledCodes.map((courseCode) => ({
+      courseCode,
+      unitName: courseByCode.get(courseCode)?.title || courseCode,
+      credits: null,
+      lecturer: lecturerById.get(lecturerIdByCourse.get(courseCode) || "")?.name || null,
+      status: "Active",
+    }));
 
     const completedUnits = gradeRows.filter((g) => {
       const mark = Number(g.catScore || 0) + Number(g.examScore || 0);
@@ -4830,8 +4869,26 @@ app.get("/api/student/dashboard-summary", async (req, res) => {
       gpaLabel,
       attendanceRate,
       activeModules: enrolledCodes.length,
+      // Programme-specific unit requirements are not stored in the current schema.
+      // Do not present the global course catalogue as a student's required-unit total.
+      requiredUnits: null,
       outstandingFees,
+      feeSummary: {
+        total: totalFees,
+        paid: paidFees,
+        balance: Math.max(0, totalFees - paidFees),
+        status: outstandingFees > 0 ? "Outstanding" : totalFees > 0 ? "Paid" : "No fees posted",
+      },
       gpaTrend,
+      todaySchedule,
+      registeredUnits,
+      notifications: notificationRows.map((notification) => ({
+        id: notification.id,
+        title: notification.title,
+        message: notification.message,
+        type: notification.type,
+        dateTime: notification.dateTime,
+      })),
       degreeProgress: {
         completed: completedUnits,
         required: requiredUnits,
@@ -4840,9 +4897,8 @@ app.get("/api/student/dashboard-summary", async (req, res) => {
           "Required units currently equal active courses in the catalogue until a degree_requirements table is added.",
       },
       deliverables,
-      // Student timetable can join lecture_schedules once enrollments map to scheduled subjects.
-      nextLecture: null,
-      scheduleAvailable: false,
+      nextLecture: todaySchedule[0] || null,
+      scheduleAvailable: todaySchedule.length > 0,
     });
   } catch (error: any) {
     console.error("Failed to build student dashboard summary:", error);

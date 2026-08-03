@@ -855,15 +855,10 @@ export default function StudentDashboard({
               student={student}
               allCourses={allCourses}
               onNavigateTab={(tab) => setActiveTab(tab)}
-              timerSeconds={timerSeconds}
-              setTimerSeconds={setTimerSeconds}
-              timerActive={timerActive}
-              setTimerActive={setTimerActive}
-              timerMode={timerMode}
-              setTimerMode={setTimerMode}
-              formatTimer={formatTimer}
             />
 
+            {false && (
+            <>
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-100 pb-3 gap-3 pt-4">
               <div>
                 <h2 className="text-lg font-bold text-slate-800 flex items-center gap-1.5 font-display">
@@ -1226,6 +1221,8 @@ export default function StudentDashboard({
                 );
               })}
             </div>
+            </>
+            )}
           </div>
         )}
 
