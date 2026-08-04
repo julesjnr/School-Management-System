@@ -2506,9 +2506,10 @@ app.post("/api/finance/bill", async (req, res) => {
 // 3. POST /api/finance/grant (process a credit ledger entry and negative waiver invoice)
 app.post("/api/finance/grant", async (req, res) => {
   const { studentId, discountTypology, amount, description } = req.body;
+  const creditAmount = Number(amount);
 
-  if (!studentId || !discountTypology || !amount || isNaN(Number(amount))) {
-    return res.status(400).json({ error: "Missing required grant fields or invalid credit value" });
+  if (!studentId || !discountTypology || !Number.isFinite(creditAmount) || creditAmount <= 0) {
+    return res.status(400).json({ error: "Missing required grant fields or credit value must be greater than zero" });
   }
 
   const creditNo = `CRD-${Math.floor(100000 + Math.random() * 900000)}`;
@@ -2516,23 +2517,26 @@ app.post("/api/finance/grant", async (req, res) => {
   const formattedDesc = `[${discountTypology} Approved] ${description || "Waiver allocation"}`;
 
   try {
-    // 1. Insert into student_ledger
-    const [ledgerEntry] = await db.insert(studentLedger).values({
-      studentId,
-      entryType: 'CREDIT',
-      voteHead: discountTypology,
-      amount: String(amount),
-      description: formattedDesc,
-    }).returning();
+    // Keep the ledger credit and its negative paid invoice in sync.
+    const ledgerEntry = await db.transaction(async (tx) => {
+      const [createdLedgerEntry] = await tx.insert(studentLedger).values({
+        studentId,
+        entryType: 'CREDIT',
+        voteHead: discountTypology,
+        amount: String(creditAmount),
+        description: formattedDesc,
+      }).returning();
 
-    // 2. Insert corresponding negative amount invoice to maintain compatibility
-    await db.insert(invoices).values({
-      studentId,
-      invoiceNo: creditNo,
-      description: formattedDesc,
-      amount: String(-Number(amount)),
-      date: dateStr,
-      status: "paid",
+      await tx.insert(invoices).values({
+        studentId,
+        invoiceNo: creditNo,
+        description: formattedDesc,
+        amount: String(-creditAmount),
+        date: dateStr,
+        status: "paid",
+      });
+
+      return createdLedgerEntry;
     });
 
     res.status(201).json({
@@ -2553,7 +2557,7 @@ app.post("/api/finance/grant", async (req, res) => {
         studentId,
         entryType: 'CREDIT',
         voteHead: discountTypology,
-        amount: Number(amount),
+        amount: creditAmount,
         description: formattedDesc,
         createdAt: new Date().toISOString(),
       };
@@ -2563,7 +2567,7 @@ app.post("/api/finance/grant", async (req, res) => {
         studentId,
         invoiceNo: creditNo,
         description: formattedDesc,
-        amount: -Number(amount),
+        amount: -creditAmount,
         date: dateStr,
         status: "paid"
       };

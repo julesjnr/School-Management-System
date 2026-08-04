@@ -447,7 +447,6 @@ export const invoices = pgTable("invoices", {
 			name: "invoices_student_id_fkey"
 		}).onDelete("cascade"),
 	unique("invoices_invoice_no_key").on(table.invoiceNo),
-	check("invoices_amount_check", sql`amount >= (0)::numeric`),
 	check("invoices_status_check", sql`(status)::text = ANY ((ARRAY['unpaid'::character varying, 'paid'::character varying])::text[])`),
 ]);
 

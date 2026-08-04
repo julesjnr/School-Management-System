@@ -148,6 +148,14 @@
           "amount": 20000,
           "date": "2026-07-30",
           "status": "unpaid"
+        },
+        {
+          "id": "b6f75882-5358-4772-b0f7-a7f388658299",
+          "invoiceNo": "CRD-917611",
+          "description": "[Bursary Approved] Bursary Award",
+          "amount": -8000,
+          "date": "2026-08-04",
+          "status": "paid"
         }
       ],
       "payments": [
@@ -159,6 +167,16 @@
           "paymentMethod": "M-Pesa",
           "transactionId": "QZIPV5P81",
           "date": "2026-07-30",
+          "status": "unreconciled"
+        },
+        {
+          "id": "65fe8f55-4627-4ce8-aac1-28f67d88f797",
+          "amount": 20000,
+          "invoiceId": "6f679b24-91a2-4230-895e-f16ae35485fe",
+          "studentId": "7ec4af7b-8833-4920-aa33-23622e5d75ef",
+          "paymentMethod": "M-Pesa",
+          "transactionId": "QKUUJYXRH",
+          "date": "2026-08-04",
           "status": "unreconciled"
         }
       ],
@@ -222,33 +240,6 @@
   "reservations": [],
   "notifications": [
     {
-      "id": "2fe609d8-12d2-44a3-b6fb-0e0d5e80a812",
-      "targetUserRole": "all",
-      "type": "library",
-      "title": " [Grade Posted] New Grade for Unit BDS",
-      "message": "james maina (james.maina@zenti.edu): Dear james maina,",
-      "status": "unread",
-      "dateTime": "2026-07-28 11:05:19+00"
-    },
-    {
-      "id": "56ce593d-d574-4eaa-bd39-3e0088504fa6",
-      "targetUserRole": "all",
-      "type": "payment",
-      "title": " [Invoice Generated] New Billing Invoice #INV-1194",
-      "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
-      "status": "unread",
-      "dateTime": "2026-07-26 12:15:21+00"
-    },
-    {
-      "id": "e13d5169-2a31-40df-b1ad-77575fd765b2",
-      "targetUserRole": "all",
-      "type": "library",
-      "title": " [Grade Posted] New Grade for Unit BCS",
-      "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
-      "status": "unread",
-      "dateTime": "2026-07-26 13:15:08+00"
-    },
-    {
       "id": "afce5cd0-a3a8-4a63-8b91-a385e021c89e",
       "targetUserRole": "all",
       "type": "payment",
@@ -274,6 +265,33 @@
       "message": "Brian Otieno (brian.otieno@zenti.edu): Dear Brian Otieno,",
       "status": "unread",
       "dateTime": "2026-07-30 13:47:44+00"
+    },
+    {
+      "id": "56ce593d-d574-4eaa-bd39-3e0088504fa6",
+      "targetUserRole": "all",
+      "type": "payment",
+      "title": " [Invoice Generated] New Billing Invoice #INV-1194",
+      "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
+      "status": "unread",
+      "dateTime": "2026-07-26 12:15:21+00"
+    },
+    {
+      "id": "2fe609d8-12d2-44a3-b6fb-0e0d5e80a812",
+      "targetUserRole": "all",
+      "type": "library",
+      "title": " [Grade Posted] New Grade for Unit BDS",
+      "message": "james maina (james.maina@zenti.edu): Dear james maina,",
+      "status": "unread",
+      "dateTime": "2026-07-28 11:05:19+00"
+    },
+    {
+      "id": "e13d5169-2a31-40df-b1ad-77575fd765b2",
+      "targetUserRole": "all",
+      "type": "library",
+      "title": " [Grade Posted] New Grade for Unit BCS",
+      "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
+      "status": "unread",
+      "dateTime": "2026-07-26 13:15:08+00"
     }
   ],
   "student_ledger": [

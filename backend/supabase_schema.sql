@@ -165,7 +165,8 @@ CREATE TABLE invoices (
     student_id UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
     invoice_no VARCHAR(50) UNIQUE NOT NULL,
     description TEXT NOT NULL,
-    amount NUMERIC(12, 2) NOT NULL CHECK (amount >= 0),
+    -- Credits and bursaries are represented as negative, paid invoice entries.
+    amount NUMERIC(12, 2) NOT NULL,
     date DATE NOT NULL,
     status VARCHAR(20) DEFAULT 'unpaid' CHECK (status IN ('unpaid', 'paid')) NOT NULL
 );
