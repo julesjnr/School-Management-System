@@ -70,7 +70,7 @@ import {
 } from "./src/data";
 
 const app = express();
-const PORT = process.env.PORT || 8000;
+const PORT = Number(process.env.PORT) || 8000;
 
 // Set up larger limit for full state synchronizations
 app.use(express.json({ limit: "20mb" }));
@@ -2749,6 +2749,140 @@ app.post("/api/finance/reconcile", async (req, res) => {
     } catch (fallbackErr: any) {
       res.status(500).json({ error: fallbackErr.message });
     }
+  }
+});
+
+// 5. Payment reconciliation review queue and single-payment approval.
+// A student-initiated payment remains unreconciled until an accountant approves it.
+app.get("/api/finance/payments", async (_req, res) => {
+  try {
+    const paymentRows = await db.select().from(payments).orderBy(desc(payments.date));
+    res.json(paymentRows.map((payment) => ({
+      ...payment,
+      amount: Number(payment.amount),
+    })));
+  } catch (error: any) {
+    const requestId = crypto.randomUUID();
+    console.error(`[${requestId}] Failed to fetch finance payments`, {
+      message: error?.message,
+      code: error?.cause?.code || error?.code,
+    });
+    res.status(500).json({
+      error: "Unable to load payments for reconciliation.",
+      code: "PAYMENTS_FETCH_FAILED",
+      requestId,
+    });
+  }
+});
+
+app.patch("/api/finance/payments/:paymentId/reconcile", async (req, res) => {
+  const { paymentId } = req.params;
+
+  if (!paymentId) {
+    return res.status(400).json({
+      error: "A payment ID is required.",
+      code: "PAYMENT_ID_REQUIRED",
+    });
+  }
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      // Lock the payment so duplicate clicks cannot create duplicate ledger credits.
+      await tx.execute(sql`SELECT id FROM payments WHERE id = ${paymentId} FOR UPDATE`);
+      const [payment] = await tx.select().from(payments).where(eq(payments.id, paymentId));
+
+      if (!payment) {
+        return { kind: "not_found" as const };
+      }
+
+      if (payment.status === "reconciled") {
+        return { kind: "already_reconciled" as const, payment };
+      }
+
+      if (!payment.invoiceId) {
+        return { kind: "invoice_required" as const };
+      }
+
+      await tx.execute(sql`SELECT id FROM invoices WHERE id = ${payment.invoiceId} FOR UPDATE`);
+      const [invoice] = await tx.select().from(invoices).where(eq(invoices.id, payment.invoiceId));
+
+      if (!invoice) {
+        return { kind: "invoice_not_found" as const };
+      }
+
+      if (invoice.studentId !== payment.studentId) {
+        return { kind: "student_mismatch" as const };
+      }
+
+      if (Math.abs(Number(invoice.amount) - Number(payment.amount)) > 0.004) {
+        return { kind: "amount_mismatch" as const, invoiceAmount: Number(invoice.amount) };
+      }
+
+      if (invoice.status === "paid") {
+        return { kind: "invoice_already_paid" as const };
+      }
+
+      const [reconciledPayment] = await tx
+        .update(payments)
+        .set({ status: "reconciled" })
+        .where(eq(payments.id, payment.id))
+        .returning();
+
+      await tx.update(invoices).set({ status: "paid" }).where(eq(invoices.id, invoice.id));
+      await tx.insert(studentLedger).values({
+        studentId: payment.studentId,
+        entryType: "CREDIT",
+        voteHead: "Tuition",
+        amount: String(payment.amount),
+        description: `Payment reconciled: ${payment.transactionId}`,
+      });
+
+      return { kind: "reconciled" as const, payment: reconciledPayment, invoiceId: invoice.id };
+    });
+
+    if (result.kind === "not_found") {
+      return res.status(404).json({ error: "Payment not found.", code: "PAYMENT_NOT_FOUND" });
+    }
+    if (result.kind === "invoice_required") {
+      return res.status(422).json({ error: "This payment has no linked invoice to reconcile.", code: "PAYMENT_INVOICE_REQUIRED" });
+    }
+    if (result.kind === "invoice_not_found") {
+      return res.status(422).json({ error: "The invoice linked to this payment no longer exists.", code: "PAYMENT_INVOICE_NOT_FOUND" });
+    }
+    if (result.kind === "student_mismatch") {
+      return res.status(422).json({ error: "The payment and linked invoice belong to different students.", code: "PAYMENT_INVOICE_STUDENT_MISMATCH" });
+    }
+    if (result.kind === "amount_mismatch") {
+      return res.status(422).json({
+        error: `Payment amount does not match the invoice amount (KES ${result.invoiceAmount.toLocaleString()}).`,
+        code: "PAYMENT_INVOICE_AMOUNT_MISMATCH",
+      });
+    }
+    if (result.kind === "invoice_already_paid") {
+      return res.status(409).json({ error: "The linked invoice is already paid.", code: "INVOICE_ALREADY_PAID" });
+    }
+
+    res.status(200).json({
+      success: true,
+      alreadyReconciled: result.kind === "already_reconciled",
+      message: result.kind === "already_reconciled" ? "Payment was already reconciled." : "Payment reconciled successfully.",
+      payment: { ...result.payment, amount: Number(result.payment.amount) },
+      invoiceId: result.kind === "reconciled" ? result.invoiceId : result.payment.invoiceId,
+    });
+  } catch (error: any) {
+    const requestId = crypto.randomUUID();
+    console.error(`[${requestId}] Payment reconciliation failed`, {
+      paymentId,
+      message: error?.message,
+      code: error?.cause?.code || error?.code,
+      constraint: error?.cause?.constraint,
+      detail: error?.cause?.detail,
+    });
+    res.status(500).json({
+      error: "Payment reconciliation could not be completed. Please try again.",
+      code: "PAYMENT_RECONCILIATION_FAILED",
+      requestId,
+    });
   }
 });
 

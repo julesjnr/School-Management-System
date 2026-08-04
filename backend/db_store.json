@@ -147,7 +147,7 @@
           "description": "[Tuition] pay fees before start of semester",
           "amount": 20000,
           "date": "2026-07-30",
-          "status": "unpaid"
+          "status": "paid"
         },
         {
           "id": "b6f75882-5358-4772-b0f7-a7f388658299",
@@ -167,7 +167,7 @@
           "paymentMethod": "M-Pesa",
           "transactionId": "QZIPV5P81",
           "date": "2026-07-30",
-          "status": "unreconciled"
+          "status": "reconciled"
         },
         {
           "id": "65fe8f55-4627-4ce8-aac1-28f67d88f797",
@@ -240,24 +240,6 @@
   "reservations": [],
   "notifications": [
     {
-      "id": "afce5cd0-a3a8-4a63-8b91-a385e021c89e",
-      "targetUserRole": "all",
-      "type": "payment",
-      "title": " [Invoice Generated] New Billing Invoice #INV-8830",
-      "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
-      "status": "unread",
-      "dateTime": "2026-07-26 12:15:22+00"
-    },
-    {
-      "id": "09133505-00aa-4e03-b4fb-e42ad91ffa9a",
-      "targetUserRole": "all",
-      "type": "payment",
-      "title": " [Invoice Generated] New Billing Invoice #INV-974178",
-      "message": "Brian Otieno (brian.otieno@zenti.edu): Dear Brian Otieno,",
-      "status": "unread",
-      "dateTime": "2026-07-30 14:11:21+00"
-    },
-    {
       "id": "77689915-b300-4fc2-b6ab-b8fa4ce9cd72",
       "targetUserRole": "all",
       "type": "library",
@@ -292,6 +274,24 @@
       "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
       "status": "unread",
       "dateTime": "2026-07-26 13:15:08+00"
+    },
+    {
+      "id": "afce5cd0-a3a8-4a63-8b91-a385e021c89e",
+      "targetUserRole": "all",
+      "type": "payment",
+      "title": " [Invoice Generated] New Billing Invoice #INV-8830",
+      "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
+      "status": "unread",
+      "dateTime": "2026-07-26 12:15:22+00"
+    },
+    {
+      "id": "09133505-00aa-4e03-b4fb-e42ad91ffa9a",
+      "targetUserRole": "all",
+      "type": "payment",
+      "title": " [Invoice Generated] New Billing Invoice #INV-974178",
+      "message": "Brian Otieno (brian.otieno@zenti.edu): Dear Brian Otieno,",
+      "status": "unread",
+      "dateTime": "2026-07-30 14:11:21+00"
     }
   ],
   "student_ledger": [

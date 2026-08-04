@@ -1029,12 +1029,15 @@ export default function FinanceSuite({
       const res = await fetch(`/api/finance/payments/${paymentId}/reconcile`, { method: "PATCH" });
       if (res.ok) {
         await Promise.all([fetchPayments(), fetchFinanceStudents(), fetchAudits()]);
+        onReconcilePayment(paymentId);
         showToast('Payment approved & reconciled successfully.', 'success', { title: 'Payment reconciled' });
       } else {
-        throw new Error("Failed to reconcile payment");
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Payment reconciliation failed (HTTP ${res.status}).`);
       }
-    } catch (err) {
-      showToast('Failed to reconcile payment. Please try again.', 'error');
+    } catch (err: any) {
+      console.error("Payment reconciliation failed:", { paymentId, message: err?.message });
+      showToast(err?.message || 'Failed to reconcile payment. Please try again.', 'error', { title: 'Payment reconciliation failed' });
     }
   };
 
