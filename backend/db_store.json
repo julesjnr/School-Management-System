@@ -188,6 +188,26 @@
   "inventory": [],
   "lecturers": [
     {
+      "id": "8a46b030-262f-4f4d-bae5-94663afd2b72",
+      "name": "James Ndirangu",
+      "email": "Ndirangu@zenti.edu",
+      "phone": "07354435324",
+      "hourlyRate": 70,
+      "loggedHours": 80,
+      "bankDetails": "NCBA Bank Kenya - 04537836579 (Nairobi Central)",
+      "contractLength": "Permanent",
+      "designatorCode": "STF-2026-002",
+      "bio": "",
+      "avatar": "",
+      "isActive": true,
+      "isAccountant": true,
+      "isLibrarian": false,
+      "subjects": [],
+      "publications": [],
+      "researchInterests": [],
+      "officeHours": []
+    },
+    {
       "id": "09140292-7e95-453d-9f80-8f61c1419222",
       "name": "mercy mueni",
       "email": "mueni@zenti.edu",
@@ -208,26 +228,6 @@
       "publications": [],
       "researchInterests": [],
       "officeHours": []
-    },
-    {
-      "id": "8a46b030-262f-4f4d-bae5-94663afd2b72",
-      "name": "James Ndirangu",
-      "email": "Ndirangu@zenti.edu",
-      "phone": "07354435324",
-      "hourlyRate": 70,
-      "loggedHours": 80,
-      "bankDetails": "NCBA Bank Kenya - 04537836579 (Nairobi Central)",
-      "contractLength": "Permanent",
-      "designatorCode": "STF-2026-002",
-      "bio": "",
-      "avatar": "",
-      "isActive": true,
-      "isAccountant": true,
-      "isLibrarian": false,
-      "subjects": [],
-      "publications": [],
-      "researchInterests": [],
-      "officeHours": []
     }
   ],
   "examPapers": [],
@@ -239,6 +239,24 @@
   "requisitions": [],
   "reservations": [],
   "notifications": [
+    {
+      "id": "afce5cd0-a3a8-4a63-8b91-a385e021c89e",
+      "targetUserRole": "all",
+      "type": "payment",
+      "title": " [Invoice Generated] New Billing Invoice #INV-8830",
+      "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
+      "status": "unread",
+      "dateTime": "2026-07-26 12:15:22+00"
+    },
+    {
+      "id": "09133505-00aa-4e03-b4fb-e42ad91ffa9a",
+      "targetUserRole": "all",
+      "type": "payment",
+      "title": " [Invoice Generated] New Billing Invoice #INV-974178",
+      "message": "Brian Otieno (brian.otieno@zenti.edu): Dear Brian Otieno,",
+      "status": "unread",
+      "dateTime": "2026-07-30 14:11:21+00"
+    },
     {
       "id": "77689915-b300-4fc2-b6ab-b8fa4ce9cd72",
       "targetUserRole": "all",
@@ -274,24 +292,6 @@
       "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
       "status": "unread",
       "dateTime": "2026-07-26 13:15:08+00"
-    },
-    {
-      "id": "afce5cd0-a3a8-4a63-8b91-a385e021c89e",
-      "targetUserRole": "all",
-      "type": "payment",
-      "title": " [Invoice Generated] New Billing Invoice #INV-8830",
-      "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
-      "status": "unread",
-      "dateTime": "2026-07-26 12:15:22+00"
-    },
-    {
-      "id": "09133505-00aa-4e03-b4fb-e42ad91ffa9a",
-      "targetUserRole": "all",
-      "type": "payment",
-      "title": " [Invoice Generated] New Billing Invoice #INV-974178",
-      "message": "Brian Otieno (brian.otieno@zenti.edu): Dear Brian Otieno,",
-      "status": "unread",
-      "dateTime": "2026-07-30 14:11:21+00"
     }
   ],
   "student_ledger": [

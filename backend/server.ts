@@ -481,8 +481,9 @@ async function performDatabaseSync(dbState: any): Promise<void> {
   lastSaveTime = Date.now();
 
   try {
-    const tx = db;
-    // await db.transaction(async (tx) => {
+    // Full-state sync touches many tables. Keep it on one pooled connection and
+    // roll it back as a unit if the database connection is interrupted.
+    await db.transaction(async (tx) => {
     // 1. Courses
     if (dbState.courses) {
       const ids = dbState.courses.map((c: any) => c.id).filter(Boolean);
@@ -1139,6 +1140,7 @@ async function performDatabaseSync(dbState: any): Promise<void> {
         },
       });
 
+    });
     syncFailureCount = 0; // Reset on successful write
   } catch (err: any) {
     syncFailureCount++;

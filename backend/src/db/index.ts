@@ -9,9 +9,13 @@ import * as schema from './schema.ts';
 export const createPool = () => {
   const connectionString = process.env.DATABASE_URL;
 
-  const max = Number(process.env.DB_POOL_MAX) || 10;
-  const connectionTimeoutMillis = Number(process.env.DB_CONNECTION_TIMEOUT_MS) || 15000;
-  const idleTimeoutMillis = Number(process.env.DB_IDLE_TIMEOUT_MS) || 10000;
+  // Supabase session poolers enforce comparatively small connection limits.  A
+  // small application pool prevents concurrent startup reads/syncs from
+  // exhausting those sessions and makes every connection reusable.
+  const max = Number(process.env.DB_POOL_MAX) || 3;
+  const connectionTimeoutMillis = Number(process.env.DB_CONNECTION_TIMEOUT_MS) || 30000;
+  const idleTimeoutMillis = Number(process.env.DB_IDLE_TIMEOUT_MS) || 30000;
+  const maxLifetimeSeconds = Number(process.env.DB_MAX_LIFETIME_SECONDS) || 300;
 
   if (connectionString) {
     return new Pool({
@@ -21,6 +25,7 @@ export const createPool = () => {
       max,
       min: 0,
       idleTimeoutMillis,
+      maxLifetimeSeconds,
       keepAlive: true,
       keepAliveInitialDelayMillis: 5000,
     });
@@ -37,6 +42,7 @@ export const createPool = () => {
     max,
     min: 0,
     idleTimeoutMillis,
+    maxLifetimeSeconds,
     keepAlive: true,
     keepAliveInitialDelayMillis: 5000,
   });
