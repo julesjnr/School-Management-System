@@ -26,6 +26,22 @@ export function verifyPassword(input: string, stored: string): boolean {
   return bcrypt.compareSync(input, stored);
 }
 
+/** Canonical role names used at the authentication boundary. Legacy aliases
+ * remain accepted so existing accountant/admin accounts continue to work. */
+export function canonicalPortalRole(role: string | undefined | null): string {
+  const normalized = String(role || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (normalized === 'admin' || normalized === 'superadmin' || normalized === 'super_admin') return 'super_admin';
+  if (normalized === 'accountant' || normalized === 'finance' || normalized === 'finance_officer') return 'finance_officer';
+  if (normalized === 'admissions' || normalized === 'admissions_officer') return 'admissions_officer';
+  return normalized;
+}
+
+export function portalRoleMatches(expectedPortal: string | undefined, actualRole: string | undefined): boolean {
+  const expected = canonicalPortalRole(expectedPortal);
+  const actual = canonicalPortalRole(actualRole);
+  return Boolean(expected && actual && expected === actual);
+}
+
 /** An expected, safe-to-return failure from an administrator password reset. */
 export class PasswordResetError extends Error {
   constructor(
@@ -353,6 +369,7 @@ export async function authenticateUser(params: {
   identifier: string;
   passcode: string;
   roleHint?: string;
+  expectedRole?: string;
   jwtSecret: string;
   getProfileFn?: (role: string, roleId: string | null, email: string) => Promise<any>;
 }): Promise<{
@@ -365,10 +382,12 @@ export async function authenticateUser(params: {
   token?: string;
   refreshToken?: string;
   profile?: any;
+  actualRole?: string;
+  roleMismatch?: boolean;
   message?: string;
   error?: string;
 }> {
-  const { identifier, passcode, roleHint, jwtSecret, getProfileFn } = params;
+  const { identifier, passcode, roleHint, expectedRole, jwtSecret, getProfileFn } = params;
 
   if (!identifier || !passcode) {
     return { success: false, error: "Missing required identity or password." };
@@ -391,6 +410,18 @@ export async function authenticateUser(params: {
     return { success: false, error: "Invalid username or password." };
   }
 
+  // Role validation must happen after credentials but before last_login,
+  // password-change responses, profile loading, or token creation.
+  const userRole = user.role as string;
+  if (expectedRole && !portalRoleMatches(expectedRole, userRole)) {
+    return {
+      success: false,
+      error: "Invalid credentials for this portal.",
+      actualRole: userRole,
+      roleMismatch: true,
+    };
+  }
+
   // Update last_login timestamp
   try {
     await db.execute(sql`
@@ -399,8 +430,6 @@ export async function authenticateUser(params: {
   } catch (e) {}
 
   const profileId = user.role_id || user.username || String(user.id);
-  const userRole = user.role;
-
   // Check if password change is required on first login
   if (user.must_change_password === true) {
     return {

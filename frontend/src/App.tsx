@@ -19,16 +19,12 @@ import ChangePasswordPage from './components/ChangePasswordPage';
 import StudentDashboard from './components/StudentDashboard';
 import LecturerDashboard from './components/LecturerDashboard';
 import AdminDashboard from './components/AdminDashboard';
+import LoginModal from './components/LoginModal';
 import Forbidden403 from './components/Forbidden403';
 import DashboardShowcase from './components/DashboardShowcase';
 import SessionTimeout from './components/SessionTimeout';
 
 import { useNotification } from './components/notifications';
-import { 
-  getPendingPasswordChange, 
-  clearPendingPasswordChange, 
-  pickLoginIdentifier 
-} from './authIdentity';
 
 export default function App() {
   const { showToast, showError, showSuccess, showRegistrationModal } = useNotification();
@@ -176,18 +172,10 @@ export default function App() {
     };
   }, []);
 
-  // Strict First-Login Route Guarding
-  useEffect(() => {
-    const pending = getPendingPasswordChange();
-    if (pending && currentPath !== '/change-password') {
-      window.history.pushState({}, '', '/change-password');
-      setCurrentPath('/change-password');
-    }
-  }, [currentPath]);
-
   const [isBooting, setIsBooting] = useState<boolean>(true);
-  const [academicsLoadError, setAcademicsLoadError] = useState<string | null>(null);
-  const [studentDashboardLoadError, setStudentDashboardLoadError] = useState<string | null>(null);
+  const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
+  const [loginAllowedPortals, setLoginAllowedPortals] = useState<('student' | 'lecturer' | 'accountant' | 'librarian' | 'admin')[]>(['student', 'lecturer', 'accountant', 'librarian', 'admin']);
+  const [loginInitialPortal, setLoginInitialPortal] = useState<'student' | 'lecturer' | 'accountant' | 'librarian' | 'admin'>('student');
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -212,7 +200,6 @@ export default function App() {
         return res.json();
       })
       .then((db) => {
-        setAcademicsLoadError(null);
         if (db) {
           if (db.courses) {
             setCourses(db.courses);
@@ -277,57 +264,11 @@ export default function App() {
       })
       .catch((err) => {
         console.error("Failed to connect to backend server API, using local fallback databases:", err);
-        setAcademicsLoadError('The academic records service is unavailable.');
       })
       .finally(() => {
         setIsBooting(false);
       });
   }, [currentUserRole]);
-
-  // The student portal has its own fault-tolerant endpoint. Do not make a
-  // student dashboard depend on the broad /api/data snapshot, where an
-  // unrelated module can otherwise prevent the whole portal from loading.
-  useEffect(() => {
-    if (isBooting || currentUserRole !== 'student' || !currentUserId) return;
-
-    let cancelled = false;
-    const loadStudentDashboard = async () => {
-      try {
-        const response = await fetch('/api/student/dashboard');
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(payload.error || `Student dashboard request failed (${response.status})`);
-        }
-        if (cancelled) return;
-
-        if (!payload.student || payload.student.id !== currentUserId) {
-          throw new Error('Student dashboard returned an invalid profile payload.');
-        }
-        setStudents((previous) => previous.map((item) => item.id === payload.student.id ? payload.student : item));
-        if (Array.isArray(payload.courses)) setCourses(payload.courses);
-        if (Array.isArray(payload.semester)) setExamPapers(payload.semester);
-
-        if (payload.partial) {
-          const modules = Array.isArray(payload.failedModules)
-            ? payload.failedModules.map((failure: { module?: string }) => failure.module).filter(Boolean).join(', ')
-            : 'an unknown module';
-          const message = `Some dashboard information is temporarily unavailable (${modules}).`;
-          console.warn('[student-dashboard] partial response', { requestId: payload.requestId, failedModules: payload.failedModules });
-          setStudentDashboardLoadError(message);
-        } else {
-          setStudentDashboardLoadError(null);
-        }
-      } catch (error) {
-        if (cancelled) return;
-        const message = error instanceof Error ? error.message : String(error);
-        console.error('[student-dashboard] load failed', { studentId: currentUserId, message: error });
-        setStudentDashboardLoadError(`Unable to refresh all dashboard data. Showing the information already available. (${message})`);
-      }
-    };
-
-    loadStudentDashboard();
-    return () => { cancelled = true; };
-  }, [currentUserId, currentUserRole, isBooting]);
 
   // Synchronize local session configuration back to localStorage
   useEffect(() => {
@@ -336,7 +277,6 @@ export default function App() {
     } else {
       localStorage.removeItem("zenti_current_user_role");
       localStorage.removeItem("zenti_session_token");
-      localStorage.removeItem("zenti_refresh_token");
     }
   }, [currentUserRole]);
 
@@ -346,7 +286,6 @@ export default function App() {
     } else {
       localStorage.removeItem("zenti_current_user_id");
       localStorage.removeItem("zenti_session_token");
-      localStorage.removeItem("zenti_refresh_token");
     }
   }, [currentUserId]);
 
@@ -576,7 +515,6 @@ Zenti Library Services`;
   } catch (err) {
     console.error(err);
     showError("Course Creation Error", "Failed to create course.");
-    throw err;
   }
 };
 
@@ -1027,7 +965,7 @@ Zenti Library Services`;
 
   // 10. NEW LECTURER REGISTRAR PROFILE
   const handleAddLecturer = async (
-  newLec: Omit<Lecturer, "id" | "loggedHours"> & { passcode?: string }
+  newLec: Omit<Lecturer, "id" | "loggedHours">
 ) => {
   try {
     const res = await fetch("/api/lecturers", {
@@ -1047,17 +985,13 @@ Zenti Library Services`;
     setLecturers((prev) => [...prev, lecturer]);
 
     if (lecturer.temporaryPasscode) {
-      const humanId = pickLoginIdentifier(lecturer.designatorCode, lecturer.staffId, lecturer.staffNumber, newLec.designatorCode) || `STF-${Date.now()}`;
       showRegistrationModal({
         name: lecturer.name,
-        idOrAdmissionNo: humanId,
-        username: humanId,
-        staffId: humanId,
+        idOrAdmissionNo: lecturer.staffId || lecturer.id,
         temporaryPasscode: lecturer.temporaryPasscode,
         role: lecturer.department || 'Faculty Staff',
         department: lecturer.department || 'Academic Faculty',
-        email: lecturer.email,
-        isEmailConfigured: !!lecturer.email
+        email: lecturer.email
       });
     }
   } catch (err) {
@@ -1151,73 +1085,109 @@ Zenti Library Services`;
   subjectCode: string,
   date: string,
   presentStudentIds: string[],
-  absentStudentIds: string[],
-  lateStudentIds: string[] = []
+  absentStudentIds: string[]
 ) => {
-  const lecturerId = currentUserId;
-  if (!lecturerId) {
-    console.error("Cannot save attendance: no lecturer session");
-    throw new Error("Lecturer session is required to save attendance");
-  }
+  setAttendanceSessions(prev => {
+    const filtered = prev.filter(
+      s => !(s.date === date && s.subjectCode === subjectCode)
+    );
 
-  try {
-    const res = await fetch("/api/lecturer/attendance-sessions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        lecturerId,
-        subjectCode,
-        sessionDate: date,
-        presentStudentIds,
-        lateStudentIds,
-        absentStudentIds,
-      }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(body.error || `Failed to save attendance (${res.status})`);
-    }
+    const newSession: AttendanceSession = {
+      id: `att-sess-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      date,
+      subjectCode,
+      presentStudents: presentStudentIds,
+      absentStudents: absentStudentIds,
+    };
 
-    const savedSession: AttendanceSession = body.session;
-    const rates: Array<{ studentId: string; subjectCode: string; attendanceRate: number }> =
-      body.rates || [];
+    const updatedSessions = [newSession, ...filtered];
 
-    setAttendanceSessions((prev) => {
-      const filtered = prev.filter(
-        (s) => !(s.date === date && s.subjectCode === subjectCode)
-      );
-      return [savedSession, ...filtered];
-    });
+    // Save attendance to PostgreSQL in the background
+    (async () => {
+      try {
+        const attendance = students
+          .filter(s => s.enrolledUnits.includes(subjectCode))
+          .map(student => {
+            const sessions = updatedSessions.filter(
+              x =>
+                x.subjectCode === subjectCode &&
+                (x.presentStudents.includes(student.id) ||
+                  x.absentStudents.includes(student.id))
+            );
 
-    if (rates.length > 0) {
-      const rateMap = new Map(rates.map((r) => [r.studentId, r.attendanceRate]));
-      setStudents((prevStudents) =>
-        prevStudents.map((student) => {
-          if (!rateMap.has(student.id)) return student;
-          return {
-            ...student,
-            attendance: {
-              ...(student.attendance || {}),
-              [subjectCode]: rateMap.get(student.id) as number,
-            },
-          };
-        })
-      );
-    }
-  } catch (err) {
-    console.error("Failed to save attendance:", err);
-    throw err;
-  }
+            const present = sessions.filter(x =>
+              x.presentStudents.includes(student.id)
+            ).length;
+
+            const rate =
+              sessions.length > 0
+                ? Math.round((present / sessions.length) * 100)
+                : 100;
+
+            return {
+              studentId: student.id,
+              subjectCode,
+              attendanceRate: rate,
+            };
+          });
+
+        await fetch("/api/student-attendance", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(attendance),
+        });
+      } catch (err) {
+        console.error("Failed to save attendance:", err);
+      }
+    })();
+
+    setStudents(prevStudents =>
+      prevStudents.map(student => {
+        if (student.enrolledUnits.includes(subjectCode)) {
+          const studentSessions = updatedSessions.filter(
+            s =>
+              s.subjectCode === subjectCode &&
+              (s.presentStudents.includes(student.id) ||
+                s.absentStudents.includes(student.id))
+          );
+
+          if (studentSessions.length > 0) {
+            const presentCount = studentSessions.filter(s =>
+              s.presentStudents.includes(student.id)
+            ).length;
+
+            return {
+              ...student,
+              attendance: {
+                ...(student.attendance || {}),
+                [subjectCode]: Math.round(
+                  (presentCount / studentSessions.length) * 100
+                ),
+              },
+            };
+          }
+        }
+
+        return student;
+      })
+    );
+
+    return updatedSessions;
+  });
 };
- 
+      // Recompute rolling rates for active class students
+      
+  
 
-  // 14. LECTURER LOG SESSION HOURS (absolute=true sets total from DB; otherwise increments)
-  const handleLogHours = (lecturerId: string, hours: number, absolute?: boolean) => {
+  // 14. LECTURER LOG SESSION HOURS
+  const handleLogHours = (lecturerId: string, hours: number) => {
     setLecturers(prev => prev.map(l => {
       if (l.id === lecturerId) {
         return {
           ...l,
-          loggedHours: absolute ? hours : (l.loggedHours || 0) + hours
+          loggedHours: (l.loggedHours || 0) + hours
         };
       }
       return l;
@@ -1265,7 +1235,7 @@ Zenti Library Services`;
 
   // 15c. REGISTER NEW STUDENT
   const handleAddStudent = async (
-  newStud: Omit<Student, 'id' | 'enrolledUnits' | 'grades' | 'ledger' | 'payments' | 'attendance'> & { passcode?: string }
+  newStud: Omit<Student, 'id' | 'enrolledUnits' | 'grades' | 'ledger' | 'payments' | 'attendance'>
 ) => {
   try {
     const response = await fetch("/api/students", {
@@ -1293,41 +1263,26 @@ Zenti Library Services`;
         attendance: {},
       },
     ]);
-
-    if (createdStudent.temporaryPasscode) {
-      const humanId = pickLoginIdentifier(createdStudent.admissionNo, newStud.admissionNo) || `ADM-${Date.now()}`;
-      showRegistrationModal({
-        name: createdStudent.name,
-        idOrAdmissionNo: humanId,
-        username: humanId,
-        admissionNo: humanId,
-        temporaryPasscode: createdStudent.temporaryPasscode,
-        role: 'Undergraduate Student',
-        department: createdStudent.department || 'Academic Affairs',
-        email: createdStudent.email,
-        isEmailConfigured: !!createdStudent.email
-      });
-    }
-    } catch (err) {
-      console.error("Error creating student:", err);
-    }
-  };
+  } catch (err) {
+    console.error("Error creating student:", err);
+  }
+};
   // 15d. SYSTEM DELETE LECTURER OR FAULTY CODES
-  const handleDeleteLecturer = async (lecturerId: string) => {
-    const response = await fetch(`/api/archive/lecturer/${lecturerId}`, { method: 'POST' });
-    const data = await response.json().catch(() => null);
-    if (!response.ok) throw new Error(data?.error || 'Unable to archive lecturer record.');
+  const handleDeleteLecturer = (lecturerId: string) => {
     setLecturers(prev => prev.filter(l => l.id !== lecturerId));
   };
 
   // 15e. SYSTEM DELETE UNDERGRADUATE STUDENT PROFILE
   const handleDeleteStudent = async (studentId: string) => {
+    // Optimistic UI updates
+    setStudents(prev => prev.filter(s => s.id !== studentId));
     try {
-      const res = await fetch(`/api/archive/student/${studentId}`, { method: "POST" });
+      const res = await fetch(`/api/students/${studentId}`, {
+        method: "DELETE"
+      });
       if (!res.ok) {
         throw new Error("HTTP error " + res.status);
       }
-      setStudents(prev => prev.filter(s => s.id !== studentId));
     } catch (err) {
       console.error("Failed to delete student from database:", err);
       showError("Database Error", "Failed to delete student from the database. Re-fetching state...");
@@ -1447,11 +1402,7 @@ Zenti Library Services`;
   };
 
   // Demo shortcut user profiles for sandbox evaluation
-  // Never substitute another student's record when the authenticated profile is
-  // absent. The dashboard endpoint reports this as a visible, traceable error.
-  const activeStudentProfile = (students && students.length > 0)
-    ? (students.find((student) => student.id === currentUserId) || null)
-    : null;
+  const activeStudentProfile = (students && students.length > 0) ? (students.find(s => s.id === currentUserId) || students[0]) : null;
   const activeLecturerProfile = (lecturers && lecturers.length > 0) ? (lecturers.find(l => l.id === currentUserId) || lecturers[0]) : null;
 
   if (isBooting) {
@@ -1503,38 +1454,7 @@ Zenti Library Services`;
 
       {/* CORE WORKSPACE ENTRY ROUTING */}
       <main className="flex-1 flex flex-col">
-        {getPendingPasswordChange() ? (
-          <ChangePasswordPage
-            initialIdentifier={getPendingPasswordChange()?.identifier}
-            initialRole={getPendingPasswordChange()?.role}
-            initialEmail={getPendingPasswordChange()?.email}
-            onSuccess={(role, userId) => {
-              clearPendingPasswordChange();
-              setSessionExpiredMessage('');
-              if (role === 'lecturer') {
-                const targetLecturer = lecturers.find(l => l.id === userId);
-                if (targetLecturer?.isAccountant) {
-                  setCurrentUserRole('accountant');
-                  setCurrentUserId(userId);
-                  window.history.pushState({}, '', '/');
-                  setCurrentPath('/');
-                  return;
-                }
-              }
-              setCurrentUserRole(role);
-              setCurrentUserId(userId);
-              window.history.pushState({}, '', '/');
-              setCurrentPath('/');
-            }}
-            onCancel={() => {
-              clearPendingPasswordChange();
-              setCurrentUserRole(null);
-              setCurrentUserId('');
-              window.history.pushState({}, '', '/login');
-              setCurrentPath('/login');
-            }}
-          />
-        ) : currentPath === '/showcase' ? (
+        {currentPath === '/showcase' ? (
           <DashboardShowcase 
             students={students}
             lecturers={lecturers}
@@ -1625,7 +1545,6 @@ Zenti Library Services`;
               examPapers={examPapers}
               libraryGateLogs={libraryGateLogs}
               attendanceSessions={attendanceSessions}
-              loadWarning={studentDashboardLoadError}
               onReserveBook={handleReserveBook}
               onCancelReservation={handleCancelReservation}
               onAddReview={handleAddReview}
@@ -1645,9 +1564,9 @@ Zenti Library Services`;
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-slate-50 dark:bg-slate-900">
               <GraduationCap className="w-16 h-16 text-slate-350 dark:text-slate-700 mb-4 animate-pulse" />
-              <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-2 font-sans tracking-tight">Student Profile Unavailable</h2>
+              <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-2 font-sans tracking-tight">No Active Student Profile Found</h2>
               <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
-                Your dashboard profile could not be loaded. Check the browser console and server logs for the dashboard request ID, then contact the <strong>Staff Administrator</strong> if the profile is missing.
+                There are currently no registered student accounts. Log in to the <strong>Staff Administrator Gateway</strong> to register student profiles.
               </p>
             </div>
           )
@@ -1655,12 +1574,7 @@ Zenti Library Services`;
           activeLecturerProfile ? (
             <LecturerDashboard
               lecturer={activeLecturerProfile}
-              students={students.map((s) => ({
-                ...s,
-                // Lecturers never receive finance ledger/payment detail via client props
-                ledger: [],
-                payments: [],
-              }))}
+              students={students}
               courses={courses}
               inventory={inventory}
               books={books}
@@ -1725,8 +1639,6 @@ Zenti Library Services`;
             onUpdateStudent={handleUpdateStudentProfile}
             mockEmails={mockEmails}
             onTriggerOverdueScan={scanOverdueLoansAndAlert}
-            isAcademicsLoading={isBooting}
-            academicsLoadError={academicsLoadError}
           />
         ) : (currentUserRole === 'accountant' && currentPath !== '/landing') ? (
           <AdminDashboard

@@ -1418,6 +1418,21 @@ async function writeAdminAudit(req: any, action: string, resourceType: string, r
   }
 }
 
+async function recordRoleMismatchLoginAttempt(req: any, identifier: string, attemptedPortal: string, actualRole: string) {
+  const ipAddress = String(req.headers['x-forwarded-for'] || req.ip || req.connection?.remoteAddress || '').split(',')[0].trim();
+  try {
+    await db.execute(sql`INSERT INTO admin_audit_logs (actor_id, actor_role, action, resource_type, resource_id, details)
+      VALUES (${null}, ${null}, 'login.role_mismatch', 'auth', ${identifier || null}, ${JSON.stringify({
+        attemptedPortal,
+        actualRole,
+        ipAddress,
+        timestamp: new Date().toISOString(),
+      })}::jsonb)`);
+  } catch (error: any) {
+    console.error("[auth] failed to record role mismatch login attempt", { identifier, attemptedPortal, actualRole, error: error?.message });
+  }
+}
+
 async function queueEmail(eventKey: string, recipient: string, subject: string, body: string) {
   try {
     await db.execute(sql`INSERT INTO email_outbox (event_key, recipient, subject, body)
@@ -1837,11 +1852,17 @@ app.post("/api/auth/login", async (req: any, res: any) => {
       identifier: inputIdentifier,
       passcode: inputPasscode,
       roleHint: role,
+      expectedRole: role,
       jwtSecret: JWT_SECRET,
       getProfileFn: getProfileForUser
     });
 
     if (!result.success) {
+      if (result.roleMismatch) {
+        await recordRoleMismatchLoginAttempt(req, inputIdentifier, role, result.actualRole || 'unknown');
+        res.status(403).json({ success: false, error: "Invalid credentials for this portal." });
+        return;
+      }
       res.status(401).json({ success: false, error: result.error || "Authentication failed." });
       return;
     }

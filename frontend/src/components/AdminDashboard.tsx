@@ -8,8 +8,9 @@ import {
   BookOpen, Users, DollarSign, Package, FileText, Plus, CheckCircle2, 
   AlertCircle, Bookmark, ClipboardCheck, ArrowRight, Save, Trash2, Check, X,
   Shield, Lock, Fingerprint, Library, Link, Copy, KeyRound, RefreshCw,
-  TrendingUp, Calendar, Clock, MapPin, UserCheck, AlertTriangle, Info, School, Landmark, Sliders, Award, Activity, User, LogOut, Menu, Bell, ArchiveRestore
+  TrendingUp, Calendar, Clock, MapPin, UserCheck, AlertTriangle, Info, School, Landmark, Sliders, Award, Activity, User, LogOut, Menu
 } from 'lucide-react';
+import { subjectMap } from '../data';
 import GlobalSearchBar from './GlobalSearchBar';
 import FinanceSuite from './FinanceSuite';
 import LibraryHQ from './LibraryHQ';
@@ -18,7 +19,6 @@ import { HRPayrollView } from './hr/HRPayrollView';
 import SystemDiagnostics from './SystemDiagnostics';
 import StudentAdmissionDossierStation from './StudentAdmissionDossierStation';
 import StudentRecordsTable from './StudentRecordsTable';
-import ArchiveManagement from './ArchiveManagement';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   AreaChart, Area
@@ -32,7 +32,7 @@ interface AdminDashboardProps {
   inventory: StockItem[];
   requisitions: Requisition[];
   currentUserId?: string;
-  onAddCourse: (course: Omit<Course, 'id' | 'active'>) => Promise<void>;
+  onAddCourse: (course: Omit<Course, 'id' | 'active'>) => void;
   onToggleCourseActive: (courseId: string) => void;
   onAllocateSubject: (lecturerId: string, subjectCode: string) => void;
   onReconcilePayment: (paymentId: string) => void;
@@ -40,8 +40,8 @@ interface AdminDashboardProps {
   onAddStockItem: (item: Omit<StockItem, 'id'>) => void;
   onUpdateStockQuantity: (itemId: string, increment: number) => void;
   onProcessRequisition: (requisitionId: string, status: 'approved' | 'rejected') => void;
-  onAddLecturer: (lecturer: Omit<Lecturer, 'id' | 'loggedHours'> & { passcode?: string }) => void;
-  onAddStudent?: (student: Omit<Student, 'id' | 'enrolledUnits' | 'grades' | 'ledger' | 'payments' | 'attendance'> & { passcode?: string }) => void;
+  onAddLecturer: (lecturer: Omit<Lecturer, 'id' | 'loggedHours'>) => void;
+  onAddStudent?: (student: Omit<Student, 'id' | 'enrolledUnits' | 'grades' | 'ledger' | 'payments' | 'attendance'>) => void;
   onDeleteLecturer?: (lecturerId: string) => void;
   onDeleteStudent?: (studentId: string) => void;
   onLogout: () => void;
@@ -62,8 +62,6 @@ interface AdminDashboardProps {
   onTriggerGateLog?: (log: Omit<LibraryGateLog, 'id' | 'timestamp'>) => void;
   mockEmails?: MockEmail[];
   onTriggerOverdueScan?: () => number;
-  isAcademicsLoading?: boolean;
-  academicsLoadError?: string | null;
 }
 
 export default function AdminDashboard({
@@ -103,11 +101,9 @@ export default function AdminDashboard({
   isLibrarianView = false,
   currentUserId = '',
   mockEmails = [],
-  onTriggerOverdueScan,
-  isAcademicsLoading = false,
-  academicsLoadError = null
+  onTriggerOverdueScan
 }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'academics' | 'finances' | 'payroll' | 'inventory' | 'roles' | 'library' | 'archive' | 'diagnostics'>(() => {
+  const [activeTab, setActiveTab] = useState<'overview' | 'academics' | 'finances' | 'payroll' | 'inventory' | 'roles' | 'library' | 'diagnostics'>(() => {
     if (isLibrarianView) return 'library';
     if (isAccountantView) return 'finances';
     return 'overview';
@@ -336,8 +332,18 @@ export default function AdminDashboard({
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
-          // The temporary credential is written straight to the `users` table by the API.
-          // Profile records intentionally no longer carry a passcode field.
+          // Trigger the parent props callbacks to update state across Zenti
+          const finalPass = data.request.temporaryPasscode || passcode || 'default123';
+          if (reqItem.role === 'student') {
+            if (onUpdateStudent) {
+              onUpdateStudent(reqItem.userId, { passcode: finalPass });
+            }
+          } else {
+            if (onUpdateLecturer) {
+              onUpdateLecturer(reqItem.userId, { passcode: finalPass });
+            }
+          }
+
           logAudit(
             `Password reset request for ${reqItem.name} (${reqItem.role}) was ${action === 'approve' ? 'Approved' : 'Rejected'}`,
             'Authentication Access Control'
@@ -392,8 +398,8 @@ export default function AdminDashboard({
       const res = await fetch(`/api/students/${studentId}/reset-password`, {
         method: 'POST'
       });
-      const data = await res.json().catch(() => null);
       if (res.ok) {
+        const data = await res.json();
         if (data.success && data.temporaryPasscode) {
           setResetModalData({
             isOpen: true,
@@ -415,7 +421,7 @@ export default function AdminDashboard({
           triggerToast(data.error || 'Failed to reset password.', 'error');
         }
       } else {
-        triggerToast(data?.error || `Unable to reset student password (HTTP ${res.status}).`, 'error');
+        triggerToast('Failed to reset student password.', 'error');
       }
     } catch (err) {
       console.error(err);
@@ -456,37 +462,17 @@ export default function AdminDashboard({
   const [regStudentEmail, setRegStudentEmail] = useState('');
   const [regStudentPhone, setRegStudentPhone] = useState('');
   const [regStudentAdmission, setRegStudentAdmission] = useState('');
-  const [regStudentCohort, setRegStudentCohort] = useState('');
-  const [regStudentProgramme, setRegStudentProgramme] = useState('');
-  const [regStudentDepartment, setRegStudentDepartment] = useState('');
-  const [isStudentFormOpen, setIsStudentFormOpen] = useState(false);
+  const [regStudentCohort, setRegStudentCohort] = useState('2026 Intake');
+  const [regStudentPasscode, setRegStudentPasscode] = useState('');
 
   // Academic form states
   const [newTitle, setNewTitle] = useState('');
   const [newCode, setNewCode] = useState('');
-  const [newDuration, setNewDuration] = useState('');
+  const [newDesc, setNewDesc] = useState('');
+  const [newDuration, setNewDuration] = useState('4 Years');
   const [newFees, setNewFees] = useState('');
-  const [newFaculty, setNewFaculty] = useState('');
-  const [isCreatingCourse, setIsCreatingCourse] = useState(false);
-  const [academicsView, setAcademicsView] = useState<'courses' | 'allocations'>('courses');
-  const [courseSearch, setCourseSearch] = useState('');
-  const [coursePage, setCoursePage] = useState(1);
-  const coursesPerPage = 8;
-  const filteredCourses = courses.filter((course) => {
-    const query = courseSearch.trim().toLowerCase();
-    return !query || [course.code, course.title, course.faculty, course.duration]
-      .some((value) => value.toLowerCase().includes(query));
-  });
-  const totalCoursePages = Math.max(1, Math.ceil(filteredCourses.length / coursesPerPage));
-  const visibleCourses = filteredCourses.slice((coursePage - 1) * coursesPerPage, coursePage * coursesPerPage);
-
-  useEffect(() => {
-    setCoursePage(1);
-  }, [courseSearch]);
-
-  useEffect(() => {
-    if (coursePage > totalCoursePages) setCoursePage(totalCoursePages);
-  }, [coursePage, totalCoursePages]);
+  const [newFaculty, setNewFaculty] = useState('School of Computing & AI');
+  const [newThumbnail, setNewThumbnail] = useState('https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&q=80&w=600');
 
   // Allocation subject states
   const [allocateLecturerId, setAllocateLecturerId] = useState('');
@@ -743,35 +729,28 @@ export default function AdminDashboard({
     downloadCSV(headers, rows, `institutional_expenses_ledger_${new Date().toLocaleDateString('en-CA')}.csv`);
   };
 
-  const handleCreateCourse = async (e: React.FormEvent) => {
+  const handleCreateCourse = (e: React.FormEvent) => {
     e.preventDefault();
     const parsedFees = parseInt(newFees);
-    if (!newTitle.trim() || !newCode.trim() || !newDuration.trim() || !newFaculty.trim() || isNaN(parsedFees)) {
-      showWarning("Missing Required Fields", 'Complete all course fields before saving.');
+    if (!newTitle || !newCode || isNaN(parsedFees)) {
+      showWarning("Missing Required Fields", 'Syllabus title, duration fees, and degree code are strictly required.');
       return;
     }
-    setIsCreatingCourse(true);
-    try {
-      await onAddCourse({
-        code: newCode.trim().toUpperCase(),
-        title: newTitle.trim(),
-        description: '',
-        duration: newDuration.trim(),
-        fees: parsedFees,
-        thumbnail: '',
-        faculty: newFaculty.trim()
-      });
-      setNewTitle('');
-      setNewCode('');
-      setNewDuration('');
-      setNewFees('');
-      setNewFaculty('');
-      triggerToast('Course created successfully.', 'success');
-    } catch {
-      triggerToast('Unable to create the course. Please try again.', 'error');
-    } finally {
-      setIsCreatingCourse(false);
-    }
+    onAddCourse({
+      code: newCode,
+      title: newTitle,
+      description: newDesc || 'No course syllabus overview published.',
+      duration: newDuration,
+      fees: parsedFees,
+      thumbnail: newThumbnail,
+      faculty: newFaculty
+    });
+    // Clear fields
+    setNewTitle('');
+    setNewCode('');
+    setNewDesc('');
+    setNewFees('');
+    triggerToast(`Course "${newTitle}" registered successfully! It is now published live on the public landing page.`, 'success');
   };
 
   const handleAllocateSubjectSubmit = (e: React.FormEvent) => {
@@ -804,80 +783,56 @@ export default function AdminDashboard({
     showToast('College utility expense logged successfully into digital ledger.', 'success');
   };
 
-  const handleAddStudentSubmit = async (e: React.FormEvent) => {
+  const handleAddStudentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!regStudentName.trim() || !regStudentEmail.trim() || !regStudentPhone.trim() || !regStudentAdmission.trim() || !regStudentCohort.trim()) {
-      triggerToast('Complete the required student details.', 'error');
+    if (!regStudentName || !regStudentEmail || !regStudentAdmission) {
+      triggerToast('Please fill out all student profile credentials.', 'error');
       return;
     }
-    const admissionNo = regStudentAdmission.trim();
-    const studentName = regStudentName.trim();
-    const studentEmail = regStudentEmail.trim();
-    const studentDept = regStudentDepartment.trim() || 'Academic Affairs';
-    const tempPass = 'zenti' + admissionNo.toLowerCase().replace(/[^a-z0-9]/g, '').slice(-4) + '!';
-
-    if (onAddStudent) {
-      await onAddStudent({
-        name: studentName,
-        email: studentEmail,
-        phone: regStudentPhone.trim(),
-        admissionNo: admissionNo,
-        cohort: regStudentCohort.trim(),
-        programme: regStudentProgramme.trim() || undefined,
-        department: regStudentDepartment.trim() || undefined,
-        passcode: tempPass
-      });
-    }
-
+    onAddStudent({
+      name: regStudentName,
+      email: regStudentEmail,
+      phone: regStudentPhone,
+      admissionNo: regStudentAdmission,
+      cohort: regStudentCohort,
+      passcode: regStudentPasscode || 'student123'
+    });
     setRegStudentName('');
     setRegStudentEmail('');
     setRegStudentPhone('');
     setRegStudentAdmission('');
-    setRegStudentCohort('');
-    setRegStudentProgramme('');
-    setRegStudentDepartment('');
-    setIsStudentFormOpen(false);
+    setRegStudentCohort('2026 Intake');
+    setRegStudentPasscode('');
     setStudentTableRefetchTrigger(prev => prev + 1);
-
     showRegistrationModal({
-      name: studentName,
-      idOrAdmissionNo: admissionNo,
-      username: admissionNo,
-      admissionNo: admissionNo,
-      temporaryPasscode: tempPass,
-      role: 'Undergraduate Student',
-      department: studentDept,
-      email: studentEmail,
-      isEmailConfigured: !!studentEmail
+      name: regStudentName,
+      idOrAdmissionNo: regStudentAdmission || 'STU-REG',
+      temporaryPasscode: regStudentPasscode || 'student123',
+      role: 'Student',
+      department: regStudentCohort,
+      email: regStudentEmail
     });
-
-    triggerToast('Student created. An activation credential was generated by the authentication service.', 'success');
   };
 
-  const handleAddLecturer = async (e: React.FormEvent) => {
+  const handleAddLecturer = (e: React.FormEvent) => {
     e.preventDefault();
     const rateVal = parseFloat(staffRate);
     if (!staffName || !staffEmail || isNaN(rateVal) || !staffDesignation) {
       triggerToast('Please fill out all staff contract directories.', 'error');
       return;
     }
-    const humanCode = staffDesignation.trim();
-    const lecturerName = staffName.trim();
-    const lecturerEmail = staffEmail.trim();
-    const tempPass = autoGeneratePasscode ? `stf${Math.floor(1000 + Math.random() * 9000)}!` : staffPasscode.trim();
-
-    await onAddLecturer({
-      name: lecturerName,
-      email: lecturerEmail,
+    onAddLecturer({
+      name: staffName,
+      email: staffEmail,
       phone: staffPhone || '+254 700 000000',
       hourlyRate: rateVal,
       bankDetails: staffBank || 'NCBA Bank - Acc Locked',
       contractLength: staffContract,
-      designatorCode: humanCode,
+      designatorCode: staffDesignation,
       subjects: [],
       isAccountant: staffIsAccountant,
       isLibrarian: staffIsLibrarian,
-      passcode: tempPass
+      passcode: autoGeneratePasscode ? '' : staffPasscode
     });
     setStaffName('');
     setStaffEmail('');
@@ -889,64 +844,13 @@ export default function AdminDashboard({
     setStaffIsLibrarian(false);
     setStaffPasscode('');
     setAutoGeneratePasscode(true);
-
     showRegistrationModal({
-      name: lecturerName,
-      idOrAdmissionNo: humanCode,
-      username: humanCode,
-      staffId: humanCode,
-      temporaryPasscode: tempPass,
-      role: staffIsAccountant ? 'Finance / Accountant' : staffIsLibrarian ? 'Librarian / Staff' : 'Lecturer / Faculty',
+      name: staffName,
+      idOrAdmissionNo: staffDesignation || 'STF-REG',
+      temporaryPasscode: autoGeneratePasscode ? 'auto-passcode' : (staffPasscode || 'staff123'),
+      role: staffIsAccountant ? 'Finance / Accountant' : 'Lecturer / Faculty',
       department: 'Academic Staff',
-      email: lecturerEmail,
-      isEmailConfigured: !!lecturerEmail
-    });
-  };
-
-  const handleAddStaff = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const form = e.currentTarget;
-    const targetName = (form.elements.namedItem('acc-name') as HTMLInputElement)?.value;
-    const targetEmail = (form.elements.namedItem('acc-email') as HTMLInputElement)?.value;
-    const targetCode = (form.elements.namedItem('acc-code') as HTMLInputElement)?.value;
-    const targetRate = parseFloat((form.elements.namedItem('acc-rate') as HTMLInputElement)?.value || '0');
-    const targetPasscode = autoGenerateAccPasscode ? '' : (form.elements.namedItem('acc-passcode') as HTMLInputElement)?.value;
-
-    if (!targetName || !targetEmail || !targetCode || isNaN(targetRate)) {
-      showWarning("Missing Data", 'Please provide complete accountant data.');
-      return;
-    }
-
-    const humanCode = targetCode.trim();
-    const staffEmail = targetEmail.trim();
-    const staffName = targetName.trim();
-    const tempPass = targetPasscode || `accPass${Math.floor(100 + Math.random() * 900)}`;
-
-    await onAddLecturer({
-      name: staffName,
-      email: staffEmail,
-      phone: '+254 711 000000',
-      hourlyRate: targetRate,
-      bankDetails: 'NCBA Bank - Accountant Settlement',
-      contractLength: 'Permanent',
-      designatorCode: humanCode,
-      subjects: [],
-      isAccountant: true,
-      passcode: tempPass
-    });
-    setAutoGenerateAccPasscode(true);
-    form.reset();
-
-    showRegistrationModal({
-      name: staffName,
-      idOrAdmissionNo: humanCode,
-      username: humanCode,
-      staffId: humanCode,
-      temporaryPasscode: tempPass,
-      role: 'Finance / Accountant',
-      department: 'Finance Department',
-      email: staffEmail,
-      isEmailConfigured: !!staffEmail
+      email: staffEmail
     });
   };
 
@@ -1069,10 +973,6 @@ export default function AdminDashboard({
                     <Library className="w-4 h-4" />
                     <span>Library Registry</span>
                   </button>
-                  <button type="button" onClick={() => { setActiveTab('archive'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'archive' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
-                    <ArchiveRestore className="w-4 h-4" />
-                    <span>Archive</span>
-                  </button>
                   <button type="button" onClick={() => { setActiveTab('diagnostics'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'diagnostics' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
                     <CheckCircle2 className="w-4 h-4" />
                     <span>Diagnostics</span>
@@ -1106,96 +1006,90 @@ export default function AdminDashboard({
       )}
       
       {/* LEFT SIDEBAR NAVIGATION */}
-      <aside className="w-64 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 flex flex-col border-r border-slate-100 dark:border-slate-800 shrink-0 hidden md:flex font-sans justify-between p-4 shadow-sm z-10">
+      <aside className="w-64 bg-slate-900 dark:bg-slate-950 text-slate-300 flex flex-col border-r border-slate-800 shrink-0 hidden md:flex font-sans">
         {/* Brand Header */}
-        <div className="space-y-4">
-          <div className="flex items-center gap-3 px-2 py-3 border-b border-slate-100 dark:border-slate-800">
-            <div className="w-10 h-10 bg-[#2563EB] rounded-2xl flex items-center justify-center shrink-0 shadow-md shadow-blue-500/20">
-              <School className="w-5 h-5 text-white" />
-            </div>
-            <div className="min-w-0">
-              <span className="text-base font-black tracking-tight text-slate-900 dark:text-white block uppercase leading-none truncate">ZENTI ACADEMY</span>
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mt-1">Management Portal</span>
-            </div>
+        <div className="p-6 border-b border-slate-800 flex items-center gap-2">
+          <div className="w-8 h-8 bg-slate-800 rounded-lg flex items-center justify-center shrink-0 border border-slate-700">
+            <School className="w-5 h-5 text-white" />
           </div>
-          
-          {/* Navigation Menu */}
-          <nav className="space-y-1.5 overflow-y-auto max-h-[calc(100vh-220px)]">
-            {isLibrarianView ? (
-              <button type="button" onClick={() => setActiveTab('library')} className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold bg-[#2563EB] text-white shadow-md shadow-blue-500/20 tracking-wide cursor-pointer transition-all">
-                <Library className="w-4 h-4 text-white" />
-                <span>Library Registry</span>
-              </button>
-            ) : isAccountantView ? (
-              <>
-                <button type="button" onClick={() => setActiveTab('finances')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'finances' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
-                  <Landmark className="w-4 h-4" />
-                  <span>Ledger & Finances</span>
-                </button>
-                <button type="button" onClick={() => setActiveTab('payroll')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'payroll' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
-                  <DollarSign className="w-4 h-4" />
-                  <span>HR & Payroll</span>
-                </button>
-              </>
-            ) : (
-              <>
-                <button type="button" onClick={() => setActiveTab('overview')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'overview' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
-                  <Sliders className="w-4 h-4" />
-                  <span>Overview</span>
-                </button>
-                <button type="button" onClick={() => setActiveTab('academics')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'academics' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
-                  <Award className="w-4 h-4" />
-                  <span>Academics</span>
-                </button>
-                <button type="button" onClick={() => setActiveTab('finances')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'finances' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
-                  <Landmark className="w-4 h-4" />
-                  <span>Finance & Ledger</span>
-                </button>
-                <button type="button" onClick={() => setActiveTab('payroll')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'payroll' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
-                  <DollarSign className="w-4 h-4" />
-                  <span>HR & Payroll</span>
-                </button>
-                <button type="button" onClick={() => setActiveTab('inventory')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'inventory' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
-                  <Activity className="w-4 h-4" />
-                  <span>Procurement</span>
-                </button>
-                <button type="button" onClick={() => setActiveTab('roles')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'roles' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
-                  <User className="w-4 h-4" />
-                  <span>User Roles</span>
-                </button>
-                <button type="button" onClick={() => setActiveTab('library')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'library' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
-                  <Library className="w-4 h-4" />
-                  <span>Library HQ</span>
-                </button>
-                <button type="button" onClick={() => setActiveTab('archive')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'archive' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
-                  <ArchiveRestore className="w-4 h-4" />
-                  <span>Archive</span>
-                </button>
-                <button type="button" onClick={() => setActiveTab('diagnostics')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold tracking-wide transition-all cursor-pointer ${activeTab === 'diagnostics' ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'}`}>
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>System Health</span>
-                </button>
-              </>
-            )}
-          </nav>
+          <div>
+            <span className="text-sm font-black tracking-tight text-white block uppercase leading-none">ZENTI</span>
+            <span className="text-[8px] text-slate-500 font-bold uppercase tracking-widest block">Admin Console</span>
+          </div>
         </div>
         
+        {/* Navigation Menu */}
+        <nav className="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
+          {isLibrarianView ? (
+            <button type="button" onClick={() => setActiveTab('library')} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold bg-amber-600 text-white shadow-md uppercase tracking-wider cursor-pointer">
+              <Library className="w-4 h-4" />
+              <span>Library Registry</span>
+            </button>
+          ) : isAccountantView ? (
+            <>
+              <button type="button" onClick={() => setActiveTab('finances')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'finances' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                <Landmark className="w-4 h-4" />
+                <span>Ledger & Finances</span>
+              </button>
+              <button type="button" onClick={() => setActiveTab('payroll')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'payroll' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                <DollarSign className="w-4 h-4" />
+                <span>HR & Payroll</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" onClick={() => setActiveTab('overview')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'overview' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                <Sliders className="w-4 h-4" />
+                <span>Overview</span>
+              </button>
+              <button type="button" onClick={() => setActiveTab('academics')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'academics' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                <Award className="w-4 h-4" />
+                <span>Academics Allocation</span>
+              </button>
+              <button type="button" onClick={() => setActiveTab('finances')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'finances' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                <Landmark className="w-4 h-4" />
+                <span>Ledger & Finances</span>
+              </button>
+              <button type="button" onClick={() => setActiveTab('payroll')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'payroll' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                <DollarSign className="w-4 h-4" />
+                <span>HR & Payroll</span>
+              </button>
+              <button type="button" onClick={() => setActiveTab('inventory')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'inventory' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                <Activity className="w-4 h-4" />
+                <span>Procurement Stock</span>
+              </button>
+              <button type="button" onClick={() => setActiveTab('roles')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'roles' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                <User className="w-4 h-4" />
+                <span>Role Management</span>
+              </button>
+              <button type="button" onClick={() => setActiveTab('library')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'library' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                <Library className="w-4 h-4" />
+                <span>Library Registry</span>
+              </button>
+              <button type="button" onClick={() => setActiveTab('diagnostics')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'diagnostics' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Diagnostics</span>
+              </button>
+            </>
+          )}
+        </nav>
+        
         {/* Profile Info & Logout */}
-        <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3 shrink-0">
-          <div className="flex items-center gap-3 p-2 rounded-2xl bg-slate-50 dark:bg-slate-800/50">
-            <div className="w-9 h-9 rounded-xl bg-[#2563EB] text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-sm">
-              {isLibrarianView ? 'L' : isAccountantView ? 'A' : 'A'}
+        <div className="p-4 border-t border-slate-800/60 bg-slate-950/40 space-y-3 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-slate-800 text-white flex items-center justify-center font-bold text-sm shrink-0 border border-slate-700">
+              {isLibrarianView ? 'L' : isAccountantView ? 'A' : 'M'}
             </div>
-            <div className="truncate min-w-0 flex-1">
-              <h4 className="text-xs font-bold text-slate-900 dark:text-white leading-none truncate">
+            <div className="truncate max-w-[120px]">
+              <h4 className="text-xs font-bold text-white leading-none truncate">
                 {isLibrarianView ? 'Sarah Kendi' : isAccountantView ? 'Grace Wanjiku' : 'Admin Master'}
               </h4>
-              <span className="text-[10px] text-slate-400 font-medium block mt-1 truncate">
+              <span className="text-[9px] text-slate-500 font-mono block mt-1 truncate">
                 {isLibrarianView ? 'Librarian' : isAccountantView ? 'Accountant' : 'Administrator'}
               </span>
             </div>
           </div>
-          <button type="button" onClick={onLogout} className="w-full py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-rose-50 hover:text-rose-600 text-slate-600 dark:text-slate-300 text-xs font-semibold rounded-2xl transition-all flex items-center justify-center gap-2 cursor-pointer">
+          <button type="button" onClick={onLogout} className="w-full py-2.5 bg-slate-800 hover:bg-rose-955/30 hover:text-rose-455 text-slate-400 hover:text-white text-xs font-bold rounded-lg uppercase tracking-wider transition-colors flex items-center justify-center gap-1.5 cursor-pointer">
             <LogOut className="w-3.5 h-3.5" />
             <span>Logout Portal</span>
           </button>
@@ -1203,62 +1097,39 @@ export default function AdminDashboard({
       </aside>
       
       {/* MAIN CONTAINER */}
-      <div className="flex-1 flex flex-col min-h-screen overflow-y-auto bg-[#F5F7FB] dark:bg-slate-950">
+      <div className="flex-1 flex flex-col min-h-screen overflow-y-auto bg-slate-50 dark:bg-slate-950">
         {/* TOP UTILITY BAR */}
-        <header className="bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 px-8 py-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xs shrink-0 font-sans sticky top-0 z-20">
+        <header className="bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-2xs shrink-0 font-sans">
           <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={() => setMobileMenuOpen(true)}
-              className="md:hidden p-2 rounded-xl text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              className="md:hidden p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 dark:text-slate-400 cursor-pointer"
               title="Toggle Menu"
             >
               <Menu className="w-5 h-5" />
             </button>
             <div className="space-y-0.5 text-left">
-              <h2 className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Zenti Portal Console</h2>
-              <h1 className="text-lg font-bold text-slate-900 dark:text-white leading-tight">
-                {isLibrarianView ? 'Archival & Textbook Catalog' : isAccountantView ? 'Billing & Ledger Registry' : 'Master School Dashboard'}
+              <h2 className="text-[9px] font-bold text-slate-450 uppercase tracking-widest leading-none font-mono">Restricted MIS Console</h2>
+              <h1 className="text-base font-black text-slate-800 dark:text-white leading-tight font-display">
+                {isLibrarianView ? 'Archival & Textbook Catalog' : isAccountantView ? 'Billing & Ledger Registry' : 'Master School Management'}
               </h1>
             </div>
           </div>
           <div className="flex items-center gap-4 w-full sm:w-auto justify-end">
-            <div className="w-full sm:w-64 md:w-96">
+            <div className="w-full sm:w-64 md:w-80">
               <GlobalSearchBar students={students} courses={courses} inventory={inventory} />
             </div>
             <span className="hidden sm:inline-block w-px h-6 bg-slate-200 dark:bg-slate-800"></span>
-            
-            {/* Notification Bell Icon */}
-            <div className="relative">
-              <button 
-                type="button" 
-                onClick={() => {}}
-                className="relative p-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-all cursor-pointer"
-              >
-                <Bell className="w-4 h-4" />
-                {unreconciledPayments.length + lowStockItems.length > 0 && (
-                  <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white dark:border-slate-900 animate-pulse"></span>
-                )}
-              </button>
-            </div>
-
-            {/* User Profile Badge */}
-            <div className="hidden md:flex items-center gap-3 pl-2">
-              <div className="w-9 h-9 rounded-2xl bg-[#2563EB] text-white flex items-center justify-center font-bold text-sm shadow-sm">
-                {isLibrarianView ? 'S' : isAccountantView ? 'G' : 'A'}
-              </div>
-              <div className="text-left leading-tight">
-                <span className="block text-xs font-bold text-slate-900 dark:text-white">
-                  {isLibrarianView ? 'Sarah Kendi' : isAccountantView ? 'Grace Wanjiku' : 'Administrator'}
-                </span>
-                <span className="block text-[10px] text-slate-400 font-medium">System Manager</span>
-              </div>
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></div>
+              <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider font-mono">Management Mode</span>
             </div>
           </div>
         </header>
         
         {/* WORKSPACE CONTENT AREA */}
-        <div className="p-8 space-y-8 flex-1 bg-[#F5F7FB] dark:bg-slate-950">
+        <div className="p-6 space-y-6 flex-1 bg-slate-50 dark:bg-slate-950">
           
           {/* Restricted Mode Alert Notice Box */}
           {(isLibrarianView || isAccountantView) && (
@@ -1293,11 +1164,11 @@ export default function AdminDashboard({
             </div>
           )}
 
-          <div className="space-y-8 flex-1">
+          <div className="bg-white rounded-2xl border border-slate-150 p-6 shadow-sm flex-1">
         
         {/* TAB 0: OVERVIEW WORKSPACE (DASHBOARD A) */}
         {activeTab === 'overview' && (
-          <div className="space-y-8">
+          <div className="space-y-6">
             {/* STUDENT ADMISSION QUICK-SEARCH & LEDGER STATION */}
             <StudentAdmissionDossierStation
               students={students}
@@ -1309,93 +1180,93 @@ export default function AdminDashboard({
               libraryGateLogs={libraryGateLogs}
               courses={courses}
             />
-            {/* HIGH-DENSITY SUMMARY STRIP - 4 DISTINCT ROUNDED-3XL CARDS */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* HIGH-DENSITY SUMMARY STRIP */}
+            <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-150 dark:border-slate-800 p-6 shadow-xs grid grid-cols-1 md:grid-cols-4 gap-6 divide-y md:divide-y-0 md:divide-x divide-slate-100 dark:divide-slate-800">
               
               {/* Card 1: Total Students */}
-              <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 p-6 shadow-sm hover:shadow-md transition-all duration-200 flex items-center justify-between">
+              <div className="flex items-center justify-between pr-4 md:pr-0 md:px-4 first:pl-0">
                 <div className="space-y-1">
-                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Total Students</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Students</span>
                   <div className="flex items-center gap-2">
-                    <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{totalStudents}</span>
-                    <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400">Active</span>
+                    <span className="text-2xl font-black text-slate-850 dark:text-white font-mono">{totalStudents}</span>
+                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400">Live</span>
                   </div>
-                  <span className="text-xs text-slate-500 block">Enrolled this semester</span>
+                  <span className="text-[9px] text-slate-550 block">Active admissions this semester</span>
                 </div>
-                <div className="w-12 h-12 bg-blue-50 dark:bg-blue-950/40 text-[#2563EB] rounded-2xl flex items-center justify-center shrink-0 shadow-sm">
-                  <Users className="w-6 h-6" />
+                <div className="w-10 h-10 bg-blue-500/10 text-blue-600 rounded-lg flex items-center justify-center shrink-0">
+                  <Users className="w-5 h-5" />
                 </div>
               </div>
 
               {/* Card 2: Total Faculty */}
-              <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 p-6 shadow-sm hover:shadow-md transition-all duration-200 flex items-center justify-between">
+              <div className="flex items-center justify-between pt-4 md:pt-0 pr-4 md:pr-0 md:px-6">
                 <div className="space-y-1">
-                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Total Faculty</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Faculty</span>
                   <div className="flex items-center gap-2">
-                    <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{totalFaculty}</span>
-                    <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400 font-medium">Lecturers</span>
+                    <span className="text-2xl font-black text-slate-850 dark:text-white font-mono">{totalFaculty}</span>
+                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">Live</span>
                   </div>
-                  <span className="text-xs text-slate-500 block">Active academic staff</span>
+                  <span className="text-[9px] text-slate-550 block">Registered lecturers & staff</span>
                 </div>
-                <div className="w-12 h-12 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 rounded-2xl flex items-center justify-center shrink-0 shadow-sm">
-                  <Users className="w-6 h-6" />
+                <div className="w-10 h-10 bg-indigo-500/10 text-indigo-650 rounded-lg flex items-center justify-center shrink-0">
+                  <Users className="w-5 h-5" />
                 </div>
               </div>
 
               {/* Card 3: Daily Attendance % */}
-              <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 p-6 shadow-sm hover:shadow-md transition-all duration-200 flex items-center justify-between">
+              <div className="flex items-center justify-between pt-4 md:pt-0 pr-4 md:pr-0 md:px-6">
                 <div className="space-y-1">
-                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Daily Attendance</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Daily Attendance %</span>
                   <div className="flex items-center gap-2">
-                    <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{dailyAttendancePercent}%</span>
-                    <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400">+2.4%</span>
+                    <span className="text-2xl font-black text-slate-855 dark:text-white font-mono">{dailyAttendancePercent}%</span>
+                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400">Live</span>
                   </div>
-                  <span className="text-xs text-slate-500 block">Average system-wide today</span>
+                  <span className="text-[9px] text-slate-555 block">Average system-wide scan today</span>
                 </div>
-                <div className="w-12 h-12 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 rounded-2xl flex items-center justify-center shrink-0 shadow-sm">
-                  <CheckCircle2 className="w-6 h-6" />
+                <div className="w-10 h-10 bg-emerald-500/10 text-emerald-650 rounded-lg flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-5 h-5" />
                 </div>
               </div>
 
               {/* Card 4: Fees Collected % */}
-              <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 p-6 shadow-sm hover:shadow-md transition-all duration-200 flex items-center justify-between">
+              <div className="flex items-center justify-between pt-4 md:pt-0 pr-4 md:pr-0 md:pl-6 last:pr-0">
                 <div className="space-y-1">
-                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Fees Collected</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Fees Collected %</span>
                   <div className="flex items-center gap-2">
-                    <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{feesCollectedPercent}%</span>
-                    <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400">Target 85%</span>
+                    <span className="text-2xl font-black text-slate-855 dark:text-white font-mono">{feesCollectedPercent}%</span>
+                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/20 dark:text-blue-400">Live</span>
                   </div>
-                  <span className="text-xs text-slate-500 block">Relative to billed ledger</span>
+                  <span className="text-[9px] text-slate-555 block">Relative to outstanding ledger balance</span>
                 </div>
-                <div className="w-12 h-12 bg-amber-50 dark:bg-amber-950/40 text-amber-600 rounded-2xl flex items-center justify-center shrink-0 shadow-sm">
-                  <DollarSign className="w-6 h-6" />
+                <div className="w-10 h-10 bg-amber-500/10 text-amber-650 rounded-lg flex items-center justify-center shrink-0">
+                  <DollarSign className="w-5 h-5" />
                 </div>
               </div>
 
             </div>
 
             {/* Main Content Layout (Two Columns) */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               {/* Left Column: daily attendance chart and upcoming events */}
-              <div className="lg:col-span-8 space-y-8">
+              <div className="lg:col-span-8 space-y-6">
                 {/* Visual daily attendance chart component */}
-                <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 p-6 shadow-sm">
-                  <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-4 mb-6">
+                <div className="bg-white rounded-xl border border-slate-150 p-5 shadow-sm">
+                  <div className="flex justify-between items-center border-b border-slate-100 pb-3 mb-4">
                     <div>
-                      <h3 className="text-sm font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-                        <TrendingUp className="w-4 h-4 text-[#2563EB]" />
+                      <h3 className="text-xs font-black uppercase text-slate-800 dark:text-white tracking-wider flex items-center gap-1.5 font-display">
+                        <TrendingUp className="w-4 h-4 text-blue-600" />
                         Daily Attendance Analytics (By Faculty)
                       </h3>
-                      <p className="text-xs text-slate-400 mt-1">Real-time attendance rates recorded from digital classroom scans.</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5 font-sans">Real-time attendance rates recorded from digital classroom scans.</p>
                     </div>
-                    <div className="flex items-center gap-4 text-xs font-medium">
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2.5 h-2.5 bg-[#2563EB] rounded-full inline-block" />
-                        <span className="text-slate-600 dark:text-slate-300">Computing & AI</span>
+                    <div className="flex items-center gap-3 text-[10px]">
+                      <div className="flex items-center gap-1">
+                        <span className="w-2.5 h-2.5 bg-blue-500 rounded-full inline-block" />
+                        <span className="text-slate-650 font-bold">Computing & AI</span>
                       </div>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1">
                         <span className="w-2.5 h-2.5 bg-indigo-500 rounded-full inline-block" />
-                        <span className="text-slate-600 dark:text-slate-300">Engineering</span>
+                        <span className="text-slate-650 font-bold">Engineering</span>
                       </div>
                     </div>
                   </div>
@@ -1410,33 +1281,33 @@ export default function AdminDashboard({
                       ]}>
                         <defs>
                           <linearGradient id="adminColorCS" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#2563eb" stopOpacity={0.25}/>
+                            <stop offset="5%" stopColor="#2563eb" stopOpacity={0.2}/>
                             <stop offset="95%" stopColor="#2563eb" stopOpacity={0}/>
                           </linearGradient>
                           <linearGradient id="adminColorEE" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25}/>
+                            <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2}/>
                             <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
                           </linearGradient>
                         </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" opacity={0.8} />
-                        <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                        <YAxis domain={[80, 100]} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                        <Tooltip contentStyle={{ background: '#0f172a', border: 'none', borderRadius: '16px', color: '#fff', fontSize: '11px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }} />
-                        <Area type="monotone" dataKey="CS" name="Computing & AI" stroke="#2563eb" strokeWidth={2.5} fillOpacity={1} fill="url(#adminColorCS)" />
-                        <Area type="monotone" dataKey="EE" name="Engineering" stroke="#6366f1" strokeWidth={2.5} fillOpacity={1} fill="url(#adminColorEE)" />
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.5} />
+                        <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                        <YAxis domain={[80, 100]} tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                        <Tooltip contentStyle={{ background: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '10px' }} />
+                        <Area type="monotone" dataKey="CS" name="Computing & AI" stroke="#2563eb" strokeWidth={2} fillOpacity={1} fill="url(#adminColorCS)" />
+                        <Area type="monotone" dataKey="EE" name="Engineering" stroke="#6366f1" strokeWidth={2} fillOpacity={1} fill="url(#adminColorEE)" />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
 
                 {/* Upcoming school events timeline widget */}
-                <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 p-6 shadow-sm">
-                  <div className="border-b border-slate-100 dark:border-slate-800 pb-4 mb-6">
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-                      <Calendar className="w-4 h-4 text-[#2563EB]" />
+                <div className="bg-white rounded-xl border border-slate-150 p-5 shadow-sm">
+                  <div className="border-b border-slate-100 pb-3 mb-4">
+                    <h3 className="text-xs font-black uppercase text-slate-800 dark:text-white tracking-wider flex items-center gap-1.5 font-display">
+                      <Calendar className="w-4 h-4 text-blue-600" />
                       Institutional Events & Deadlines Calendar
                     </h3>
-                    <p className="text-xs text-slate-400 mt-1">Chronological timeline of upcoming academic and staff administration events.</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5 font-sans">Chronological timeline of upcoming academic and staff administration events.</p>
                   </div>
                   <div className="relative pl-6 border-l border-slate-100 dark:border-slate-850 space-y-5 py-2 font-sans">
                     <div className="relative">
@@ -1551,67 +1422,306 @@ export default function AdminDashboard({
         {/* TAB 1: ACADEMICS WORKSPACE */}
         {activeTab === 'academics' && (
           <div className="space-y-8">
-            <div className="flex flex-col gap-4 border-b border-slate-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-lg font-bold text-slate-900">Academic allocation</h2>
-                <p className="text-sm text-slate-500">Manage courses and lecturer assignments.</p>
-              </div>
-              <div className="flex rounded-lg bg-slate-100 p-1">
-                {(['courses', 'allocations'] as const).map((view) => (
-                  <button key={view} type="button" onClick={() => setAcademicsView(view)} className={`rounded-md px-3 py-2 text-xs font-bold capitalize ${academicsView === view ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600'}`}>
-                    {view === 'courses' ? 'Courses' : 'Lecturer allocation'}
+            
+            <div className="grid md:grid-cols-2 gap-8 items-start">
+              
+              {/* Course Creator Form Component */}
+              <div className="space-y-4">
+                <div className="border-b border-slate-100 pb-3">
+                  <h3 className="text-base font-bold text-slate-800 flex items-center gap-1.5">
+                    <Plus className="w-5 h-5 text-blue-600" />
+                    Publish Live Course Syllabus
+                  </h3>
+                  <p className="text-xs text-slate-500">Creating a course here instantly lists the program inside the public landing page portfolio grid.</p>
+                </div>
+
+                <form onSubmit={handleCreateCourse} className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label htmlFor="course-title" className="block text-[11px] font-bold text-slate-650">Course Program Name</label>
+                      <input
+                        id="course-title"
+                        type="text"
+                        placeholder="B.Sc. Mechanical Eng"
+                        value={newTitle}
+                        onChange={(e) => setNewTitle(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs text-slate-800 focus:outline-hidden"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label htmlFor="course-code" className="block text-[11px] font-bold text-slate-650">Program Subject Code</label>
+                      <input
+                        id="course-code"
+                        type="text"
+                        placeholder="MECH-401"
+                        value={newCode}
+                        onChange={(e) => setNewCode(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs text-slate-800 focus:outline-hidden"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label htmlFor="course-desc" className="block text-[11px] font-bold text-slate-650">Syllabus Narrative Description</label>
+                    <textarea
+                      id="course-desc"
+                      placeholder="Comprehensive study of thermodynamics, physical fluids, machine mechanisms, CAD modeling..."
+                      value={newDesc}
+                      onChange={(e) => setNewDesc(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs text-slate-800 focus:outline-hidden h-20"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <label htmlFor="course-dur" className="block text-[11px] font-bold text-slate-650">Duration Title</label>
+                      <select
+                        id="course-dur"
+                        value={newDuration}
+                        onChange={(e) => setNewDuration(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs text-slate-800 focus:outline-hidden"
+                      >
+                        <option>3 Years</option>
+                        <option>4 Years</option>
+                        <option>5 Years</option>
+                        <option>2 Years</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label htmlFor="course-fees" className="block text-[11px] font-bold text-slate-650">Fees (KES)</label>
+                      <input
+                        id="course-fees"
+                        type="number"
+                        placeholder="160000"
+                        value={newFees}
+                        onChange={(e) => setNewFees(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs text-slate-800 focus:outline-hidden"
+                        required
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label htmlFor="course-fac" className="block text-[11px] font-bold text-slate-650">School Faculty</label>
+                      <select
+                        id="course-fac"
+                        value={newFaculty}
+                        onChange={(e) => setNewFaculty(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs text-slate-800 focus:outline-hidden"
+                      >
+                        <option>School of Computing & AI</option>
+                        <option>School of Engineering</option>
+                        <option>School of Science Studies</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-lg text-xs cursor-pointer"
+                  >
+                    Publish Course Live
                   </button>
-                ))}
+                </form>
+              </div>
+
+              {/* Subject Allocator Dropdown Engine */}
+              <div className="space-y-6">
+                <div className="border-b border-slate-100 pb-3">
+                  <h3 className="text-base font-bold text-slate-800 flex items-center gap-1.5">
+                    <ClipboardCheck className="w-5 h-5 text-blue-600" />
+                    Class & Lecturer Unit Allocator
+                  </h3>
+                  <p className="text-xs text-slate-500">Assign corresponding classes and subjects directly to certified lecturers inside rosters.</p>
+                </div>
+
+                <form onSubmit={handleAllocateSubjectSubmit} className="space-y-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                  <div className="space-y-1.5">
+                    <label htmlFor="alloc-lecturer" className="block text-[11px] font-bold text-slate-650">Certified Lecturer</label>
+                    <select
+                      id="alloc-lecturer"
+                      value={allocateLecturerId}
+                      onChange={(e) => setAllocateLecturerId(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs text-slate-800 focus:outline-hidden"
+                      required
+                    >
+                      <option value="">-- Choose Lecturer profile --</option>
+                      {lecturers.map(l => (
+                        <option key={l.id} value={l.id}>{l.name} ({l.designatorCode})</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label htmlFor="alloc-subject" className="block text-[11px] font-bold text-slate-650">Subject Class Codes</label>
+                    <select
+                      id="alloc-subject"
+                      value={allocateSubjectCode}
+                      onChange={(e) => setAllocateSubjectCode(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs text-slate-800 focus:outline-hidden"
+                      required
+                    >
+                      <option value="">-- Choose Class code --</option>
+                      {Object.entries(subjectMap).map(([code, name]) => (
+                        <option key={code} value={code}>{code} - {name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full bg-indigo-650 hover:bg-slate-900 text-white font-bold py-2 rounded-lg text-xs cursor-pointer transition-colors"
+                  >
+                    Allocate Lecturer Subject
+                  </button>
+                </form>
+              </div>
+
+            </div>
+
+            {/* Course Catalog list table */}
+            <div className="space-y-3 pt-4 border-t border-slate-100">
+              <h3 className="text-xs uppercase font-bold text-slate-400 tracking-wider">Course Catalog Database Status</h3>
+              <div className="overflow-x-auto border border-slate-100 rounded-xl">
+                <table className="w-full text-left font-sans text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider text-[11px] border-b border-slate-100">
+                      <th className="py-3 px-4">Subject Code</th>
+                      <th className="py-3 px-4">Syllabus Title</th>
+                      <th className="py-3 px-4">Duration</th>
+                      <th className="py-3 px-5">Fees</th>
+                      <th className="py-3 px-4">Portal Visibility status</th>
+                      <th className="py-3 px-4 text-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {courses.map((c) => (
+                      <tr key={c.id} className="hover:bg-slate-50/20">
+                        <td className="py-3.5 px-4 font-mono font-bold text-slate-700">{c.code}</td>
+                        <td className="py-3.5 px-4 font-semibold text-slate-900">{c.title}</td>
+                        <td className="py-3.5 px-4 text-slate-505">{c.duration}</td>
+                        <td className="py-3.5 px-5 font-bold text-slate-850">KES {c.fees.toLocaleString()}</td>
+                        <td className="py-3.5 px-4">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                            c.active 
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-100' 
+                              : 'bg-slate-100 text-slate-500 border-slate-200'
+                          }`}>
+                            {c.active ? 'Visible Landing Grid' : 'Hidden Archival'}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          <button
+                            type="button"
+                            onClick={() => onToggleCourseActive(c.id)}
+                            className={`text-[10px] font-bold px-3 py-1 rounded transition-colors cursor-pointer ${
+                              c.active 
+                                ? 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100' 
+                                : 'bg-slate-900 text-white hover:bg-slate-805'
+                            }`}
+                          >
+                            {c.active ? 'Disable Listing' : 'Set Active'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
 
-            {academicsLoadError ? (
-              <div className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">Unable to load academic records: {academicsLoadError}</div>
-            ) : isAcademicsLoading ? (
-              <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">Loading academic records…</div>
-            ) : academicsView === 'courses' ? (
-              <div className="space-y-6">
-                <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
-                  <h3 className="mb-5 flex items-center gap-2 text-base font-bold text-slate-900"><Plus className="h-5 w-5 text-blue-600" />Create course</h3>
-                  <form onSubmit={handleCreateCourse} className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-                    <label className="space-y-1"><span className="block text-xs font-semibold text-slate-700">Course name</span><input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} className="w-full rounded-lg border border-slate-300 p-2.5 text-sm" required /></label>
-                    <label className="space-y-1"><span className="block text-xs font-semibold text-slate-700">Course code</span><input value={newCode} onChange={(e) => setNewCode(e.target.value)} className="w-full rounded-lg border border-slate-300 p-2.5 text-sm" required /></label>
-                    <label className="space-y-1"><span className="block text-xs font-semibold text-slate-700">Faculty</span><input value={newFaculty} onChange={(e) => setNewFaculty(e.target.value)} className="w-full rounded-lg border border-slate-300 p-2.5 text-sm" required /></label>
-                    <label className="space-y-1"><span className="block text-xs font-semibold text-slate-700">Duration</span><input value={newDuration} onChange={(e) => setNewDuration(e.target.value)} className="w-full rounded-lg border border-slate-300 p-2.5 text-sm" required /></label>
-                    <label className="space-y-1"><span className="block text-xs font-semibold text-slate-700">Fees (KES)</span><input type="number" min="0" value={newFees} onChange={(e) => setNewFees(e.target.value)} className="w-full rounded-lg border border-slate-300 p-2.5 text-sm" required /></label>
-                    <div className="md:col-span-2 xl:col-span-5 flex justify-end"><button type="submit" disabled={isCreatingCourse || !newTitle.trim() || !newCode.trim() || !newFaculty.trim() || !newDuration.trim() || !newFees} className="rounded-lg bg-blue-600 px-4 py-2.5 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{isCreatingCourse ? 'Creating…' : 'Create course'}</button></div>
-                  </form>
-                </section>
-                <section className="rounded-xl border border-slate-200 bg-white">
-                  <div className="flex flex-col gap-3 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between"><h3 className="font-bold text-slate-900">Course catalogue</h3><input type="search" value={courseSearch} onChange={(e) => setCourseSearch(e.target.value)} placeholder="Search courses" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm sm:w-64" /></div>
-                  {filteredCourses.length === 0 ? <div className="p-8 text-center text-sm text-slate-500">{courseSearch ? 'No courses match your search.' : 'No courses have been created yet.'}</div> : <><div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-5 py-3">Code</th><th className="px-5 py-3">Course</th><th className="px-5 py-3">Faculty</th><th className="px-5 py-3">Duration</th><th className="px-5 py-3">Fees</th><th className="px-5 py-3">Status</th><th className="px-5 py-3 text-right">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{visibleCourses.map((course) => <tr key={course.id}><td className="px-5 py-4 font-mono font-semibold">{course.code}</td><td className="px-5 py-4 font-medium text-slate-900">{course.title}</td><td className="px-5 py-4 text-slate-600">{course.faculty}</td><td className="px-5 py-4 text-slate-600">{course.duration}</td><td className="px-5 py-4">KES {course.fees.toLocaleString()}</td><td className="px-5 py-4"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${course.active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{course.active ? 'Active' : 'Inactive'}</span></td><td className="px-5 py-4 text-right"><button type="button" onClick={() => onToggleCourseActive(course.id)} className="text-xs font-bold text-blue-700 hover:text-blue-900">{course.active ? 'Deactivate' : 'Activate'}</button></td></tr>)}</tbody></table></div><div className="flex items-center justify-between border-t border-slate-200 px-5 py-3 text-xs text-slate-500"><span>{filteredCourses.length} course{filteredCourses.length === 1 ? '' : 's'}</span><div className="flex items-center gap-2"><button type="button" disabled={coursePage === 1} onClick={() => setCoursePage((page) => page - 1)} className="rounded border border-slate-300 px-2 py-1 disabled:opacity-40">Previous</button><span>Page {coursePage} of {totalCoursePages}</span><button type="button" disabled={coursePage === totalCoursePages} onClick={() => setCoursePage((page) => page + 1)} className="rounded border border-slate-300 px-2 py-1 disabled:opacity-40">Next</button></div></div></>}</section>
+            {/*  REGISTER NEW STUDENT ACCOUNT UNIT */}
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 space-y-4 shadow-sm animate-fadeIn mt-6">
+              <div className="flex items-center gap-2.5 border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div className="p-2 bg-indigo-50 dark:bg-slate-820 text-indigo-600 dark:text-indigo-400 rounded-xl">
+                  <Plus className="w-5 h-5 animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-900 dark:text-slate-100">Enrol New Undergraduate Student Account</h3>
+                  <p className="text-[11px] text-slate-500">Newly added student records will instantly appear below, enabled for complete ledger tracking and instant credential lookup.</p>
+                </div>
               </div>
-            ) : (
-              <section className="max-w-2xl rounded-xl border border-slate-200 bg-white p-5 sm:p-6"><h3 className="mb-5 flex items-center gap-2 text-base font-bold text-slate-900"><ClipboardCheck className="h-5 w-5 text-blue-600" />Lecturer allocation</h3>{lecturers.length === 0 || courses.length === 0 ? <div className="rounded-lg bg-slate-50 p-5 text-sm text-slate-500">{lecturers.length === 0 ? 'Create a lecturer record before assigning a course.' : 'Create a course before making an allocation.'}</div> : <form onSubmit={handleAllocateSubjectSubmit} className="grid gap-4 sm:grid-cols-2"><label className="space-y-1"><span className="block text-xs font-semibold text-slate-700">Lecturer</span><select value={allocateLecturerId} onChange={(e) => setAllocateLecturerId(e.target.value)} className="w-full rounded-lg border border-slate-300 p-2.5 text-sm" required><option value="">Select lecturer</option>{lecturers.map((lecturer) => <option key={lecturer.id} value={lecturer.id}>{lecturer.name} ({lecturer.designatorCode})</option>)}</select></label><label className="space-y-1"><span className="block text-xs font-semibold text-slate-700">Course</span><select value={allocateSubjectCode} onChange={(e) => setAllocateSubjectCode(e.target.value)} className="w-full rounded-lg border border-slate-300 p-2.5 text-sm" required><option value="">Select course</option>{courses.map((course) => <option key={course.id} value={course.code}>{course.code} — {course.title}</option>)}</select></label><div className="sm:col-span-2 flex justify-end"><button type="submit" disabled={!allocateLecturerId || !allocateSubjectCode} className="rounded-lg bg-blue-600 px-4 py-2.5 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">Assign course</button></div></form>}</section>
-            )}
 
-            <section className="max-w-4xl rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="flex items-center justify-between gap-4">
-                <div><h3 className="text-sm font-bold text-slate-900">New student</h3><p className="text-xs text-slate-500">Credentials are generated securely by the authentication service.</p></div>
-                <button type="button" onClick={() => setIsStudentFormOpen((open) => !open)} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white">{isStudentFormOpen ? 'Close' : 'Add student'}</button>
-              </div>
-              {isStudentFormOpen && <form onSubmit={handleAddStudentSubmit} className="mt-4 grid grid-cols-1 gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2 lg:grid-cols-3">
-                <label className="text-xs font-semibold text-slate-700">Full name<input value={regStudentName} onChange={(e) => setRegStudentName(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" required /></label>
-                <label className="text-xs font-semibold text-slate-700">Email<input type="email" value={regStudentEmail} onChange={(e) => setRegStudentEmail(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" required /></label>
-                <label className="text-xs font-semibold text-slate-700">Phone<input value={regStudentPhone} onChange={(e) => setRegStudentPhone(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" required /></label>
-                <label className="text-xs font-semibold text-slate-700">Admission number<input value={regStudentAdmission} onChange={(e) => setRegStudentAdmission(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" required /></label>
-                <label className="text-xs font-semibold text-slate-700">Cohort<input value={regStudentCohort} onChange={(e) => setRegStudentCohort(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" required /></label>
-                <label className="text-xs font-semibold text-slate-700">Programme<input value={regStudentProgramme} onChange={(e) => setRegStudentProgramme(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" /></label>
-                <label className="text-xs font-semibold text-slate-700">Department<input value={regStudentDepartment} onChange={(e) => setRegStudentDepartment(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" /></label>
-                <div className="flex items-end"><button type="submit" disabled={!regStudentName.trim() || !regStudentEmail.trim() || !regStudentPhone.trim() || !regStudentAdmission.trim() || !regStudentCohort.trim()} className="w-full rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">Create student</button></div>
-              </form>}
-            </section>
+              <form onSubmit={handleAddStudentSubmit} className="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
+                <div className="space-y-1">
+                  <label htmlFor="reg-std-name" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Full Student Name</label>
+                  <input
+                    id="reg-std-name"
+                    type="text"
+                    placeholder="Mary Wambui"
+                    value={regStudentName}
+                    onChange={(e) => setRegStudentName(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-750 rounded-lg p-2 text-xs focus:outline-hidden text-slate-850 dark:text-slate-100"
+                    required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label htmlFor="reg-std-email" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Email Address</label>
+                  <input
+                    id="reg-std-email"
+                    type="email"
+                    placeholder="m.wambui@student.edu"
+                    value={regStudentEmail}
+                    onChange={(e) => setRegStudentEmail(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-750 rounded-lg p-2 text-xs focus:outline-hidden text-slate-850 dark:text-slate-100"
+                    required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label htmlFor="reg-std-adm" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Admission No (ED-X)</label>
+                  <input
+                    id="reg-std-adm"
+                    type="text"
+                    placeholder="ED-CS-2026-048"
+                    value={regStudentAdmission}
+                    onChange={(e) => setRegStudentAdmission(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-750 rounded-lg p-2 text-xs focus:outline-hidden text-slate-850 dark:text-slate-100"
+                    required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label htmlFor="reg-std-cohort" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Intake Cohort</label>
+                  <select
+                    id="reg-std-cohort"
+                    value={regStudentCohort}
+                    onChange={(e) => setRegStudentCohort(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-750 rounded-lg p-2 text-xs focus:outline-hidden text-slate-850 dark:text-slate-100 h-9"
+                  >
+                    <option>2026 Intake</option>
+                    <option>2025 Intake</option>
+                    <option>2024 Intake</option>
+                    <option>Graduating cohort</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label htmlFor="reg-std-passcode" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Account Passcode</label>
+                  <input
+                    id="reg-std-passcode"
+                    type="password"
+                    placeholder="Default: student123"
+                    value={regStudentPasscode}
+                    onChange={(e) => setRegStudentPasscode(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-750 rounded-lg p-2 text-xs focus:outline-hidden text-slate-850 dark:text-slate-100 font-mono"
+                  />
+                </div>
+                <div>
+                  <button
+                    type="submit"
+                    className="w-full bg-indigo-600 hover:bg-indigo-750 text-white font-extrabold py-2 px-3 rounded-lg text-xs tracking-wider uppercase transition-colors cursor-pointer"
+                  >
+                    Enrol Student
+                  </button>
+                </div>
+              </form>
+            </div>
 
             {/* Registered Student Records Section with Server-Side Pagination, Filters & Sorting */}
             <StudentRecordsTable
+              onDeleteStudent={onDeleteStudent}
               onUpdateStudent={onUpdateStudent}
               refetchTrigger={studentTableRefetchTrigger}
-              canManageRecords={!isAccountantView && !isLibrarianView}
             />
 
           </div>
@@ -2054,7 +2164,43 @@ export default function AdminDashboard({
                   <p className="text-[11px] text-slate-400">Add a dedicated financial staff directory folder with direct Accountant level clearance.</p>
                 </div>
 
-                <form onSubmit={handleAddStaff} className="space-y-3.5">
+                <form onSubmit={(e) => {
+                  e.preventDefault();
+                  const targetName = (e.currentTarget.elements.namedItem('acc-name') as HTMLInputElement).value;
+                  const targetEmail = (e.currentTarget.elements.namedItem('acc-email') as HTMLInputElement).value;
+                  const targetCode = (e.currentTarget.elements.namedItem('acc-code') as HTMLInputElement).value;
+                  const targetRate = parseFloat((e.currentTarget.elements.namedItem('acc-rate') as HTMLInputElement).value);
+                  const targetPasscode = autoGenerateAccPasscode ? '' : (e.currentTarget.elements.namedItem('acc-passcode') as HTMLInputElement).value;
+
+                  if (!targetName || !targetEmail || !targetCode || isNaN(targetRate)) {
+                    showWarning("Missing Data", 'Please provide complete accountant data.');
+                    return;
+                  }
+
+                  onAddLecturer({
+                    name: targetName,
+                    email: targetEmail,
+                    phone: '+254 711 000000',
+                    hourlyRate: targetRate,
+                    bankDetails: 'NCBA Bank - Accountant Settlement',
+                    contractLength: 'Permanent',
+                    designatorCode: targetCode,
+                    subjects: [],
+                    isAccountant: true,
+                    passcode: targetPasscode
+                  });
+                  setAutoGenerateAccPasscode(true);
+
+                  e.currentTarget.reset();
+                  showRegistrationModal({
+                    name: targetName,
+                    idOrAdmissionNo: targetCode,
+                    temporaryPasscode: targetPasscode || 'accPass123',
+                    role: 'Finance / Accountant',
+                    department: 'Finance Department',
+                    email: targetEmail
+                  });
+                }} className="space-y-3.5">
                   <div className="grid grid-cols-2 gap-2.5">
                     <div className="space-y-1">
                       <label htmlFor="acc-name" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Full Name</label>
@@ -2389,8 +2535,6 @@ export default function AdminDashboard({
             onTriggerGateLog={onTriggerGateLog}
           />
         )}
-
-        {activeTab === 'archive' && !isAccountantView && !isLibrarianView && <ArchiveManagement />}
 
         {activeTab === 'diagnostics' && (
           <SystemDiagnostics

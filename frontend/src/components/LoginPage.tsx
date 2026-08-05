@@ -226,8 +226,10 @@ export default function LoginPage({
           throw new Error('Unable to reach authentication service.');
         }
         if (!res.ok) {
-          // Never surface field-specific auth failures to the client.
-          if (res.status === 401 || res.status === 403) {
+          if (res.status === 403) {
+            throw new Error('You are not authorized to access this portal. Please use the correct login page.');
+          }
+          if (res.status === 401) {
             throw new Error(GENERIC_AUTH_ERROR);
           }
           throw new Error(data.error || 'Unable to reach authentication service.');
