@@ -8,6 +8,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { createCorsMiddleware } from "./src/cors.ts";
 import { db } from "./src/db/index.ts";
+import { runMigrations } from "./src/db/migrate.ts";
 import {
   systemState,
   students,
@@ -1364,8 +1365,9 @@ const publicAPIPaths = [
   "/api/data",
   "/api/student/registered-units",
   "/api/student-enrollments",
-  "/api/courses",
-  "/api/students"
+  "/api/students",
+  "/api/public/consultations",
+  "/api/public/applications"
 ];
 
 // Mount JWT Protection Middleware globally across all /api routes except public endpoints
@@ -1381,14 +1383,50 @@ app.use("/api", (req: any, res: any, next: any) => {
   const isPublic = 
     publicAPIPaths.includes(fullPath) || 
     publicAPIPaths.includes(relativePath) ||
-    relativePath.startsWith('/api/student') ||
-    relativePath.startsWith('/api/student-enrollments');
+    (relativePath === "/api/courses" && req.method === "GET") ||
+    (req.method === "GET" && /^\/api\/courses\/[^/]+\/gallery$/.test(relativePath));
   if (isPublic) {
     return next();
   }
   
   authenticateJWT(req, res, next);
 });
+
+const ADMIN_ROLES = ["admin", "super_admin", "admissions_officer"];
+const APPLICATION_DOCUMENT_TYPES = new Set(["passport_photo", "national_id", "kcse_certificate", "academic_certificate", "recommendation_letter"]);
+const APPLICATION_MIME_TYPES = new Set(["application/pdf", "image/jpeg", "image/png"]);
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+function cleanText(value: unknown, max = 5000): string {
+  return typeof value === "string" ? value.trim().slice(0, max) : "";
+}
+
+function requireAdminRole(req: any, res: any): boolean {
+  if (!ADMIN_ROLES.includes(req.user?.role)) {
+    res.status(403).json({ error: "Admissions administrator access is required." });
+    return false;
+  }
+  return true;
+}
+
+async function writeAdminAudit(req: any, action: string, resourceType: string, resourceId: string, details: Record<string, unknown> = {}) {
+  try {
+    await db.execute(sql`INSERT INTO admin_audit_logs (actor_id, actor_role, action, resource_type, resource_id, details)
+      VALUES (${req.user?.userId || null}, ${req.user?.role || null}, ${action}, ${resourceType}, ${resourceId}, ${JSON.stringify(details)}::jsonb)`);
+  } catch (error: any) {
+    console.error("[audit] failed to write audit event", { action, resourceType, resourceId, error: error?.message });
+  }
+}
+
+async function queueEmail(eventKey: string, recipient: string, subject: string, body: string) {
+  try {
+    await db.execute(sql`INSERT INTO email_outbox (event_key, recipient, subject, body)
+      VALUES (${eventKey}, ${recipient}, ${subject}, ${body}) ON CONFLICT (event_key) DO NOTHING`);
+  } catch (error: any) {
+    // An outbox failure must be visible but must not roll back the user request.
+    console.error("[email-outbox] unable to queue notification", { eventKey, recipient, error: error?.message });
+  }
+}
 
 // ==========================================
 // CORE API ROUTE HANDLERS
@@ -2083,6 +2121,7 @@ app.get("/api/courses", async (req, res) => {
 });
 
 app.post("/api/courses", async (req, res) => {
+  if (!requireAdminRole(req, res)) return;
   try {
     const courseData = req.body;
 
@@ -2118,6 +2157,210 @@ app.post("/api/courses", async (req, res) => {
       error: error.message,
     });
   }
+});
+
+// Production course lifecycle APIs. Existing course creation remains available
+// for backwards compatibility; these endpoints enforce admissions-admin access.
+app.patch("/api/admin/courses/:id", async (req: any, res: any) => {
+  if (!requireAdminRole(req, res)) return;
+  const id = req.params.id;
+  const body = req.body || {};
+  const title = cleanText(body.title, 255);
+  const code = cleanText(body.code, 30).toUpperCase();
+  const duration = cleanText(body.duration, 50);
+  const faculty = cleanText(body.faculty, 100);
+  if (!title || !code || !duration || !faculty || !Number.isFinite(Number(body.fees)) || Number(body.fees) < 0) {
+    return res.status(400).json({ error: "Title, code, faculty, duration, and a non-negative tuition fee are required." });
+  }
+  try {
+    const result = await db.execute(sql`UPDATE courses SET title=${title}, code=${code}, faculty=${faculty}, duration=${duration},
+      fees=${Number(body.fees)}, department=${cleanText(body.department, 255) || null}, intake=${cleanText(body.intake, 100) || null},
+      study_mode=${cleanText(body.studyMode, 50) || null}, application_fee=${Math.max(0, Number(body.applicationFee) || 0)},
+      entry_requirements=${cleanText(body.entryRequirements) || null}, description=${cleanText(body.description) || null},
+      course_content=${cleanText(body.courseContent) || null}, course_highlights=${cleanText(body.courseHighlights) || null}, updated_at=NOW()
+      WHERE id=${id} AND archived_at IS NULL RETURNING *`);
+    const course = result.rows[0];
+    if (!course) return res.status(404).json({ error: "Active course not found." });
+    await writeAdminAudit(req, "course.updated", "course", id, { code });
+    res.json(course);
+  } catch (error: any) { res.status(409).json({ error: error?.message || "Unable to update course." }); }
+});
+
+app.post("/api/admin/courses/:id/:action", async (req: any, res: any) => {
+  if (!requireAdminRole(req, res)) return;
+  const { id, action } = req.params;
+  if (!["archive", "restore", "activate", "deactivate", "duplicate"].includes(action)) return res.status(400).json({ error: "Unsupported course action." });
+  try {
+    if (action === "duplicate") {
+      const source = await db.execute(sql`SELECT * FROM courses WHERE id=${id}`);
+      const row: any = source.rows[0];
+      if (!row) return res.status(404).json({ error: "Course not found." });
+      const copyCode = `${row.code}-COPY-${Date.now().toString().slice(-5)}`;
+      const result = await db.execute(sql`INSERT INTO courses (code,title,description,duration,fees,thumbnail,faculty,active,department,intake,study_mode,application_fee,entry_requirements,course_content,course_highlights)
+        VALUES (${copyCode}, ${`${row.title} (Copy)`}, ${row.description}, ${row.duration}, ${row.fees}, ${row.thumbnail}, ${row.faculty}, false,
+        ${row.department}, ${row.intake}, ${row.study_mode}, ${row.application_fee}, ${row.entry_requirements}, ${row.course_content}, ${row.course_highlights}) RETURNING *`);
+      await writeAdminAudit(req, "course.duplicated", "course", id, { duplicateId: result.rows[0]?.id });
+      return res.status(201).json(result.rows[0]);
+    }
+    const result = action === "archive"
+      ? await db.execute(sql`UPDATE courses SET archived_at=NOW(), archived_by=${req.user.userId}, active=false, updated_at=NOW() WHERE id=${id} RETURNING *`)
+      : action === "restore"
+        ? await db.execute(sql`UPDATE courses SET archived_at=NULL, archived_by=NULL, updated_at=NOW() WHERE id=${id} RETURNING *`)
+        : await db.execute(sql`UPDATE courses SET active=${action === "activate"}, updated_at=NOW() WHERE id=${id} AND archived_at IS NULL RETURNING *`);
+    if (!result.rows[0]) return res.status(404).json({ error: "Course not found." });
+    await writeAdminAudit(req, `course.${action}d`, "course", id);
+    res.json(result.rows[0]);
+  } catch (error: any) { res.status(500).json({ error: error?.message || "Course action failed." }); }
+});
+
+app.delete("/api/admin/courses/:id", async (req: any, res: any) => {
+  if (!requireAdminRole(req, res)) return;
+  try {
+    const usage = await db.execute(sql`SELECT COUNT(*)::int AS count FROM student_enrollments WHERE course_code=(SELECT code FROM courses WHERE id=${req.params.id})`);
+    if (Number(usage.rows[0]?.count || 0) > 0) return res.status(409).json({ error: "Course has enrolment history; archive it instead of deleting it." });
+    const result = await db.execute(sql`DELETE FROM courses WHERE id=${req.params.id} RETURNING id`);
+    if (!result.rows[0]) return res.status(404).json({ error: "Course not found." });
+    await writeAdminAudit(req, "course.deleted", "course", req.params.id);
+    res.status(204).end();
+  } catch (error: any) { res.status(500).json({ error: error?.message || "Unable to delete course." }); }
+});
+
+app.get("/api/courses/:id/gallery", async (req, res) => {
+  try { const result = await db.execute(sql`SELECT * FROM course_gallery_images WHERE course_id=${req.params.id} AND is_public=true ORDER BY is_featured DESC, display_order ASC`); res.json(result.rows); }
+  catch { res.status(500).json({ error: "Unable to load course gallery." }); }
+});
+
+app.put("/api/admin/courses/:id/gallery", async (req: any, res: any) => {
+  if (!requireAdminRole(req, res)) return;
+  const images = Array.isArray(req.body?.images) ? req.body.images : [];
+  if (images.length > 30 || !images.every((image: any) => cleanText(image?.imageUrl, 2000) && cleanText(image?.caption, 500).length <= 500)) return res.status(400).json({ error: "Provide up to 30 valid gallery images and captions." });
+  try {
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`DELETE FROM course_gallery_images WHERE course_id=${req.params.id}`);
+      for (let index = 0; index < images.length; index++) {
+        const image = images[index];
+        await tx.execute(sql`INSERT INTO course_gallery_images (course_id,image_url,caption,display_order,is_featured,is_public) VALUES (${req.params.id},${cleanText(image.imageUrl,2000)},${cleanText(image.caption,500) || null},${index},${Boolean(image.isFeatured)},${image.isPublic !== false})`);
+      }
+    });
+    await writeAdminAudit(req, "course.gallery.updated", "course", req.params.id, { imageCount: images.length });
+    res.status(204).end();
+  } catch (error: any) { res.status(500).json({ error: error?.message || "Unable to save gallery." }); }
+});
+
+app.post("/api/courses/:id/reviews", async (req: any, res: any) => {
+  if (req.user?.role !== "student") return res.status(403).json({ error: "Only enrolled students may submit a review." });
+  const rating = Number(req.body?.rating), comment = cleanText(req.body?.comment, 400);
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5 || comment.length < 10) return res.status(400).json({ error: "Provide a 1–5 star rating and a review of at least 10 characters." });
+  try {
+    const enrolled = await db.execute(sql`SELECT 1 FROM student_enrollments e JOIN courses c ON c.code=e.course_code WHERE e.student_id=${req.user.userId} AND c.id=${req.params.id}`);
+    if (!enrolled.rows[0]) return res.status(403).json({ error: "You must be enrolled in this course to review it." });
+    const identity = await db.execute(sql`SELECT name FROM students WHERE id=${req.user.userId}`);
+    const result = await db.execute(sql`INSERT INTO course_reviews (course_id,student_id,student_name,rating,comment,status) VALUES (${req.params.id},${req.user.userId},${identity.rows[0]?.name || "Student"},${rating},${comment},'pending') RETURNING *`);
+    res.status(201).json(result.rows[0]);
+  } catch (error: any) { res.status(409).json({ error: error?.message || "You already submitted a review for this course." }); }
+});
+
+app.patch("/api/admin/reviews/:id", async (req: any, res: any) => {
+  if (!requireAdminRole(req, res)) return;
+  const status = cleanText(req.body?.status, 20).toLowerCase();
+  if (!['approved', 'rejected', 'pending'].includes(status)) return res.status(400).json({ error: "Invalid review status." });
+  try {
+    const result = await db.execute(sql`UPDATE course_reviews SET status=${status}, featured=${Boolean(req.body?.featured)}, reviewed_by=${req.user.userId}, reviewed_at=NOW(), updated_at=NOW() WHERE id=${req.params.id} RETURNING *`);
+    if (!result.rows[0]) return res.status(404).json({ error: "Review not found." });
+    await writeAdminAudit(req, `course_review.${status}`, "course_review", req.params.id);
+    res.json(result.rows[0]);
+  } catch { res.status(500).json({ error: "Unable to moderate review." }); }
+});
+
+app.post("/api/public/consultations", async (req, res) => {
+  const body = req.body || {};
+  const fullName = cleanText(body.fullName, 255), email = cleanText(body.email, 255).toLowerCase(), phone = cleanText(body.phone, 50);
+  const type = cleanText(body.consultationType, 30), preferredDate = cleanText(body.preferredDate, 20), preferredTime = cleanText(body.preferredTime, 50), message = cleanText(body.message);
+  if (!fullName || !/^\S+@\S+\.\S+$/.test(email) || !phone || !["physical", "phone", "online"].includes(type) || !/^\d{4}-\d{2}-\d{2}$/.test(preferredDate) || !preferredTime || !message) {
+    return res.status(400).json({ error: "Provide valid name, email, phone, consultation type, preferred date/time, and message." });
+  }
+  try {
+    const requestNo = `CON-${new Date().getFullYear()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+    const result = await db.execute(sql`INSERT INTO consultations (request_no,full_name,email,phone,course_id,course_name,consultation_type,preferred_date,preferred_time,message)
+      VALUES (${requestNo},${fullName},${email},${phone},${cleanText(body.courseId, 50) || null},${cleanText(body.courseName, 255) || null},${type},${preferredDate},${preferredTime},${message}) RETURNING *`);
+    const consultation: any = result.rows[0];
+    await db.execute(sql`INSERT INTO consultation_messages (consultation_id,direction,sender_name,sender_email,body)
+      VALUES (${consultation.id},'student',${fullName},${email},${message})`);
+    await queueEmail(`consultation:${consultation.id}:confirmation`, email, `Consultation request ${requestNo} received`, "We received your consultation request and will contact you shortly.");
+    res.status(201).json({ requestNo, status: "pending", message: "Your consultation request was received." });
+  } catch (error: any) { res.status(500).json({ error: "Unable to submit consultation request." }); }
+});
+
+app.get("/api/admin/consultations", async (req: any, res: any) => {
+  if (!requireAdminRole(req, res)) return;
+  try { const result = await db.execute(sql`SELECT * FROM consultations WHERE deleted_at IS NULL ORDER BY created_at DESC`); res.json(result.rows); }
+  catch (error: any) { res.status(500).json({ error: "Unable to load consultations." }); }
+});
+
+app.patch("/api/admin/consultations/:id", async (req: any, res: any) => {
+  if (!requireAdminRole(req, res)) return;
+  const status = cleanText(req.body?.status, 30).toLowerCase();
+  const reply = cleanText(req.body?.reply);
+  if (status && !["pending", "contacted", "scheduled", "completed", "cancelled"].includes(status)) return res.status(400).json({ error: "Invalid consultation status." });
+  try {
+    const found = await db.execute(sql`UPDATE consultations SET status=COALESCE(${status || null},status), scheduled_at=CASE WHEN ${status}='scheduled' THEN NOW() ELSE scheduled_at END, updated_at=NOW() WHERE id=${req.params.id} AND deleted_at IS NULL RETURNING *`);
+    const consultation: any = found.rows[0]; if (!consultation) return res.status(404).json({ error: "Consultation not found." });
+    if (reply) {
+      const messageId = `<consultation-${consultation.id}-${crypto.randomUUID()}@zenti.local>`;
+      await db.execute(sql`INSERT INTO consultation_messages (consultation_id,direction,sender_name,sender_email,body,message_id) VALUES (${consultation.id},'admin','Admissions',NULL,${reply},${messageId})`);
+      await queueEmail(`consultation:${consultation.id}:reply:${messageId}`, consultation.email, `Re: Consultation ${consultation.request_no}`, reply);
+    }
+    await writeAdminAudit(req, "consultation.updated", "consultation", consultation.id, { status, replied: Boolean(reply) });
+    res.json(consultation);
+  } catch (error: any) { res.status(500).json({ error: "Unable to update consultation." }); }
+});
+
+app.get("/api/admin/consultations/:id/messages", async (req: any, res: any) => {
+  if (!requireAdminRole(req, res)) return;
+  try { const result = await db.execute(sql`SELECT * FROM consultation_messages WHERE consultation_id=${req.params.id} ORDER BY created_at ASC`); res.json(result.rows); }
+  catch { res.status(500).json({ error: "Unable to load consultation conversation." }); }
+});
+
+app.post("/api/public/applications", async (req, res) => {
+  const body = req.body || {};
+  const required = ["fullName", "nationalId", "dateOfBirth", "gender", "nationality", "phone", "email", "postalAddress", "previousSchool", "highestQualification", "meanGrade", "graduationYear", "firstChoiceCourseId", "preferredIntake"];
+  if (required.some((key) => !cleanText(body[key], 500)) || !/^\S+@\S+\.\S+$/.test(cleanText(body.email, 255)) || !Number.isInteger(Number(body.graduationYear))) {
+    return res.status(400).json({ error: "Complete all required application fields with valid values." });
+  }
+  const documents = Array.isArray(body.documents) ? body.documents : [];
+  const requiredDocuments = new Set(["passport_photo", "national_id", "kcse_certificate"]);
+  if (!documents.every((doc: any) => APPLICATION_DOCUMENT_TYPES.has(doc?.documentType) && APPLICATION_MIME_TYPES.has(doc?.mimeType) && Number(doc?.sizeBytes) > 0 && Number(doc?.sizeBytes) <= MAX_UPLOAD_BYTES && /^[a-zA-Z0-9._ -]{1,255}$/.test(doc?.fileName || "") && cleanText(doc?.fileUrl, 2000))) {
+    return res.status(400).json({ error: "Documents must be PDF, JPG, or PNG, below 10 MB, with safe filenames." });
+  }
+  if (![...requiredDocuments].every((type) => documents.some((doc: any) => doc.documentType === type))) return res.status(400).json({ error: "Passport photo, national ID, and KCSE certificate are required." });
+  try {
+    const applicationNo = `APP-${new Date().getFullYear()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+    const result = await db.execute(sql`INSERT INTO applications (application_no,full_name,national_id,date_of_birth,gender,nationality,phone,email,postal_address,previous_school,highest_qualification,mean_grade,graduation_year,first_choice_course_id,second_choice_course_id,preferred_intake)
+      VALUES (${applicationNo},${cleanText(body.fullName,255)},${cleanText(body.nationalId,100)},${cleanText(body.dateOfBirth,20)},${cleanText(body.gender,30)},${cleanText(body.nationality,100)},${cleanText(body.phone,50)},${cleanText(body.email,255).toLowerCase()},${cleanText(body.postalAddress)},${cleanText(body.previousSchool,255)},${cleanText(body.highestQualification,255)},${cleanText(body.meanGrade,50)},${Number(body.graduationYear)},${cleanText(body.firstChoiceCourseId,50)},${cleanText(body.secondChoiceCourseId,50) || null},${cleanText(body.preferredIntake,100)}) RETURNING id`);
+    const applicationId = result.rows[0]?.id;
+    for (const doc of documents) await db.execute(sql`INSERT INTO application_documents (application_id,document_type,file_name,mime_type,file_url,size_bytes) VALUES (${applicationId},${doc.documentType},${doc.fileName},${doc.mimeType},${doc.fileUrl},${Number(doc.sizeBytes)})`);
+    await queueEmail(`application:${applicationId}:received`, cleanText(body.email,255).toLowerCase(), `Application ${applicationNo} received`, "Your application has been received and is under review.");
+    res.status(201).json({ applicationNo, status: "submitted" });
+  } catch (error: any) { res.status(409).json({ error: error?.message || "Unable to submit application." }); }
+});
+
+app.get("/api/admin/applications", async (req: any, res: any) => {
+  if (!requireAdminRole(req, res)) return;
+  try { const result = await db.execute(sql`SELECT * FROM applications ORDER BY created_at DESC`); res.json(result.rows); }
+  catch { res.status(500).json({ error: "Unable to load applications." }); }
+});
+
+app.patch("/api/admin/applications/:id", async (req: any, res: any) => {
+  if (!requireAdminRole(req, res)) return;
+  const status = cleanText(req.body?.status, 40).toLowerCase();
+  if (!["under_review", "additional_documents_requested", "approved", "rejected", "waitlisted"].includes(status)) return res.status(400).json({ error: "Invalid application action." });
+  try {
+    const result = await db.execute(sql`UPDATE applications SET status=${status}, internal_notes=COALESCE(${cleanText(req.body?.internalNote) || null},internal_notes), decided_at=CASE WHEN ${status} IN ('approved','rejected','waitlisted') THEN NOW() ELSE decided_at END, decided_by=${req.user.userId}, updated_at=NOW() WHERE id=${req.params.id} RETURNING *`);
+    const application: any = result.rows[0]; if (!application) return res.status(404).json({ error: "Application not found." });
+    await queueEmail(`application:${application.id}:${status}`, application.email, `Application ${application.application_no}: ${status.replaceAll('_', ' ')}`, "Your application status has been updated. Please sign in or contact Admissions for details.");
+    await writeAdminAudit(req, `application.${status}`, "application", application.id);
+    res.json(application);
+  } catch (error: any) { res.status(500).json({ error: error?.message || "Unable to update application." }); }
 });
 
   // REST Resource: Invoices
@@ -3364,6 +3607,172 @@ app.post("/api/students/:id/reset-password", async (req, res) => {
   }
 });
 
+/**
+ * Load the student portal in independently-failable modules.  This deliberately
+ * does not use loadFullDatabaseState(): one unrelated table (for example the
+ * library) must never prevent a student from seeing their profile or fees.
+ */
+app.get("/api/student/dashboard", async (req: any, res: any) => {
+  const requestId = crypto.randomUUID();
+  const startedAt = Date.now();
+  const userId = req.user?.userId;
+  const role = req.user?.role;
+  const queryTimeoutMs = Math.max(500, Number(process.env.STUDENT_DASHBOARD_QUERY_TIMEOUT_MS) || 4000);
+
+  if (role !== "student" || !userId) {
+    console.warn("[student-dashboard] forbidden request", { requestId, role, userId });
+    return res.status(403).json({
+      error: "Only an authenticated student may load this dashboard.",
+      requestId,
+    });
+  }
+
+  const failures: Array<{ module: string; message: string }> = [];
+  const loadModule = async <T>(module: string, fallback: T, query: () => Promise<T>): Promise<T> => {
+    const moduleStartedAt = Date.now();
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const timeout = new Promise<never>((_resolve, reject) => {
+        timeoutHandle = setTimeout(() => {
+          const timeoutError: any = new Error(`Database query exceeded ${queryTimeoutMs}ms`);
+          timeoutError.code = "DASHBOARD_QUERY_TIMEOUT";
+          reject(timeoutError);
+        }, queryTimeoutMs);
+      });
+      const value = await Promise.race([query(), timeout]);
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+      console.info("[student-dashboard] module loaded", {
+        requestId,
+        module,
+        durationMs: Date.now() - moduleStartedAt,
+      });
+      return value;
+    } catch (error: any) {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+      const message = error instanceof Error ? error.message : String(error);
+      failures.push({ module, message });
+      console.error("[student-dashboard] module failed", {
+        requestId,
+        module,
+        durationMs: Date.now() - moduleStartedAt,
+        error: message,
+        code: error?.code,
+      });
+      return fallback;
+    }
+  };
+
+  // initPostgresDB loads this fallback on a database outage. It is used only to
+  // keep the already-authenticated student's portal readable during a transient
+  // database failure; every fallback use is surfaced in failedModules/logs.
+  const snapshot = getDatabase();
+  const snapshotStudent = (snapshot?.students || []).find((student: any) => student?.id === userId) || null;
+  const profilePromise = loadModule("student-profile", snapshotStudent, async () => {
+    const [row] = await db.select().from(students).where(eq(students.id, userId)).limit(1);
+    return row || null;
+  });
+
+  // All module queries are keyed by the authenticated profile ID, so they can
+  // run while the profile lookup is reconnecting instead of adding its latency
+  // in front of every dashboard query.
+  const modulesPromise = Promise.all([
+    loadModule("enrolled-units", (snapshotStudent?.enrolledUnits || []).map((courseCode: string) => ({ courseCode })), () => db.select().from(studentEnrollments).where(eq(studentEnrollments.studentId, userId))),
+    loadModule("attendance", Object.entries(snapshotStudent?.attendance || {}).map(([subjectCode, attendanceRate]) => ({ subjectCode, attendanceRate })), () => db.select().from(studentAttendance).where(eq(studentAttendance.studentId, userId))),
+    loadModule("results", Object.entries(snapshotStudent?.grades || {}).map(([subjectCode, grade]: [string, any]) => ({ subjectCode, catScore: grade?.cat, examScore: grade?.exam })), () => db.select().from(grades).where(eq(grades.studentId, userId))),
+    loadModule("finance-invoices", snapshotStudent?.ledger || [], () => db.select().from(invoices).where(eq(invoices.studentId, userId))),
+    loadModule("finance-payments", snapshotStudent?.payments || [], () => db.select().from(payments).where(eq(payments.studentId, userId))),
+    loadModule("courses", snapshot?.courses || [], () => db.select().from(courses).where(eq(courses.active, true))),
+    loadModule("semester", snapshot?.examPapers || [], () => db.select().from(examPapers)),
+    loadModule("timetable-and-announcements", snapshot || {}, async () => {
+      const [row] = await db.select().from(systemState).where(eq(systemState.id, 1)).limit(1);
+      return (row?.data as Record<string, unknown>) || {};
+    }),
+  ]);
+
+  const profile = await profilePromise;
+
+  if (!profile) {
+    const profileFailure = failures.find((failure) => failure.module === "student-profile");
+    if (profileFailure) {
+      console.error("[student-dashboard] profile query unavailable", { requestId, userId, error: profileFailure.message });
+      return res.status(503).json({
+        error: "The student profile service is temporarily unavailable.",
+        requestId,
+        failedModules: failures,
+      });
+    }
+    console.warn("[student-dashboard] profile missing", { requestId, userId });
+    return res.status(404).json({ error: "Student profile was not found.", requestId });
+  }
+
+  const [enrollmentRows, attendanceRows, gradeRows, invoiceRows, paymentRows, courseRows, examPaperRows, state] = await modulesPromise;
+
+  const enrolledUnits = enrollmentRows.map((row: any) => row?.courseCode).filter((code: unknown): code is string => typeof code === "string");
+  const attendance: Record<string, number> = {};
+  attendanceRows.forEach((row: any) => {
+    if (typeof row?.subjectCode === "string") attendance[row.subjectCode] = Number(row.attendanceRate) || 0;
+  });
+  const gradesByUnit: Record<string, { cat: number; exam: number }> = {};
+  gradeRows.forEach((row: any) => {
+    if (typeof row?.subjectCode === "string") {
+      gradesByUnit[row.subjectCode] = { cat: Number(row.catScore) || 0, exam: Number(row.examScore) || 0 };
+    }
+  });
+
+  const dashboardStudent = {
+    id: profile.id,
+    name: profile.name || "Student",
+    email: profile.email || "",
+    phone: profile.phone || "",
+    admissionNo: profile.admissionNo || "Not recorded",
+    cohort: profile.cohort || "Not recorded",
+    programme: profile.programme || undefined,
+    department: profile.department || undefined,
+    avatar: profile.avatar || undefined,
+    accountStatus: profile.accountStatus || "Active",
+    createdAt: profile.createdAt || undefined,
+    enrolledUnits,
+    attendance,
+    grades: gradesByUnit,
+    ledger: invoiceRows.map((row: any) => ({
+      id: row.id, invoiceNo: row.invoiceNo, description: row.description || "", amount: Number(row.amount) || 0,
+      date: row.date || null, status: row.status || "unpaid",
+    })),
+    payments: paymentRows.map((row: any) => ({
+      id: row.id, studentId: row.studentId, invoiceId: row.invoiceId || "", amount: Number(row.amount) || 0,
+      paymentMethod: row.paymentMethod || "M-Pesa", transactionId: row.transactionId || "", date: row.date || null,
+      status: row.status || "unreconciled",
+    })),
+  };
+
+  const timetable = Array.isArray(state.timetable) ? state.timetable : [];
+  const announcements = Array.isArray(state.news) ? state.news : [];
+  // A cached profile is sufficient to render a degraded dashboard. Non-2xx is
+  // reserved for the earlier no-profile/failed-profile cases, because clients
+  // correctly discard a response marked as an HTTP error.
+  const status = 200;
+  console.info("[student-dashboard] response", {
+    requestId,
+    studentId: profile.id,
+    status,
+    partial: failures.length > 0,
+    failedModules: failures.map((failure) => failure.module),
+    durationMs: Date.now() - startedAt,
+  });
+  return res.status(status).json({
+    requestId,
+    partial: failures.length > 0,
+    failedModules: failures,
+    student: dashboardStudent,
+    courses: courseRows.map((row: any) => ({ ...row, fees: Number(row.fees) || 0, description: row.description || "", thumbnail: row.thumbnail || "" })),
+    attendance,
+    finance: { invoices: dashboardStudent.ledger, payments: dashboardStudent.payments },
+    semester: examPaperRows.filter((row: any) => enrolledUnits.includes(row.subjectCode)),
+    timetable,
+    announcements,
+  });
+});
+
 app.get("/api/student/registered-units", async (req, res) => {
   try {
     let studentId = (req.query.studentId as string) || (req.headers["x-student-id"] as string);
@@ -3836,6 +4245,14 @@ app.post("/api/gate-logs", async (req, res) => {
 
 async function startServer() {
   // Initialize the PostgreSQL database state (or fallback store if offline)
+  try {
+    await runMigrations();
+  } catch (error: any) {
+    // Preserve the existing offline-development fallback; production must never
+    // start against an unmigrated database.
+    console.error("Database migrations failed:", error?.message || error);
+    if (process.env.NODE_ENV === "production") throw error;
+  }
   await initPostgresDB();
   const dbStateForAuth = getDatabase();
   await migrateAuthSchemaAndData(dbStateForAuth);

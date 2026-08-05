@@ -52,6 +52,7 @@ interface StudentDashboardProps {
   examPapers?: ExamPaper[];
   libraryGateLogs?: LibraryGateLog[];
   attendanceSessions?: AttendanceSession[];
+  loadWarning?: string | null;
   onReserveBook?: (bookId: string, patronId: string, patronName: string) => void;
   onCancelReservation?: (resId: string) => void;
   onAddReview?: (courseId: string, studentId: string, studentName: string, rating: number, comment: string) => void;
@@ -156,6 +157,7 @@ export default function StudentDashboard({
   examPapers = [],
   libraryGateLogs = [],
   attendanceSessions = [],
+  loadWarning = null,
   onReserveBook = () => {},
   onCancelReservation = () => {},
   onAddReview,
@@ -661,6 +663,11 @@ export default function StudentDashboard({
 
   return (
     <div className="min-h-screen flex bg-slate-50 dark:bg-slate-950 font-sans transition-colors duration-300 w-full animate-fade-in" id="student-dashboard-root">
+      {loadWarning && (
+        <div role="status" className="fixed top-3 left-1/2 z-[100] w-[min(92vw,44rem)] -translate-x-1/2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-center text-xs font-semibold text-amber-900 shadow-lg">
+          {loadWarning}
+        </div>
+      )}
       {/* MOBILE NAVIGATION DRAWER */}
       {mobileMenuOpen && (
         <div className="fixed inset-0 z-50 flex md:hidden font-sans">

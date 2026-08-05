@@ -187,6 +187,7 @@ export default function App() {
 
   const [isBooting, setIsBooting] = useState<boolean>(true);
   const [academicsLoadError, setAcademicsLoadError] = useState<string | null>(null);
+  const [studentDashboardLoadError, setStudentDashboardLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -282,6 +283,51 @@ export default function App() {
         setIsBooting(false);
       });
   }, [currentUserRole]);
+
+  // The student portal has its own fault-tolerant endpoint. Do not make a
+  // student dashboard depend on the broad /api/data snapshot, where an
+  // unrelated module can otherwise prevent the whole portal from loading.
+  useEffect(() => {
+    if (isBooting || currentUserRole !== 'student' || !currentUserId) return;
+
+    let cancelled = false;
+    const loadStudentDashboard = async () => {
+      try {
+        const response = await fetch('/api/student/dashboard');
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.error || `Student dashboard request failed (${response.status})`);
+        }
+        if (cancelled) return;
+
+        if (!payload.student || payload.student.id !== currentUserId) {
+          throw new Error('Student dashboard returned an invalid profile payload.');
+        }
+        setStudents((previous) => previous.map((item) => item.id === payload.student.id ? payload.student : item));
+        if (Array.isArray(payload.courses)) setCourses(payload.courses);
+        if (Array.isArray(payload.semester)) setExamPapers(payload.semester);
+
+        if (payload.partial) {
+          const modules = Array.isArray(payload.failedModules)
+            ? payload.failedModules.map((failure: { module?: string }) => failure.module).filter(Boolean).join(', ')
+            : 'an unknown module';
+          const message = `Some dashboard information is temporarily unavailable (${modules}).`;
+          console.warn('[student-dashboard] partial response', { requestId: payload.requestId, failedModules: payload.failedModules });
+          setStudentDashboardLoadError(message);
+        } else {
+          setStudentDashboardLoadError(null);
+        }
+      } catch (error) {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : String(error);
+        console.error('[student-dashboard] load failed', { studentId: currentUserId, message: error });
+        setStudentDashboardLoadError(`Unable to refresh all dashboard data. Showing the information already available. (${message})`);
+      }
+    };
+
+    loadStudentDashboard();
+    return () => { cancelled = true; };
+  }, [currentUserId, currentUserRole, isBooting]);
 
   // Synchronize local session configuration back to localStorage
   useEffect(() => {
@@ -1401,7 +1447,11 @@ Zenti Library Services`;
   };
 
   // Demo shortcut user profiles for sandbox evaluation
-  const activeStudentProfile = (students && students.length > 0) ? (students.find(s => s.id === currentUserId) || students[0]) : null;
+  // Never substitute another student's record when the authenticated profile is
+  // absent. The dashboard endpoint reports this as a visible, traceable error.
+  const activeStudentProfile = (students && students.length > 0)
+    ? (students.find((student) => student.id === currentUserId) || null)
+    : null;
   const activeLecturerProfile = (lecturers && lecturers.length > 0) ? (lecturers.find(l => l.id === currentUserId) || lecturers[0]) : null;
 
   if (isBooting) {
@@ -1575,6 +1625,7 @@ Zenti Library Services`;
               examPapers={examPapers}
               libraryGateLogs={libraryGateLogs}
               attendanceSessions={attendanceSessions}
+              loadWarning={studentDashboardLoadError}
               onReserveBook={handleReserveBook}
               onCancelReservation={handleCancelReservation}
               onAddReview={handleAddReview}
@@ -1594,9 +1645,9 @@ Zenti Library Services`;
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-slate-50 dark:bg-slate-900">
               <GraduationCap className="w-16 h-16 text-slate-350 dark:text-slate-700 mb-4 animate-pulse" />
-              <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-2 font-sans tracking-tight">No Active Student Profile Found</h2>
+              <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-2 font-sans tracking-tight">Student Profile Unavailable</h2>
               <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
-                There are currently no registered student accounts. Log in to the <strong>Staff Administrator Gateway</strong> to register student profiles.
+                Your dashboard profile could not be loaded. Check the browser console and server logs for the dashboard request ID, then contact the <strong>Staff Administrator</strong> if the profile is missing.
               </p>
             </div>
           )

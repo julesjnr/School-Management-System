@@ -49,6 +49,28 @@
   ],
   "courses": [
     {
+      "id": "3e6160cc-f3c9-4746-b17e-ed8855e7da32",
+      "code": "BBIT",
+      "title": "Bachelor of Business Information Technology",
+      "description": "Integrates business management principles with information technology to prepare graduates for digital business environments.",
+      "duration": "4 Years",
+      "fees": 430000,
+      "thumbnail": "",
+      "faculty": "School of Business and Computing",
+      "active": true
+    },
+    {
+      "id": "cfccd04f-89dd-45ac-977c-ab782636626a",
+      "code": "BSE",
+      "title": "Bachelor of Software Engineering",
+      "description": "A programme specializing in software architecture, software testing, DevOps, mobile development, and enterprise systems.",
+      "duration": "4 Years",
+      "fees": 500000,
+      "thumbnail": "",
+      "faculty": "School of Computing and Informatics",
+      "active": true
+    },
+    {
       "id": "430353d5-bbf6-4f75-ba73-3e4b47681c9f",
       "code": "BCS",
       "title": "Bachelor of Computer Science",
@@ -77,28 +99,6 @@
       "description": "A programme covering software development, cloud computing, networking, web technologies, and IT infrastructure management.",
       "duration": "4 Years",
       "fees": 450000,
-      "thumbnail": "",
-      "faculty": "School of Computing and Informatics",
-      "active": true
-    },
-    {
-      "id": "3e6160cc-f3c9-4746-b17e-ed8855e7da32",
-      "code": "BBIT",
-      "title": "Bachelor of Business Information Technology",
-      "description": "Integrates business management principles with information technology to prepare graduates for digital business environments.",
-      "duration": "4 Years",
-      "fees": 430000,
-      "thumbnail": "",
-      "faculty": "School of Business and Computing",
-      "active": true
-    },
-    {
-      "id": "cfccd04f-89dd-45ac-977c-ab782636626a",
-      "code": "BSE",
-      "title": "Bachelor of Software Engineering",
-      "description": "A programme specializing in software architecture, software testing, DevOps, mobile development, and enterprise systems.",
-      "duration": "4 Years",
-      "fees": 500000,
       "thumbnail": "",
       "faculty": "School of Computing and Informatics",
       "active": true
@@ -240,15 +240,6 @@
   "reservations": [],
   "notifications": [
     {
-      "id": "afce5cd0-a3a8-4a63-8b91-a385e021c89e",
-      "targetUserRole": "all",
-      "type": "payment",
-      "title": " [Invoice Generated] New Billing Invoice #INV-8830",
-      "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
-      "status": "unread",
-      "dateTime": "2026-07-26 12:15:22+00"
-    },
-    {
       "id": "09133505-00aa-4e03-b4fb-e42ad91ffa9a",
       "targetUserRole": "all",
       "type": "payment",
@@ -292,6 +283,15 @@
       "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
       "status": "unread",
       "dateTime": "2026-07-26 13:15:08+00"
+    },
+    {
+      "id": "afce5cd0-a3a8-4a63-8b91-a385e021c89e",
+      "targetUserRole": "all",
+      "type": "payment",
+      "title": " [Invoice Generated] New Billing Invoice #INV-8830",
+      "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
+      "status": "unread",
+      "dateTime": "2026-07-26 12:15:22+00"
     }
   ],
   "student_ledger": [

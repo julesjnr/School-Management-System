@@ -1,18 +1,21 @@
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
 import { sql } from "drizzle-orm";
 import { db } from "./index.ts";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const drizzleDir = path.resolve(__dirname, "../../drizzle");
+// This module is imported by the CommonJS production bundle as well as run by
+// tsx in development. Resolve from the workspace rather than import.meta.url.
+const workspaceDrizzleDir = path.resolve(process.cwd(), "backend/drizzle");
+const drizzleDir = fs.existsSync(workspaceDrizzleDir)
+  ? workspaceDrizzleDir
+  : path.resolve(process.cwd(), "drizzle");
 const studentSchemaMigrations = [
   "0004_student_registry_fields.sql",
   "0005_student_account_status.sql",
   "0006_archive_records.sql",
   "0007_attendance_late_students.sql",
   "0008_allow_negative_invoice_amounts.sql",
+  "0009_admissions_academics_production.sql",
 ];
 
 export async function runMigrations(retries = 3, delayMs = 2000): Promise<void> {
@@ -70,7 +73,7 @@ export async function runMigrations(retries = 3, delayMs = 2000): Promise<void> 
   throw lastError;
 }
 
-if (process.argv[1] === __filename) {
+if (process.argv[1]?.endsWith("migrate.ts") || process.argv[1]?.endsWith("migrate.js")) {
   runMigrations()
     .then(() => {
       console.log("Drizzle migrations completed successfully.");
