@@ -31,6 +31,9 @@ export interface ApplicationDocument {
   fileUrl: string;
   sizeBytes: number;
   createdAt: string;
+  uploadStatus?: 'pending' | 'uploading' | 'uploaded' | 'error';
+  uploadProgress?: number;
+  errorMessage?: string;
 }
 
 export interface ApplicationNote {
@@ -54,8 +57,7 @@ export interface Application {
   postalAddress: string;
   previousSchool: string;
   highestQualification: string;
-  meanGrade: string;
-  graduationYear: number;
+  kcseGrade: string;
   firstChoiceCourseId: string;
   secondChoiceCourseId?: string;
   preferredIntake: string;

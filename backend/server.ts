@@ -71,7 +71,7 @@ import {
 } from "./src/data";
 
 const app = express();
-const PORT = Number(process.env.PORT) || 8000;
+const PORT = Number(process.env.PORT) || 3000;
 
 // Set up larger limit for full state synchronizations
 app.use(express.json({ limit: "20mb" }));
@@ -2404,8 +2404,8 @@ app.get("/api/admin/consultations/:id/messages", async (req: any, res: any) => {
 
 app.post("/api/public/applications", async (req, res) => {
   const body = req.body || {};
-  const required = ["fullName", "nationalId", "dateOfBirth", "gender", "nationality", "phone", "email", "postalAddress", "previousSchool", "highestQualification", "meanGrade", "graduationYear", "firstChoiceCourseId", "preferredIntake"];
-  if (required.some((key) => !cleanText(body[key], 500)) || !/^\S+@\S+\.\S+$/.test(cleanText(body.email, 255)) || !Number.isInteger(Number(body.graduationYear))) {
+  const required = ["fullName", "nationalId", "dateOfBirth", "gender", "nationality", "phone", "email", "postalAddress", "previousSchool", "highestQualification", "kcseGrade", "firstChoiceCourseId", "preferredIntake"];
+  if (required.some((key) => !cleanText(body[key], 500)) || !/^\S+@\S+\.\S+$/.test(cleanText(body.email, 255))) {
     return res.status(400).json({ error: "Complete all required application fields with valid values." });
   }
   const documents = Array.isArray(body.documents) ? body.documents : [];
@@ -2416,8 +2416,9 @@ app.post("/api/public/applications", async (req, res) => {
   if (![...requiredDocuments].every((type) => documents.some((doc: any) => doc.documentType === type))) return res.status(400).json({ error: "Passport photo, national ID, and KCSE certificate are required." });
   try {
     const applicationNo = `APP-${new Date().getFullYear()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+    const submissionYear = new Date().getFullYear();
     const result = await db.execute(sql`INSERT INTO applications (application_no,full_name,national_id,date_of_birth,gender,nationality,phone,email,postal_address,previous_school,highest_qualification,mean_grade,graduation_year,first_choice_course_id,second_choice_course_id,preferred_intake)
-      VALUES (${applicationNo},${cleanText(body.fullName,255)},${cleanText(body.nationalId,100)},${cleanText(body.dateOfBirth,20)},${cleanText(body.gender,30)},${cleanText(body.nationality,100)},${cleanText(body.phone,50)},${cleanText(body.email,255).toLowerCase()},${cleanText(body.postalAddress)},${cleanText(body.previousSchool,255)},${cleanText(body.highestQualification,255)},${cleanText(body.meanGrade,50)},${Number(body.graduationYear)},${cleanText(body.firstChoiceCourseId,50)},${cleanText(body.secondChoiceCourseId,50) || null},${cleanText(body.preferredIntake,100)}) RETURNING id`);
+      VALUES (${applicationNo},${cleanText(body.fullName,255)},${cleanText(body.nationalId,100)},${cleanText(body.dateOfBirth,20)},${cleanText(body.gender,30)},${cleanText(body.nationality,100)},${cleanText(body.phone,50)},${cleanText(body.email,255).toLowerCase()},${cleanText(body.postalAddress)},${cleanText(body.previousSchool,255)},${cleanText(body.highestQualification,255)},${cleanText(body.kcseGrade,50)},${submissionYear},${cleanText(body.firstChoiceCourseId,50)},${cleanText(body.secondChoiceCourseId,50) || null},${cleanText(body.preferredIntake,100)}) RETURNING id`);
     const applicationId = result.rows[0]?.id;
     for (const doc of documents) await db.execute(sql`INSERT INTO application_documents (application_id,document_type,file_name,mime_type,file_url,size_bytes) VALUES (${applicationId},${doc.documentType},${doc.fileName},${doc.mimeType},${doc.fileUrl},${Number(doc.sizeBytes)})`);
     await queueEmail(`application:${applicationId}:received`, cleanText(body.email,255).toLowerCase(), `Application ${applicationNo} received`, "Your application has been received and is under review.");
