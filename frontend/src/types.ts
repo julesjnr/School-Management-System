@@ -33,6 +33,7 @@ export interface ApplicationDocument {
   createdAt: string;
   uploadStatus?: 'pending' | 'uploading' | 'uploaded' | 'error';
   uploadProgress?: number;
+  previewUrl?: string;
   errorMessage?: string;
 }
 

@@ -6,6 +6,7 @@ import fs from "fs";
 import crypto from "crypto";
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import multer from 'multer';
 import { createCorsMiddleware } from "./src/cors.ts";
 import { db } from "./src/db/index.ts";
 import { runMigrations } from "./src/db/migrate.ts";
@@ -72,6 +73,32 @@ import {
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+
+const uploadBaseDirectory = path.join(process.cwd(), 'uploads');
+function ensureUploadsDirectory() {
+  if (!fs.existsSync(uploadBaseDirectory)) {
+    fs.mkdirSync(uploadBaseDirectory, { recursive: true });
+  }
+}
+ensureUploadsDirectory();
+app.use('/uploads', express.static(uploadBaseDirectory));
+
+const uploadStorage = multer.diskStorage({
+  destination: () => uploadBaseDirectory,
+  filename: (_req, file, cb) => {
+    const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+    cb(null, `${Date.now()}-${safeName}`);
+  }
+});
+
+const upload = multer({
+  storage: uploadStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowedMimeTypes = ['application/pdf', 'image/jpeg', 'image/png'];
+    cb(null, allowedMimeTypes.includes(file.mimetype));
+  }
+});
 
 // Set up larger limit for full state synchronizations
 app.use(express.json({ limit: "20mb" }));
@@ -2400,6 +2427,30 @@ app.get("/api/admin/consultations/:id/messages", async (req: any, res: any) => {
   if (!requireAdminRole(req, res)) return;
   try { const result = await db.execute(sql`SELECT * FROM consultation_messages WHERE consultation_id=${req.params.id} ORDER BY created_at ASC`); res.json(result.rows); }
   catch { res.status(500).json({ error: "Unable to load consultation conversation." }); }
+});
+
+app.post('/api/public/application-documents', upload.single('file'), async (req: any, res) => {
+  try {
+    if (!req.file || !req.body.documentType) {
+      return res.status(400).json({ error: 'Upload must include documentType and a file.' });
+    }
+
+    const documentType = cleanText(req.body.documentType, 60);
+    if (!APPLICATION_DOCUMENT_TYPES.has(documentType)) {
+      return res.status(400).json({ error: 'Unsupported document type.' });
+    }
+
+    const fileUrl = `/uploads/${req.file.filename}`;
+    res.status(201).json({
+      fileUrl,
+      fileName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      sizeBytes: req.file.size,
+    });
+  } catch (error: any) {
+    console.error('Upload failed:', error);
+    res.status(500).json({ error: 'File upload failed.' });
+  }
 });
 
 app.post("/api/public/applications", async (req, res) => {
