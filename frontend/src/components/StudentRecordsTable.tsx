@@ -9,6 +9,7 @@ import { toast } from 'react-hot-toast';
 
 interface StudentRecordsTableProps {
   onUpdateStudent?: (studentId: string, updatedFields: Partial<Student>) => void;
+  onDeleteStudent?: (studentId: string) => void;
   refetchTrigger?: number;
   canManageRecords?: boolean;
 }

@@ -17,6 +17,7 @@ interface LandingPageProps {
   testimonies: Testimony[];
   totalStudentsCount: number;
   onOpenLogin: () => void;
+  onOpenApplication: () => void;
   onSelectCourse: (course: Course) => void;
   onReturnToDashboard?: (role: string, id: string) => void;
 }
@@ -29,6 +30,7 @@ export default function LandingPage({
   testimonies, 
   totalStudentsCount, 
   onOpenLogin,
+  onOpenApplication,
   onSelectCourse,
   onReturnToDashboard
 }: LandingPageProps) {
@@ -325,10 +327,10 @@ export default function LandingPage({
                 </button>
               ) : (
                 <button
-                  onClick={onOpenLogin}
+                  onClick={onOpenApplication}
                   className="w-full sm:w-auto bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 font-semibold px-6 py-3.5 rounded-xl transition-all duration-150 flex items-center justify-center gap-1.5"
                 >
-                  <span>Apply Online Portal</span>
+                  <span>Apply Now</span>
                 </button>
               )}
             </div>

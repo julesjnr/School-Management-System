@@ -1443,6 +1443,66 @@ async function queueEmail(eventKey: string, recipient: string, subject: string, 
   }
 }
 
+async function generateAdmissionNumber(): Promise<string> {
+  let admissionNo: string;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    admissionNo = `ADM-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const exists = await db.execute(sql`SELECT 1 FROM students WHERE admission_no=${admissionNo} LIMIT 1`);
+    if (!exists.rows.length) return admissionNo;
+  }
+  return `ADM-${new Date().getFullYear()}-${Date.now()}`;
+}
+
+async function createStudentFromApplication(application: any) {
+  if (!application || !application.email || !application.fullName) return null;
+
+  const existing = await db.execute(sql`SELECT * FROM students WHERE LOWER(email) = LOWER(${application.email}) OR admission_no = ${application.admissionNo}`);
+  if (existing.rows.length) {
+    return existing.rows[0];
+  }
+
+  const admissionNo = application.admissionNo || await generateAdmissionNumber();
+  const programmeResult = await db.execute(sql`SELECT title FROM courses WHERE id=${application.approvedCourseId || application.firstChoiceCourseId} LIMIT 1`);
+  const programme = programmeResult.rows[0]?.title || null;
+  const cohort = application.preferredIntake || `Intake ${new Date().getFullYear()}`;
+
+  const studentResult = await db.execute(sql`INSERT INTO students (name,email,phone,admission_no,cohort,programme,department,avatar,account_status,created_at,updated_at)
+    VALUES (${cleanText(application.fullName,255)}, ${cleanText(application.email,255).toLowerCase()}, ${cleanText(application.phone,50)}, ${admissionNo}, ${cleanText(cohort,100)}, ${cleanText(programme,255)}, ${cleanText(application.nationality,255)}, ${null}, 'Active', NOW(), NOW()) RETURNING *`);
+
+  const student = studentResult.rows[0];
+  if (!student) return null;
+
+  const defaultPassword = resolvePassword(undefined, 'student').plain;
+  try {
+    await upsertUserAuthRecord({
+      username: admissionNo,
+      email: application.email.toLowerCase(),
+      passwordHash: hashPassword(defaultPassword),
+      role: 'student',
+      roleId: String(student.id),
+      isActive: true,
+      mustChangePassword: true,
+    });
+  } catch (err: any) {
+    console.warn("Failed to create associated auth record for admitted student:", err?.message || err);
+  }
+
+  return { ...student, defaultPassword };
+}
+
+async function queueAdmissionLetter(application: any, student?: any) {
+  if (!application || !application.email) return;
+  const admissionNo = application.admissionNo || student?.admissionNo || '';
+  const loginUrl = `${process.env.APP_BASE_URL || 'https://portal.zenti.local'}/login?portal=student`;
+  const body = `Dear ${application.fullName},\n\n` +
+    `Congratulations! Your application ${application.application_no} has been approved.\n` +
+    `Your admission number is ${admissionNo}.\n` +
+    `Please visit ${loginUrl} to log in and complete your student onboarding.\n\n` +
+    `If you are logging in for the first time, use your admission number as the username. You will be prompted to change your password on first sign in.\n\n` +
+    `Best regards,\nZenti Admissions Team`;
+  await queueEmail(`application:${application.id}:admission_letter`, application.email, `Admission Offer: ${application.application_no}`, body);
+}
+
 // ==========================================
 // CORE API ROUTE HANDLERS
 // ==========================================
@@ -2377,11 +2437,25 @@ app.patch("/api/admin/applications/:id", async (req: any, res: any) => {
   if (!["under_review", "additional_documents_requested", "approved", "rejected", "waitlisted"].includes(status)) return res.status(400).json({ error: "Invalid application action." });
   try {
     const result = await db.execute(sql`UPDATE applications SET status=${status}, internal_notes=COALESCE(${cleanText(req.body?.internalNote) || null},internal_notes), decided_at=CASE WHEN ${status} IN ('approved','rejected','waitlisted') THEN NOW() ELSE decided_at END, decided_by=${req.user.userId}, updated_at=NOW() WHERE id=${req.params.id} RETURNING *`);
-    const application: any = result.rows[0]; if (!application) return res.status(404).json({ error: "Application not found." });
-    await queueEmail(`application:${application.id}:${status}`, application.email, `Application ${application.application_no}: ${status.replaceAll('_', ' ')}`, "Your application status has been updated. Please sign in or contact Admissions for details.");
-    await writeAdminAudit(req, `application.${status}`, "application", application.id);
+    const application: any = result.rows[0];
+    if (!application) return res.status(404).json({ error: "Application not found." });
+
+    if (status === 'approved') {
+      if (!application.admission_no) {
+        application.admission_no = await generateAdmissionNumber();
+        await db.execute(sql`UPDATE applications SET admission_no=${application.admission_no}, approved_course_id=${application.approved_course_id ?? application.first_choice_course_id}, updated_at=NOW() WHERE id=${application.id}`);
+      }
+      const admittedStudent = await createStudentFromApplication(application);
+      await queueAdmissionLetter(application, admittedStudent);
+    } else {
+      await queueEmail(`application:${application.id}:${status}`, application.email, `Application ${application.application_no}: ${status.replaceAll('_', ' ')}`, `Your application status has been updated to ${status.replaceAll('_', ' ')}. Please sign in or contact Admissions for details.`);
+    }
+
+    await writeAdminAudit(req, `application.${status}`, "application", application.id, { status, applicationNo: application.application_no, admissionNo: application.admission_no });
     res.json(application);
-  } catch (error: any) { res.status(500).json({ error: error?.message || "Unable to update application." }); }
+  } catch (error: any) {
+    console.error("Application status update failed:", error);
+    res.status(500).json({ error: error?.message || "Unable to update application." }); }
 });
 
   // REST Resource: Invoices

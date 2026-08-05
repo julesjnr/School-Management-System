@@ -49,17 +49,6 @@
   ],
   "courses": [
     {
-      "id": "cfccd04f-89dd-45ac-977c-ab782636626a",
-      "code": "BSE",
-      "title": "Bachelor of Software Engineering",
-      "description": "A programme specializing in software architecture, software testing, DevOps, mobile development, and enterprise systems.",
-      "duration": "4 Years",
-      "fees": 500000,
-      "thumbnail": "",
-      "faculty": "School of Computing and Informatics",
-      "active": true
-    },
-    {
       "id": "430353d5-bbf6-4f75-ba73-3e4b47681c9f",
       "code": "BCS",
       "title": "Bachelor of Computer Science",
@@ -101,6 +90,17 @@
       "fees": 430000,
       "thumbnail": "",
       "faculty": "School of Business and Computing",
+      "active": true
+    },
+    {
+      "id": "cfccd04f-89dd-45ac-977c-ab782636626a",
+      "code": "BSE",
+      "title": "Bachelor of Software Engineering",
+      "description": "A programme specializing in software architecture, software testing, DevOps, mobile development, and enterprise systems.",
+      "duration": "4 Years",
+      "fees": 500000,
+      "thumbnail": "",
+      "faculty": "School of Computing and Informatics",
       "active": true
     }
   ],

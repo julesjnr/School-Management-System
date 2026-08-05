@@ -10,6 +10,67 @@ export interface Course {
   active: boolean;
 }
 
+export interface CourseGalleryImage {
+  id: string;
+  courseId: string;
+  imageUrl: string;
+  caption?: string;
+  displayOrder: number;
+  isFeatured: boolean;
+  isPublic: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ApplicationDocument {
+  id: string;
+  applicationId: string;
+  documentType: string;
+  fileName: string;
+  mimeType: string;
+  fileUrl: string;
+  sizeBytes: number;
+  createdAt: string;
+}
+
+export interface ApplicationNote {
+  id: string;
+  applicationId: string;
+  note: string;
+  createdBy?: string;
+  createdAt: string;
+}
+
+export interface Application {
+  id: string;
+  applicationNo: string;
+  fullName: string;
+  nationalId: string;
+  dateOfBirth: string;
+  gender: string;
+  nationality: string;
+  phone: string;
+  email: string;
+  postalAddress: string;
+  previousSchool: string;
+  highestQualification: string;
+  meanGrade: string;
+  graduationYear: number;
+  firstChoiceCourseId: string;
+  secondChoiceCourseId?: string;
+  preferredIntake: string;
+  status: 'submitted' | 'under_review' | 'additional_documents_requested' | 'approved' | 'rejected' | 'waitlisted';
+  admissionNo?: string;
+  approvedCourseId?: string;
+  internalNotes?: string;
+  createdAt: string;
+  updatedAt: string;
+  decidedAt?: string;
+  decidedBy?: string;
+  documents?: ApplicationDocument[];
+  notes?: ApplicationNote[];
+}
+
 export interface OfficeHourSlot {
   id: string;
   day: string; // e.g., "Monday", "Wednesday", or specific date "2026-06-18"
@@ -118,6 +179,7 @@ export interface Lecturer {
   isActive?: boolean;
   isAccountant?: boolean;
   isLibrarian?: boolean;
+  passcode?: string;
 }
 
 export interface PayrollRecord {
@@ -184,6 +246,7 @@ export interface Student {
   payments: Payment[];
   attendance?: Record<string, number>; // subjectCode -> Attendance percentage (e.g. 0-100)
   avatar?: string;
+  passcode?: string;
   accountStatus?: string;
   createdAt?: string;
 }

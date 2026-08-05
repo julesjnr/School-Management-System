@@ -8,6 +8,12 @@ import * as schema from './schema.ts';
 // Function to create a new connection pool.
 export const createPool = () => {
   const connectionString = process.env.DATABASE_URL;
+  const hasSqlConfig = Boolean(
+    process.env.SQL_HOST &&
+    process.env.SQL_USER &&
+    process.env.SQL_PASSWORD &&
+    process.env.SQL_DB_NAME
+  );
 
   // Supabase session poolers enforce comparatively small connection limits.  A
   // small application pool prevents concurrent startup reads/syncs from
@@ -16,6 +22,24 @@ export const createPool = () => {
   const connectionTimeoutMillis = Number(process.env.DB_CONNECTION_TIMEOUT_MS) || 30000;
   const idleTimeoutMillis = Number(process.env.DB_IDLE_TIMEOUT_MS) || 30000;
   const maxLifetimeSeconds = Number(process.env.DB_MAX_LIFETIME_SECONDS) || 300;
+
+  if (hasSqlConfig) {
+    return new Pool({
+      host: process.env.SQL_HOST,
+      port: process.env.SQL_PORT ? Number(process.env.SQL_PORT) : 5432,
+      user: process.env.SQL_USER,
+      password: process.env.SQL_PASSWORD,
+      database: process.env.SQL_DB_NAME,
+      connectionTimeoutMillis,
+      ssl: process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: false },
+      max,
+      min: 0,
+      idleTimeoutMillis,
+      maxLifetimeSeconds,
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 5000,
+    });
+  }
 
   if (connectionString) {
     return new Pool({
@@ -31,21 +55,7 @@ export const createPool = () => {
     });
   }
 
-  return new Pool({
-    host: process.env.SQL_HOST,
-    port: process.env.SQL_PORT ? Number(process.env.SQL_PORT) : 5432,
-    user: process.env.SQL_USER,
-    password: process.env.SQL_PASSWORD,
-    database: process.env.SQL_DB_NAME,
-    connectionTimeoutMillis,
-    ssl: process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: false },
-    max,
-    min: 0,
-    idleTimeoutMillis,
-    maxLifetimeSeconds,
-    keepAlive: true,
-    keepAliveInitialDelayMillis: 5000,
-  });
+  throw new Error('Missing database configuration: provide SQL_HOST/SQL_USER/SQL_PASSWORD/SQL_DB_NAME or DATABASE_URL.');
 };
 
 // Create a singleton pool instance.

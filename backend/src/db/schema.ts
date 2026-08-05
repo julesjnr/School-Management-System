@@ -36,6 +36,131 @@ export const courseReviews = pgTable("course_reviews", {
 	check("course_reviews_rating_check", sql`(rating >= 1) AND (rating <= 5)`),
 ]);
 
+export const courseGalleryImages = pgTable("course_gallery_images", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	courseId: uuid("course_id").notNull(),
+	imageUrl: text("image_url").notNull(),
+	caption: varchar("caption", { length: 500 }),
+	displayOrder: integer("display_order").default(0).notNull(),
+	isFeatured: boolean("is_featured").default(false).notNull(),
+	isPublic: boolean("is_public").default(true).notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+		columns: [table.courseId],
+		foreignColumns: [courses.id],
+		name: "course_gallery_images_course_id_fkey"
+	}).onDelete("cascade"),
+	index("idx_course_gallery_course").using("btree", table.courseId.asc().nullsLast().op("uuid_ops"), table.displayOrder.asc().nullsLast().op("int4_ops")),
+]);
+
+export const applications = pgTable("applications", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	applicationNo: varchar("application_no", { length: 40 }).notNull(),
+	fullName: varchar("full_name", { length: 255 }).notNull(),
+	nationalId: varchar("national_id", { length: 100 }).notNull(),
+	dateOfBirth: date("date_of_birth").notNull(),
+	gender: varchar({ length: 30 }).notNull(),
+	nationality: varchar({ length: 100 }).notNull(),
+	phone: varchar({ length: 50 }).notNull(),
+	email: varchar({ length: 255 }).notNull(),
+	postalAddress: text("postal_address").notNull(),
+	previousSchool: varchar("previous_school", { length: 255 }).notNull(),
+	highestQualification: varchar("highest_qualification", { length: 255 }).notNull(),
+	meanGrade: varchar("mean_grade", { length: 50 }).notNull(),
+	graduationYear: integer("graduation_year").notNull(),
+	firstChoiceCourseId: uuid("first_choice_course_id").notNull(),
+	secondChoiceCourseId: uuid("second_choice_course_id"),
+	preferredIntake: varchar("preferred_intake", { length: 100 }).notNull(),
+	status: varchar({ length: 40 }).default('submitted').notNull(),
+	admissionNo: varchar("admission_no", { length: 50 }),
+	approvedCourseId: uuid("approved_course_id"),
+	internalNotes: text("internal_notes"),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	decidedAt: timestamp("decided_at", { withTimezone: true, mode: 'string' }),
+	decidedBy: varchar("decided_by", { length: 255 }),
+}, (table) => [
+	foreignKey({
+		columns: [table.firstChoiceCourseId],
+		foreignColumns: [courses.id],
+		name: "applications_first_choice_course_id_fkey"
+	}).onDelete("restrict"),
+	foreignKey({
+		columns: [table.secondChoiceCourseId],
+		foreignColumns: [courses.id],
+		name: "applications_second_choice_course_id_fkey"
+	}).onDelete("set null"),
+	foreignKey({
+		columns: [table.approvedCourseId],
+		foreignColumns: [courses.id],
+		name: "applications_approved_course_id_fkey"
+	}).onDelete("restrict"),
+	unique("applications_application_no_key").on(table.applicationNo),
+	unique("applications_admission_no_key").on(table.admissionNo),
+	index("idx_applications_status_created").using("btree", table.status.asc().nullsLast().op("text_ops"), table.createdAt.desc().nullsLast().op("timestamptz_ops")),
+]);
+
+export const applicationDocuments = pgTable("application_documents", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	applicationId: uuid("application_id").notNull(),
+	documentType: varchar("document_type", { length: 60 }).notNull(),
+	fileName: varchar("file_name", { length: 255 }).notNull(),
+	mimeType: varchar("mime_type", { length: 100 }).notNull(),
+	fileUrl: text("file_url").notNull(),
+	sizeBytes: integer("size_bytes").notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+		columns: [table.applicationId],
+		foreignColumns: [applications.id],
+		name: "application_documents_application_id_fkey"
+	}).onDelete("cascade"),
+]);
+
+export const applicationNotes = pgTable("application_notes", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	applicationId: uuid("application_id").notNull(),
+	note: text().notNull(),
+	createdBy: varchar("created_by", { length: 255 }),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+		columns: [table.applicationId],
+		foreignColumns: [applications.id],
+		name: "application_notes_application_id_fkey"
+	}).onDelete("cascade"),
+]);
+
+export const emailOutbox = pgTable("email_outbox", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	eventKey: varchar("event_key", { length: 255 }).notNull(),
+	recipient: varchar({ length: 255 }).notNull(),
+	subject: varchar({ length: 500 }).notNull(),
+	body: text().notNull(),
+	status: varchar({ length: 20 }).default('queued').notNull(),
+	attempts: integer().default(0).notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	sentAt: timestamp("sent_at", { withTimezone: true, mode: 'string' }),
+	lastError: text("last_error"),
+}, (table) => [
+	unique("email_outbox_event_key_key").on(table.eventKey),
+]);
+
+export const adminAuditLogs = pgTable("admin_audit_logs", {
+	id: uuid().default(sql`uuid_generate_v4()`).primaryKey().notNull(),
+	actorId: varchar("actor_id", { length: 255 }),
+	actorRole: varchar("actor_role", { length: 50 }),
+	action: varchar({ length: 100 }).notNull(),
+	resourceType: varchar({ length: 100 }).notNull(),
+	resourceId: varchar("resource_id", { length: 255 }),
+	details: jsonb(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("idx_admin_audit_resource").using("btree", table.resourceType.asc().nullsLast().op("text_ops"), table.resourceId.asc().nullsLast().op("text_ops"), table.createdAt.desc().nullsLast().op("timestamptz_ops")),
+]);
+
 export const lecturerPublications = pgTable("lecturer_publications", {
 	id: serial().primaryKey().notNull(),
 	lecturerId: uuid("lecturer_id").notNull(),
@@ -438,6 +563,8 @@ export const invoices = pgTable("invoices", {
 	description: text().notNull(),
 	amount: numeric({ precision: 12, scale:  2 }).notNull(),
 	date: date().notNull(),
+	dueDate: date("due_date"),
+	outstandingBalance: numeric("outstanding_balance", { precision: 12, scale: 2 }).default('0.00').notNull(),
 	status: varchar({ length: 20 }).default('unpaid').notNull(),
 }, (table) => [
 	index("idx_invoices_student").using("btree", table.studentId.asc().nullsLast().op("uuid_ops")),
@@ -457,6 +584,8 @@ export const payments = pgTable("payments", {
 	amount: numeric({ precision: 12, scale:  2 }).notNull(),
 	paymentMethod: varchar("payment_method", { length: 30 }).notNull(),
 	transactionId: varchar("transaction_id", { length: 100 }).notNull(),
+	receiptNo: varchar("receipt_no", { length: 50 }),
+	recordedBy: varchar("recorded_by", { length: 255 }),
 	date: date().notNull(),
 	status: varchar({ length: 20 }).default('unreconciled').notNull(),
 }, (table) => [

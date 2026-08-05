@@ -14,12 +14,12 @@ import {
 import { subjectMap, initialNews, initialTestimonies } from './data';
 
 import LandingPage from './components/LandingPage';
+import ApplicationPage from './components/ApplicationPage';
 import LoginPage from './components/LoginPage';
 import ChangePasswordPage from './components/ChangePasswordPage';
 import StudentDashboard from './components/StudentDashboard';
 import LecturerDashboard from './components/LecturerDashboard';
 import AdminDashboard from './components/AdminDashboard';
-import LoginModal from './components/LoginModal';
 import Forbidden403 from './components/Forbidden403';
 import DashboardShowcase from './components/DashboardShowcase';
 import SessionTimeout from './components/SessionTimeout';
@@ -173,7 +173,6 @@ export default function App() {
   }, []);
 
   const [isBooting, setIsBooting] = useState<boolean>(true);
-  const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
   const [loginAllowedPortals, setLoginAllowedPortals] = useState<('student' | 'lecturer' | 'accountant' | 'librarian' | 'admin')[]>(['student', 'lecturer', 'accountant', 'librarian', 'admin']);
   const [loginInitialPortal, setLoginInitialPortal] = useState<'student' | 'lecturer' | 'accountant' | 'librarian' | 'admin'>('student');
 
@@ -1490,6 +1489,14 @@ Zenti Library Services`;
               setCurrentPath('/login');
             }}
           />
+        ) : currentPath === '/apply' ? (
+          <ApplicationPage
+            courses={courses}
+            onCancel={() => {
+              window.history.pushState({}, '', '/');
+              setCurrentPath('/');
+            }}
+          />
         ) : currentPath === '/login' ? (
           <LoginPage
             students={students}
@@ -1735,6 +1742,11 @@ Zenti Library Services`;
               setSessionExpiredMessage('');
               window.history.pushState({}, '', '/login');
               setCurrentPath('/login');
+            }}
+            onOpenApplication={() => {
+              setSessionExpiredMessage('');
+              window.history.pushState({}, '', '/apply');
+              setCurrentPath('/apply');
             }}
             onSelectCourse={(c) => setSelectedCourse(c)}
           />
