@@ -15,6 +15,7 @@ import { subjectMap, initialNews, initialTestimonies } from './data';
 
 import LandingPage from './components/LandingPage';
 import ApplicationPage from './components/ApplicationPage';
+import ApplicationSubmittedPage from './components/ApplicationSubmittedPage';
 import LoginPage from './components/LoginPage';
 import ChangePasswordPage from './components/ChangePasswordPage';
 import StudentDashboard from './components/StudentDashboard';
@@ -1512,6 +1513,28 @@ Zenti Library Services`;
             onCancel={() => {
               window.history.pushState({}, '', '/');
               setCurrentPath('/');
+            }}
+            onSubmitted={(submittedData) => {
+              try {
+                sessionStorage.setItem('zenti_last_submitted_application', JSON.stringify(submittedData));
+              } catch {}
+              window.history.pushState({}, '', `/application-submitted?ref=${submittedData.applicationNo}`);
+              setCurrentPath('/application-submitted');
+            }}
+          />
+        ) : currentPath.startsWith('/application-submitted') ? (
+          <ApplicationSubmittedPage
+            courses={courses}
+            onNavigateHome={() => {
+              window.history.pushState({}, '', '/');
+              setCurrentPath('/');
+            }}
+            onApplyNew={() => {
+              try {
+                localStorage.removeItem('zenti_school_application_draft_v1');
+              } catch {}
+              window.history.pushState({}, '', '/apply');
+              setCurrentPath('/apply');
             }}
           />
         ) : currentPath === '/login' ? (

@@ -1419,6 +1419,7 @@ app.use("/api", (req: any, res: any, next: any) => {
   const isPublic = 
     publicAPIPaths.includes(fullPath) || 
     publicAPIPaths.includes(relativePath) ||
+    relativePath.startsWith("/api/public/applications/reference/") ||
     (relativePath === "/api/courses" && req.method === "GET") ||
     (req.method === "GET" && /^\/api\/courses\/[^/]+\/gallery$/.test(relativePath));
   if (isPublic) {
@@ -2502,19 +2503,91 @@ app.post("/api/public/applications", async (req, res) => {
   try {
     const applicationNo = `APP-${new Date().getFullYear()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
     const submissionYear = new Date().getFullYear();
-    const result = await db.execute(sql`INSERT INTO applications (application_no,full_name,national_id,date_of_birth,gender,nationality,phone,email,postal_address,previous_school,highest_qualification,mean_grade,graduation_year,first_choice_course_id,second_choice_course_id,preferred_intake)
-      VALUES (${applicationNo},${cleanText(body.fullName,255)},${cleanText(body.nationalId,100)},${cleanText(body.dateOfBirth,20)},${cleanText(body.gender,30)},${cleanText(body.nationality,100)},${cleanText(body.phone,50)},${cleanText(body.email,255).toLowerCase()},${cleanText(body.postalAddress)},${cleanText(body.previousSchool,255)},${cleanText(body.highestQualification,255)},${cleanText(body.kcseGrade,50)},${submissionYear},${cleanText(body.firstChoiceCourseId,50)},${cleanText(body.secondChoiceCourseId,50) || null},${cleanText(body.preferredIntake,100)}) RETURNING id`);
-    const applicationId = result.rows[0]?.id;
-    const savedDocuments = [];
-    for (const doc of documents) {
-      const docRes = await db.execute(sql`INSERT INTO application_documents (application_id,document_type,file_name,mime_type,file_url,size_bytes) VALUES (${applicationId},${doc.documentType},${doc.fileName},${doc.mimeType},${doc.fileUrl},${Number(doc.sizeBytes)}) RETURNING id, application_id, document_type, file_name, mime_type, file_url, size_bytes, created_at`);
-      if (docRes.rows[0]) {
-        savedDocuments.push(docRes.rows[0]);
+    let applicationId: string = "";
+    const savedDocuments: any[] = [];
+    let applicationRecord: any = null;
+
+    await db.transaction(async (tx) => {
+      const result = await tx.execute(sql`INSERT INTO applications (application_no,full_name,national_id,date_of_birth,gender,nationality,phone,email,postal_address,previous_school,highest_qualification,mean_grade,graduation_year,first_choice_course_id,second_choice_course_id,preferred_intake,status)
+        VALUES (${applicationNo},${cleanText(body.fullName,255)},${cleanText(body.nationalId,100)},${cleanText(body.dateOfBirth,20)},${cleanText(body.gender,30)},${cleanText(body.nationality,100)},${cleanText(body.phone,50)},${cleanText(body.email,255).toLowerCase()},${cleanText(body.postalAddress)},${cleanText(body.previousSchool,255)},${cleanText(body.highestQualification,255)},${cleanText(body.kcseGrade,50)},${submissionYear},${cleanText(body.firstChoiceCourseId,50)},${cleanText(body.secondChoiceCourseId,50) || null},${cleanText(body.preferredIntake,100)},'submitted') RETURNING id, application_no, created_at, status, full_name, email, phone, national_id, preferred_intake, first_choice_course_id, second_choice_course_id`);
+      
+      applicationRecord = result.rows[0];
+      applicationId = applicationRecord?.id;
+
+      for (const doc of documents) {
+        const docRes = await tx.execute(sql`INSERT INTO application_documents (application_id,document_type,file_name,mime_type,file_url,size_bytes) VALUES (${applicationId},${doc.documentType},${doc.fileName},${doc.mimeType},${doc.fileUrl},${Number(doc.sizeBytes)}) RETURNING id, application_id, document_type, file_name, mime_type, file_url, size_bytes, created_at`);
+        if (docRes.rows[0]) {
+          savedDocuments.push(docRes.rows[0]);
+        }
       }
-    }
+    });
+
     await queueEmail(`application:${applicationId}:received`, cleanText(body.email,255).toLowerCase(), `Application ${applicationNo} received`, "Your application has been received and is under review.");
-    res.status(201).json({ applicationNo, status: "submitted", documents: savedDocuments });
+    const submittedAt = applicationRecord?.created_at || new Date().toISOString();
+    res.status(201).json({
+      success: true,
+      applicationNo,
+      status: "submitted",
+      documents: savedDocuments,
+      submittedAt,
+      application: applicationRecord
+    });
   } catch (error: any) { res.status(409).json({ error: error?.message || "Unable to submit application." }); }
+});
+
+app.get("/api/public/applications/reference/:reference", async (req: any, res: any) => {
+  const ref = cleanText(req.params.reference, 50).toUpperCase();
+  if (!ref) return res.status(400).json({ error: "Application reference required." });
+  try {
+    const appRes = await db.execute(sql`SELECT * FROM applications WHERE application_no=${ref}`);
+    const application: any = appRes.rows[0];
+    if (!application) return res.status(404).json({ error: "Application not found." });
+
+    const docsRes = await db.execute(sql`SELECT * FROM application_documents WHERE application_id=${application.id}`);
+    const courseRes = await db.execute(sql`SELECT id, title, code FROM courses WHERE id=${application.first_choice_course_id}`);
+    let secondCourseTitle = null;
+    if (application.second_choice_course_id) {
+      const secondRes = await db.execute(sql`SELECT id, title, code FROM courses WHERE id=${application.second_choice_course_id}`);
+      secondCourseTitle = secondRes.rows[0]?.title;
+    }
+
+    res.json({
+      applicationNo: application.application_no,
+      status: application.status || "submitted",
+      submittedAt: application.created_at,
+      fullName: application.full_name,
+      gender: application.gender || "Not specified",
+      dateOfBirth: application.date_of_birth || "",
+      nationalId: application.national_id || "",
+      email: application.email,
+      phone: application.phone,
+      nationality: application.nationality || "Kenyan",
+      county: application.nationality || "Nairobi",
+      postalAddress: application.postal_address || "",
+      kcseGrade: application.mean_grade || "",
+      kcseYear: application.graduation_year || new Date().getFullYear(),
+      formerSchool: application.previous_school || "",
+      highestQualification: application.highest_qualification || "",
+      preferredIntake: application.preferred_intake,
+      firstChoiceCourseTitle: courseRes.rows[0]?.title || 'N/A',
+      secondChoiceCourseTitle: secondCourseTitle,
+      campus: "Main Campus",
+      studyMode: "Full-Time (Regular)",
+      admissionNo: application.admission_no || null,
+      documents: docsRes.rows.map((d: any) => ({
+        id: d.id,
+        applicationId: d.application_id,
+        documentType: d.document_type,
+        fileName: d.file_name,
+        mimeType: d.mime_type,
+        fileUrl: d.file_url,
+        sizeBytes: Number(d.size_bytes),
+        createdAt: d.created_at,
+      })),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: "Unable to retrieve application details." });
+  }
 });
 
 app.get("/api/admin/applications", async (req: any, res: any) => {

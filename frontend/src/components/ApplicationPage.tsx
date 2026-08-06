@@ -6,6 +6,7 @@ import { Course, ApplicationDocument } from '../types';
 interface ApplicationPageProps {
   courses: Course[];
   onCancel: () => void;
+  onSubmitted?: (submittedData: any) => void;
 }
 
 const gradeOptions = ['A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'E', 'O', 'P', 'F'];
@@ -44,7 +45,7 @@ const formatFileSize = (bytes?: number) => {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 };
 
-export default function ApplicationPage({ courses, onCancel }: ApplicationPageProps) {
+export default function ApplicationPage({ courses, onCancel, onSubmitted }: ApplicationPageProps) {
   const { showSuccess, showError } = useNotification();
   const [form, setForm] = useState({
     fullName: '',
@@ -65,9 +66,23 @@ export default function ApplicationPage({ courses, onCancel }: ApplicationPagePr
   });
   const fileInputsRef = useRef<Array<HTMLInputElement | null>>([]);
   const [currentStep, setCurrentStep] = useState(0);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [applicationReference, setApplicationReference] = useState('');
+  const [submittedData, setSubmittedData] = useState<{
+    applicationNo: string;
+    submittedAt: string;
+    status: string;
+    fullName?: string;
+    email?: string;
+    phone?: string;
+    nationalId?: string;
+    preferredIntake?: string;
+    firstChoiceCourseTitle?: string;
+    secondChoiceCourseTitle?: string;
+    documents: ApplicationDocument[];
+  } | null>(null);
 
   // Hydrate form draft from localStorage on mount
   useEffect(() => {
@@ -439,9 +454,8 @@ export default function ApplicationPage({ courses, onCancel }: ApplicationPagePr
       if (!response.ok) {
         showError('Application Error', result?.error || 'Unable to submit application.');
       } else {
-        setSuccessMessage('Your application has been submitted successfully.');
-        setApplicationReference(result.applicationNo || 'Pending reference');
-        showSuccess('Application Submitted', 'Your application has been submitted successfully.');
+        const submittedAt = result.submittedAt || new Date().toISOString();
+        const applicationNo = result.applicationNo || 'APP-2026-PENDING';
 
         const confirmedDocs = Array.isArray(result.documents) && result.documents.length > 0
           ? result.documents.map((savedDoc: any) => ({
@@ -452,8 +466,8 @@ export default function ApplicationPage({ courses, onCancel }: ApplicationPagePr
               mimeType: savedDoc.mime_type || savedDoc.mimeType,
               fileUrl: savedDoc.file_url || savedDoc.fileUrl,
               sizeBytes: Number(savedDoc.size_bytes || savedDoc.sizeBytes || 0),
-              createdAt: savedDoc.created_at || new Date().toISOString(),
-              uploadedAt: savedDoc.created_at || new Date().toISOString(),
+              createdAt: savedDoc.created_at || submittedAt,
+              uploadedAt: savedDoc.created_at || submittedAt,
               uploadStatus: 'uploaded' as const,
               uploadProgress: 100,
             }))
@@ -464,10 +478,27 @@ export default function ApplicationPage({ courses, onCancel }: ApplicationPagePr
           documents: confirmedDocs,
         }));
 
+        const fullSubmittedData = {
+          applicationNo,
+          submittedAt,
+          status: result.status || 'Submitted',
+          fullName: form.fullName,
+          email: form.email,
+          phone: form.phone,
+          nationalId: form.nationalId,
+          preferredIntake: form.preferredIntake,
+          firstChoiceCourseTitle: courses.find((c) => c.id === form.firstChoiceCourseId)?.title || 'Selected Course',
+          secondChoiceCourseTitle: courses.find((c) => c.id === form.secondChoiceCourseId)?.title,
+          documents: confirmedDocs,
+        };
+
+        setSubmittedData(fullSubmittedData);
+
         try {
           localStorage.removeItem(DRAFT_STORAGE_KEY);
         } catch {}
-        setCurrentStep(4);
+
+        setShowSuccessModal(true);
       }
     } catch (error: any) {
       console.error('Application submission failed:', error);
@@ -855,6 +886,51 @@ export default function ApplicationPage({ courses, onCancel }: ApplicationPagePr
           </div>
         </div>
       </div>
+
+      {showSuccessModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-md w-full p-8 shadow-2xl text-center space-y-6">
+            <div className="w-20 h-20 mx-auto rounded-full bg-emerald-100 dark:bg-emerald-950/60 border-2 border-emerald-500/40 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shadow-lg shadow-emerald-500/20">
+              <CheckCircle2 className="w-10 h-10" />
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-2xl font-black text-slate-900 dark:text-slate-100">
+                Application Submitted!
+              </h3>
+              <p className="text-sm text-slate-600 dark:text-slate-400">
+                Your application and uploaded documents have been saved into the database.
+              </p>
+            </div>
+
+            <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 space-y-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Application Reference</span>
+              <div className="text-xl font-mono font-black text-blue-600 dark:text-blue-400 tracking-wider">
+                {submittedData?.applicationNo || 'APP-2026-CONFIRMED'}
+              </div>
+              <p className="text-xs text-slate-500">Status: <span className="font-semibold text-emerald-600 dark:text-emerald-400">Submitted</span></p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setShowSuccessModal(false);
+                if (onSubmitted && submittedData) {
+                  onSubmitted(submittedData);
+                } else {
+                  try {
+                    sessionStorage.setItem('zenti_last_submitted_application', JSON.stringify(submittedData));
+                  } catch {}
+                  window.history.pushState({}, '', `/application-submitted?ref=${submittedData?.applicationNo}`);
+                }
+              }}
+              className="w-full rounded-2xl bg-blue-600 hover:bg-blue-700 text-white py-3.5 px-6 font-bold text-sm transition shadow-lg shadow-blue-500/30"
+            >
+              View Application Summary →
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
