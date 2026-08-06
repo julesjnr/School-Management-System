@@ -84,10 +84,13 @@ ensureUploadsDirectory();
 app.use('/uploads', express.static(uploadBaseDirectory));
 
 const uploadStorage = multer.diskStorage({
-  destination: () => uploadBaseDirectory,
+  destination: (_req, _file, cb) => cb(null, uploadBaseDirectory),
   filename: (_req, file, cb) => {
-    const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-    cb(null, `${Date.now()}-${safeName}`);
+    const ext = path.extname(file.originalname).toLowerCase();
+    const cleanExt = (ext && ['.pdf', '.jpg', '.jpeg', '.png'].includes(ext)) ? ext : '';
+    const uniquePrefix = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+    const safeBaseName = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 50);
+    cb(null, `doc-${uniquePrefix}-${safeBaseName}${cleanExt}`);
   }
 });
 
@@ -95,8 +98,13 @@ const upload = multer({
   storage: uploadStorage,
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    const allowedMimeTypes = ['application/pdf', 'image/jpeg', 'image/png'];
-    cb(null, allowedMimeTypes.includes(file.mimetype));
+    const allowedMimeTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg', 'image/pjpeg'];
+    const isAllowedExt = /\.(pdf|jpg|jpeg|png)$/i.test(file.originalname);
+    if (allowedMimeTypes.includes(file.mimetype) || isAllowedExt) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only PDF, JPG, JPEG, and PNG files are allowed.'));
+    }
   }
 });
 
@@ -1394,7 +1402,8 @@ const publicAPIPaths = [
   "/api/student-enrollments",
   "/api/students",
   "/api/public/consultations",
-  "/api/public/applications"
+  "/api/public/applications",
+  "/api/public/application-documents"
 ];
 
 // Mount JWT Protection Middleware globally across all /api routes except public endpoints
@@ -1421,7 +1430,7 @@ app.use("/api", (req: any, res: any, next: any) => {
 
 const ADMIN_ROLES = ["admin", "super_admin", "admissions_officer"];
 const APPLICATION_DOCUMENT_TYPES = new Set(["passport_photo", "national_id", "kcse_certificate", "academic_certificate", "recommendation_letter"]);
-const APPLICATION_MIME_TYPES = new Set(["application/pdf", "image/jpeg", "image/png"]);
+const APPLICATION_MIME_TYPES = new Set(["application/pdf", "image/jpeg", "image/png", "image/jpg", "image/pjpeg"]);
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 function cleanText(value: unknown, max = 5000): string {
@@ -2429,7 +2438,17 @@ app.get("/api/admin/consultations/:id/messages", async (req: any, res: any) => {
   catch { res.status(500).json({ error: "Unable to load consultation conversation." }); }
 });
 
-app.post('/api/public/application-documents', upload.single('file'), async (req: any, res) => {
+app.post('/api/public/application-documents', (req: any, res: any, next: any) => {
+  upload.single('file')(req, res, (err: any) => {
+    if (err) {
+      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'File size must be 10 MB or less.' });
+      }
+      return res.status(400).json({ error: err.message || 'File upload validation failed.' });
+    }
+    next();
+  });
+}, async (req: any, res: any) => {
   try {
     if (!req.file || !req.body.documentType) {
       return res.status(400).json({ error: 'Upload must include documentType and a file.' });
@@ -2440,40 +2459,61 @@ app.post('/api/public/application-documents', upload.single('file'), async (req:
       return res.status(400).json({ error: 'Unsupported document type.' });
     }
 
+    const filePath = req.file.path;
+    if (!fs.existsSync(filePath)) {
+      return res.status(500).json({ error: 'Failed to confirm stored file.' });
+    }
+
     const fileUrl = `/uploads/${req.file.filename}`;
+    const uploadedAt = new Date().toISOString();
     res.status(201).json({
       fileUrl,
       fileName: req.file.originalname,
       mimeType: req.file.mimetype,
       sizeBytes: req.file.size,
+      uploadedAt,
     });
   } catch (error: any) {
-    console.error('Upload failed:', error);
     res.status(500).json({ error: 'File upload failed.' });
   }
 });
 
 app.post("/api/public/applications", async (req, res) => {
   const body = req.body || {};
-  const required = ["fullName", "nationalId", "dateOfBirth", "gender", "nationality", "phone", "email", "postalAddress", "previousSchool", "highestQualification", "kcseGrade", "firstChoiceCourseId", "preferredIntake"];
-  if (required.some((key) => !cleanText(body[key], 500)) || !/^\S+@\S+\.\S+$/.test(cleanText(body.email, 255))) {
+  if (!cleanText(body.fullName, 255) || !cleanText(body.nationalId, 100) || !cleanText(body.dateOfBirth, 20) || !cleanText(body.gender, 30) || !cleanText(body.nationality, 100) || !cleanText(body.phone, 50) || !cleanText(body.email, 255) || !cleanText(body.postalAddress) || !cleanText(body.previousSchool, 255) || !cleanText(body.highestQualification, 255) || !cleanText(body.kcseGrade, 50) || !cleanText(body.firstChoiceCourseId, 50) || !cleanText(body.preferredIntake, 100)) {
     return res.status(400).json({ error: "Complete all required application fields with valid values." });
   }
-  const documents = Array.isArray(body.documents) ? body.documents : [];
+  const documents = Array.isArray(body.documents) ? body.documents.map((doc: any) => ({
+    ...doc,
+    fileName: cleanText(doc?.fileName || "", 255).replace(/[^a-zA-Z0-9._ -]/g, "_") || "document",
+  })) : [];
   const requiredDocuments = new Set(["passport_photo", "national_id", "kcse_certificate"]);
   if (!documents.every((doc: any) => APPLICATION_DOCUMENT_TYPES.has(doc?.documentType) && APPLICATION_MIME_TYPES.has(doc?.mimeType) && Number(doc?.sizeBytes) > 0 && Number(doc?.sizeBytes) <= MAX_UPLOAD_BYTES && /^[a-zA-Z0-9._ -]{1,255}$/.test(doc?.fileName || "") && cleanText(doc?.fileUrl, 2000))) {
     return res.status(400).json({ error: "Documents must be PDF, JPG, or PNG, below 10 MB, with safe filenames." });
   }
   if (![...requiredDocuments].every((type) => documents.some((doc: any) => doc.documentType === type))) return res.status(400).json({ error: "Passport photo, national ID, and KCSE certificate are required." });
+  for (const doc of documents) {
+    const filename = path.basename(cleanText(doc.fileUrl, 2000));
+    const filePath = path.join(uploadBaseDirectory, filename);
+    if (!fs.existsSync(filePath)) {
+      return res.status(400).json({ error: `Storage file for document (${doc.documentType}) does not exist. Please re-upload your document.` });
+    }
+  }
   try {
     const applicationNo = `APP-${new Date().getFullYear()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
     const submissionYear = new Date().getFullYear();
     const result = await db.execute(sql`INSERT INTO applications (application_no,full_name,national_id,date_of_birth,gender,nationality,phone,email,postal_address,previous_school,highest_qualification,mean_grade,graduation_year,first_choice_course_id,second_choice_course_id,preferred_intake)
       VALUES (${applicationNo},${cleanText(body.fullName,255)},${cleanText(body.nationalId,100)},${cleanText(body.dateOfBirth,20)},${cleanText(body.gender,30)},${cleanText(body.nationality,100)},${cleanText(body.phone,50)},${cleanText(body.email,255).toLowerCase()},${cleanText(body.postalAddress)},${cleanText(body.previousSchool,255)},${cleanText(body.highestQualification,255)},${cleanText(body.kcseGrade,50)},${submissionYear},${cleanText(body.firstChoiceCourseId,50)},${cleanText(body.secondChoiceCourseId,50) || null},${cleanText(body.preferredIntake,100)}) RETURNING id`);
     const applicationId = result.rows[0]?.id;
-    for (const doc of documents) await db.execute(sql`INSERT INTO application_documents (application_id,document_type,file_name,mime_type,file_url,size_bytes) VALUES (${applicationId},${doc.documentType},${doc.fileName},${doc.mimeType},${doc.fileUrl},${Number(doc.sizeBytes)})`);
+    const savedDocuments = [];
+    for (const doc of documents) {
+      const docRes = await db.execute(sql`INSERT INTO application_documents (application_id,document_type,file_name,mime_type,file_url,size_bytes) VALUES (${applicationId},${doc.documentType},${doc.fileName},${doc.mimeType},${doc.fileUrl},${Number(doc.sizeBytes)}) RETURNING id, application_id, document_type, file_name, mime_type, file_url, size_bytes, created_at`);
+      if (docRes.rows[0]) {
+        savedDocuments.push(docRes.rows[0]);
+      }
+    }
     await queueEmail(`application:${applicationId}:received`, cleanText(body.email,255).toLowerCase(), `Application ${applicationNo} received`, "Your application has been received and is under review.");
-    res.status(201).json({ applicationNo, status: "submitted" });
+    res.status(201).json({ applicationNo, status: "submitted", documents: savedDocuments });
   } catch (error: any) { res.status(409).json({ error: error?.message || "Unable to submit application." }); }
 });
 

@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, UploadCloud, CheckCircle2, XCircle, Image as ImageIcon } from 'lucide-react';
 import { useNotification } from './notifications';
 import { Course, ApplicationDocument } from '../types';
@@ -9,6 +9,7 @@ interface ApplicationPageProps {
 }
 
 const gradeOptions = ['A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'E', 'O', 'P', 'F'];
+const DRAFT_STORAGE_KEY = 'zenti_school_application_draft_v1';
 
 const initialDocumentState: ApplicationDocument[] = [
   { id: 'passport_photo', applicationId: '', documentType: 'passport_photo', fileName: '', mimeType: '', fileUrl: '', sizeBytes: 0, createdAt: new Date().toISOString(), uploadStatus: 'pending', uploadProgress: 0 },
@@ -17,6 +18,31 @@ const initialDocumentState: ApplicationDocument[] = [
 ];
 
 const requiredDocuments = ['passport_photo', 'national_id', 'kcse_certificate'];
+
+const formatUploadedAt = (isoString?: string) => {
+  if (!isoString) return '';
+  try {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return '';
+  }
+};
+
+const formatFileSize = (bytes?: number) => {
+  if (!bytes || bytes <= 0) return '0 B';
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+};
 
 export default function ApplicationPage({ courses, onCancel }: ApplicationPageProps) {
   const { showSuccess, showError } = useNotification();
@@ -42,6 +68,50 @@ export default function ApplicationPage({ courses, onCancel }: ApplicationPagePr
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [applicationReference, setApplicationReference] = useState('');
+
+  // Hydrate form draft from localStorage on mount
+  useEffect(() => {
+    try {
+      const savedDraft = localStorage.getItem(DRAFT_STORAGE_KEY);
+      if (savedDraft) {
+        const parsed = JSON.parse(savedDraft);
+        if (parsed && typeof parsed === 'object') {
+          setForm((prev) => ({
+            ...prev,
+            ...parsed,
+            documents: Array.isArray(parsed.documents) && parsed.documents.length === initialDocumentState.length
+              ? parsed.documents.map((doc: ApplicationDocument, i: number) => {
+                  const initialDoc = initialDocumentState[i];
+                  const isImage = (doc.mimeType && doc.mimeType.startsWith('image/')) || /\.(jpg|jpeg|png)$/i.test(doc.fileName || '');
+                  let status = doc.uploadStatus;
+                  if (status === 'uploading') {
+                    status = doc.fileUrl && doc.fileUrl.trim() ? 'uploaded' : 'pending';
+                  }
+                  return {
+                    ...initialDoc,
+                    ...doc,
+                    uploadStatus: status || (doc.fileUrl ? 'uploaded' : 'pending'),
+                    uploadProgress: doc.fileUrl ? 100 : 0,
+                    previewUrl: isImage && doc.fileUrl ? doc.fileUrl : doc.previewUrl || '',
+                  };
+                })
+              : prev.documents,
+          }));
+        }
+      }
+    } catch {
+      // Ignore storage read errors
+    }
+  }, []);
+
+  // Save form draft to localStorage on change
+  useEffect(() => {
+    try {
+      localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(form));
+    } catch {
+      // Ignore quota errors
+    }
+  }, [form]);
 
   const currentTitle = useMemo(() => {
     switch (currentStep) {
@@ -72,9 +142,10 @@ export default function ApplicationPage({ courses, onCancel }: ApplicationPagePr
   };
 
   const validateFile = (file: File) => {
-    const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png'];
-    if (!allowedTypes.includes(file.type)) {
-      return 'Only PDF, JPG, and PNG files are allowed.';
+    const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg', 'image/pjpeg'];
+    const isAllowedExt = /\.(pdf|jpg|jpeg|png)$/i.test(file.name);
+    if (!allowedTypes.includes(file.type) && !isAllowedExt) {
+      return 'Only PDF, JPG, JPEG, and PNG files are allowed.';
     }
     if (file.size > 10 * 1024 * 1024) {
       return 'File size must be 10 MB or less.';
@@ -88,19 +159,26 @@ export default function ApplicationPage({ courses, onCancel }: ApplicationPagePr
       showError('Upload Error', validationError);
       setForm((prev) => {
         const documents = [...prev.documents];
-        documents[index] = { ...documents[index], uploadStatus: 'error', errorMessage: validationError };
+        documents[index] = {
+          ...documents[index],
+          uploadStatus: 'error',
+          errorMessage: validationError,
+          uploadProgress: 0,
+          fileUrl: '',
+        };
         return { ...prev, documents };
       });
       return;
     }
 
-    const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : '';
+    const isImage = file.type.startsWith('image/') || /\.(jpg|jpeg|png)$/i.test(file.name);
+    const previewUrl = isImage ? URL.createObjectURL(file) : '';
     setForm((prev) => {
       const documents = [...prev.documents];
       documents[index] = {
         ...documents[index],
         fileName: file.name,
-        mimeType: file.type,
+        mimeType: file.type || (isImage ? 'image/jpeg' : 'application/pdf'),
         sizeBytes: file.size,
         fileUrl: '',
         uploadStatus: 'uploading',
@@ -111,54 +189,97 @@ export default function ApplicationPage({ courses, onCancel }: ApplicationPagePr
       return { ...prev, documents };
     });
 
+    const targetDocType = form.documents[index]?.documentType || requiredDocuments[index] || 'passport_photo';
+
     const formData = new FormData();
-    formData.append('documentType', form.documents[index].documentType);
+    formData.append('documentType', targetDocType);
     formData.append('file', file);
 
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/public/application-documents');
+
     xhr.upload.onprogress = (event) => {
-      if (!event.lengthComputable) return;
-      const progress = Math.round((event.loaded / event.total) * 100);
+      if (!event.lengthComputable || !event.total) return;
+      const progress = Math.min(95, Math.round((event.loaded / event.total) * 100));
       setForm((prev) => {
         const documents = [...prev.documents];
-        documents[index] = { ...documents[index], uploadProgress: progress };
+        if (documents[index] && documents[index].uploadStatus === 'uploading') {
+          documents[index] = { ...documents[index], uploadProgress: progress };
+        }
         return { ...prev, documents };
       });
     };
-    xhr.onload = () => {
-      if (xhr.status === 201) {
-        const response = JSON.parse(xhr.responseText);
+
+    xhr.onreadystatechange = () => {
+      if (xhr.readyState !== 4) return;
+
+      if (xhr.status >= 200 && xhr.status < 300) {
+        let response: any = {};
+        try {
+          response = JSON.parse(xhr.responseText);
+        } catch {
+          response = {};
+        }
+
+        const fileUrl = response.fileUrl || '';
+        const rawFileName = response.fileName || file.name || 'document';
+        const safeFileName = rawFileName.replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 255);
+        const safeMimeType = response.mimeType || file.type || (isImage ? 'image/jpeg' : 'application/pdf');
+        const safeSizeBytes = Number(response.sizeBytes) || file.size || 0;
+        const uploadedAt = response.uploadedAt || new Date().toISOString();
+
         setForm((prev) => {
           const documents = [...prev.documents];
           documents[index] = {
             ...documents[index],
+            fileName: safeFileName,
+            mimeType: safeMimeType,
+            sizeBytes: safeSizeBytes,
+            fileUrl,
+            uploadedAt,
             uploadStatus: 'uploaded',
             uploadProgress: 100,
-            fileUrl: response.fileUrl || '',
             applicationId: response.applicationId || documents[index].applicationId,
+            errorMessage: undefined,
           };
           return { ...prev, documents };
         });
         showSuccess('Upload Complete', `${file.name} uploaded successfully.`);
       } else {
-        const error = JSON.parse(xhr.responseText)?.error || 'Upload failed.';
+        let error = 'Upload failed.';
+        try {
+          error = JSON.parse(xhr.responseText)?.error || 'Upload failed.';
+        } catch {}
         setForm((prev) => {
           const documents = [...prev.documents];
-          documents[index] = { ...documents[index], uploadStatus: 'error', errorMessage: error, uploadProgress: 0 };
+          documents[index] = {
+            ...documents[index],
+            uploadStatus: 'error',
+            errorMessage: error,
+            uploadProgress: 0,
+            fileUrl: '',
+          };
           return { ...prev, documents };
         });
         showError('Upload Error', error);
       }
     };
+
     xhr.onerror = () => {
       setForm((prev) => {
         const documents = [...prev.documents];
-        documents[index] = { ...documents[index], uploadStatus: 'error', errorMessage: 'Upload failed. Try again.', uploadProgress: 0 };
+        documents[index] = {
+          ...documents[index],
+          uploadStatus: 'error',
+          errorMessage: 'Upload failed. Try again.',
+          uploadProgress: 0,
+          fileUrl: '',
+        };
         return { ...prev, documents };
       });
       showError('Upload Error', 'Upload failed. Try again.');
     };
+
     xhr.send(formData);
   };
 
@@ -175,6 +296,7 @@ export default function ApplicationPage({ courses, onCancel }: ApplicationPagePr
         mimeType: '',
         fileUrl: '',
         sizeBytes: 0,
+        uploadedAt: undefined,
         uploadStatus: 'pending',
         uploadProgress: 0,
         previewUrl: undefined,
@@ -222,7 +344,19 @@ export default function ApplicationPage({ courses, onCancel }: ApplicationPagePr
     }
 
     if (step === 3) {
-      if (!requiredDocuments.every((type) => form.documents.some((doc) => doc.documentType === type && doc.uploadStatus === 'uploaded' && doc.fileUrl.trim()))) {
+      const isUploading = form.documents.some((doc) => doc.uploadStatus === 'uploading');
+      if (isUploading) {
+        showError('Upload Error', 'Uploads are still in progress. Please wait for all documents to finish uploading.');
+        return false;
+      }
+
+      const allUploaded = requiredDocuments.every((type) =>
+        form.documents.some(
+          (doc) => doc.documentType === type && (doc.uploadStatus === 'completed' || doc.uploadStatus === 'uploaded') && Boolean(doc.fileUrl && doc.fileUrl.trim())
+        )
+      );
+
+      if (!allUploaded) {
         showError('Application Error', 'Please upload all required documents.');
         return false;
       }
@@ -253,6 +387,25 @@ export default function ApplicationPage({ courses, onCancel }: ApplicationPagePr
 
     if (!validateAll()) return;
 
+    const uploadedDocs = form.documents
+      .filter((doc) => (doc.uploadStatus === 'completed' || doc.uploadStatus === 'uploaded') && Boolean(doc.fileUrl && doc.fileUrl.trim()))
+      .map((doc) => ({
+        documentType: doc.documentType,
+        fileName: doc.fileName,
+        mimeType: doc.mimeType,
+        fileUrl: doc.fileUrl,
+        sizeBytes: doc.sizeBytes,
+      }));
+
+    const missingDocs = requiredDocuments.filter(
+      (type) => !uploadedDocs.some((doc) => doc.documentType === type)
+    );
+
+    if (missingDocs.length > 0) {
+      showError('Application Error', 'Passport photo, national ID, and KCSE certificate are required and must be uploaded before submitting.');
+      return;
+    }
+
     setSubmitting(true);
     setSuccessMessage('');
     setApplicationReference('');
@@ -273,13 +426,7 @@ export default function ApplicationPage({ courses, onCancel }: ApplicationPagePr
         firstChoiceCourseId: form.firstChoiceCourseId,
         secondChoiceCourseId: form.secondChoiceCourseId || null,
         preferredIntake: form.preferredIntake,
-        documents: form.documents.map((doc) => ({
-          documentType: doc.documentType,
-          fileName: doc.fileName,
-          mimeType: doc.mimeType,
-          fileUrl: doc.fileUrl,
-          sizeBytes: doc.sizeBytes,
-        })),
+        documents: uploadedDocs,
       };
 
       const response = await fetch('/api/public/applications', {
@@ -295,7 +442,31 @@ export default function ApplicationPage({ courses, onCancel }: ApplicationPagePr
         setSuccessMessage('Your application has been submitted successfully.');
         setApplicationReference(result.applicationNo || 'Pending reference');
         showSuccess('Application Submitted', 'Your application has been submitted successfully.');
-        setForm((prev) => ({ ...prev, documents: initialDocumentState }));
+
+        const confirmedDocs = Array.isArray(result.documents) && result.documents.length > 0
+          ? result.documents.map((savedDoc: any) => ({
+              id: savedDoc.id || savedDoc.document_type,
+              applicationId: savedDoc.application_id || savedDoc.applicationId || '',
+              documentType: savedDoc.document_type || savedDoc.documentType,
+              fileName: savedDoc.file_name || savedDoc.fileName,
+              mimeType: savedDoc.mime_type || savedDoc.mimeType,
+              fileUrl: savedDoc.file_url || savedDoc.fileUrl,
+              sizeBytes: Number(savedDoc.size_bytes || savedDoc.sizeBytes || 0),
+              createdAt: savedDoc.created_at || new Date().toISOString(),
+              uploadedAt: savedDoc.created_at || new Date().toISOString(),
+              uploadStatus: 'uploaded' as const,
+              uploadProgress: 100,
+            }))
+          : form.documents;
+
+        setForm((prev) => ({
+          ...prev,
+          documents: confirmedDocs,
+        }));
+
+        try {
+          localStorage.removeItem(DRAFT_STORAGE_KEY);
+        } catch {}
         setCurrentStep(4);
       }
     } catch (error: any) {
@@ -488,83 +659,108 @@ export default function ApplicationPage({ courses, onCancel }: ApplicationPagePr
 
                 {currentStep === 3 && (
                   <div className="space-y-4">
-                    {form.documents.map((doc, index) => (
-                      <div key={doc.id} className="rounded-3xl border border-slate-200 bg-white p-4">
-                        <div className="flex items-center justify-between gap-4">
-                          <div>
-                            <p className="text-sm font-semibold capitalize">{doc.documentType.replaceAll('_', ' ')}</p>
-                            <p className="text-xs text-slate-500">Accepted: PDF, JPG, PNG - max 10MB</p>
+                    {form.documents.map((doc, index) => {
+                      const isComplete = (doc.uploadStatus === 'completed' || doc.uploadStatus === 'uploaded') && Boolean(doc.fileUrl && doc.fileUrl.trim());
+                      const isError = doc.uploadStatus === 'error';
+                      const isUploading = doc.uploadStatus === 'uploading';
+
+                      return (
+                        <div key={doc.id} className="rounded-3xl border border-slate-200 bg-white p-4">
+                          <div className="flex items-center justify-between gap-4">
+                            <div>
+                              <p className="text-sm font-semibold capitalize">{doc.documentType.replaceAll('_', ' ')}</p>
+                              <p className="text-xs text-slate-500">Accepted: PDF, JPG, PNG - max 10MB</p>
+                            </div>
+                            <UploadCloud className="w-5 h-5 text-blue-600" />
                           </div>
-                          <UploadCloud className="w-5 h-5 text-blue-600" />
-                        </div>
-                        <input
-                          ref={(el) => {
-                            fileInputsRef.current[index] = el;
-                          }}
-                          type="file"
-                          accept=".pdf,image/jpeg,image/png"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            handleFileSelect(index, file);
-                            e.target.value = '';
-                          }}
-                        />
-                        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                          <div className="flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              onClick={() => triggerFilePicker(index)}
-                              className="inline-flex items-center gap-2 rounded-3xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
-                            >
-                              {doc.fileName ? 'Replace File' : 'Upload / Choose File'}
-                            </button>
-                            {doc.fileName ? (
+                          <input
+                            ref={(el) => {
+                              fileInputsRef.current[index] = el;
+                            }}
+                            type="file"
+                            accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png,image/jpg"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              handleFileSelect(index, file);
+                              e.target.value = '';
+                            }}
+                          />
+                          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="flex flex-wrap gap-2">
                               <button
                                 type="button"
-                                onClick={() => handleRemoveFile(index)}
-                                className="inline-flex items-center gap-2 rounded-3xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-100"
+                                onClick={() => triggerFilePicker(index)}
+                                className="inline-flex items-center gap-2 rounded-3xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
                               >
-                                Remove
+                                {isError ? 'Retry Upload' : doc.fileName ? 'Replace File' : 'Upload / Choose File'}
                               </button>
-                            ) : null}
-                          </div>
-                          <div className="text-sm text-slate-500">
-                            {doc.fileName ? <span className="font-medium">{doc.fileName}</span> : 'No file selected yet'}
-                          </div>
-                        </div>
-                        {doc.previewUrl ? (
-                          <div className="mt-4 rounded-3xl border border-slate-100 bg-slate-50 p-3">
-                            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
-                              <ImageIcon className="h-4 w-4" />
-                              Image preview
+                              {doc.fileName ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveFile(index)}
+                                  className="inline-flex items-center gap-2 rounded-3xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-100"
+                                >
+                                  Remove
+                                </button>
+                              ) : null}
                             </div>
-                            <img src={doc.previewUrl} alt={doc.fileName} className="max-h-48 w-full rounded-2xl object-contain" />
+                            <div className="text-sm text-slate-500">
+                              {doc.fileName ? <span className="font-medium text-slate-700">{doc.fileName}</span> : 'No file selected yet'}
+                            </div>
                           </div>
-                        ) : null}
-                        <div className="mt-4 space-y-2 text-sm">
-                          {doc.uploadStatus === 'uploading' ? (
-                            <div className="space-y-2">
-                              <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                                <div className="h-full rounded-full bg-blue-600" style={{ width: `${doc.uploadProgress ?? 0}%` }} />
+                          {doc.previewUrl ? (
+                            <div className="mt-4 rounded-3xl border border-slate-100 bg-slate-50 p-3">
+                              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
+                                <ImageIcon className="h-4 w-4" />
+                                Image preview
                               </div>
-                              <p className="text-slate-500">Uploading... {doc.uploadProgress ?? 0}%</p>
+                              <img src={doc.previewUrl} alt={doc.fileName} className="max-h-48 w-full rounded-2xl object-contain" />
                             </div>
-                          ) : doc.uploadStatus === 'uploaded' ? (
-                            <p className="inline-flex items-center gap-2 text-sm text-emerald-700">
-                              <CheckCircle2 className="h-4 w-4" />
-                              Upload complete
-                            </p>
-                          ) : doc.uploadStatus === 'error' ? (
-                            <p className="text-sm text-rose-600">{doc.errorMessage}</p>
                           ) : null}
-                          <p className="text-xs text-slate-500">
-                            {doc.fileName ? `${(doc.sizeBytes / 1024 / 1024).toFixed(2)} MB` : 'Select a supported file to upload.'}
-                          </p>
+
+                          <div className="mt-4 text-sm">
+                            {isUploading ? (
+                              <div className="space-y-2">
+                                <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                                  <div className="h-full rounded-full bg-blue-600 transition-all duration-200" style={{ width: `${doc.uploadProgress ?? 0}%` }} />
+                                </div>
+                                <p className="text-xs text-slate-500">Uploading... {doc.uploadProgress ?? 0}%</p>
+                              </div>
+                            ) : isComplete ? (
+                              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3 space-y-1 text-xs text-emerald-900">
+                                <p className="inline-flex items-center gap-2 font-semibold text-emerald-700 text-sm">
+                                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                                  Uploaded Successfully
+                                </p>
+                                <div className="flex flex-wrap gap-x-4 gap-y-1 text-slate-600">
+                                  <span><strong className="font-medium text-slate-700">File:</strong> {doc.fileName}</span>
+                                  <span><strong className="font-medium text-slate-700">Size:</strong> {formatFileSize(doc.sizeBytes)}</span>
+                                  {doc.uploadedAt ? (
+                                    <span><strong className="font-medium text-slate-700">Uploaded:</strong> {formatUploadedAt(doc.uploadedAt)}</span>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ) : isError ? (
+                              <div className="rounded-2xl border border-rose-100 bg-rose-50/70 p-3 space-y-2 text-xs">
+                                <p className="font-semibold text-rose-700 text-sm">Upload Failed</p>
+                                <p className="text-rose-600">{doc.errorMessage || 'Upload failed. Please try again.'}</p>
+                                <button
+                                  type="button"
+                                  onClick={() => triggerFilePicker(index)}
+                                  className="inline-flex items-center gap-1 font-semibold text-rose-700 underline hover:text-rose-800"
+                                >
+                                  Retry Upload
+                                </button>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-slate-500">Select a supported file to upload.</p>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                     <p className="text-xs text-slate-500">
                       Upload each required document directly from your device. Files are validated and stored securely.
                     </p>
@@ -588,19 +784,34 @@ export default function ApplicationPage({ courses, onCancel }: ApplicationPagePr
                     <div className="rounded-3xl border border-slate-200 bg-white p-5">
                       <div className="mb-4 text-sm font-semibold text-slate-900">Documents</div>
                       <div className="grid gap-3">
-                                        {form.documents.map((doc) => (
-                          <div key={doc.id} className="rounded-3xl border border-slate-100 bg-slate-50 p-4">
-                            <p className="text-sm font-semibold">{doc.documentType.replaceAll('_', ' ')}</p>
-                            <p className="mt-2 text-sm text-slate-700 break-all">{doc.fileName || 'No file uploaded yet'}</p>
-                            {doc.uploadStatus === 'uploaded' ? (
-                              <p className="mt-1 text-xs text-emerald-700">Uploaded successfully</p>
-                            ) : doc.uploadStatus === 'uploading' ? (
-                              <p className="mt-1 text-xs text-slate-500">Uploading... {doc.uploadProgress}%</p>
-                            ) : doc.uploadStatus === 'error' ? (
-                              <p className="mt-1 text-xs text-rose-600">{doc.errorMessage}</p>
-                            ) : null}
-                          </div>
-                        ))}
+                        {form.documents.map((doc) => {
+                          const isUploaded = (doc.uploadStatus === 'completed' || doc.uploadStatus === 'uploaded') && Boolean(doc.fileName && doc.fileUrl);
+                          return (
+                            <div key={doc.id} className="rounded-3xl border border-slate-100 bg-slate-50 p-4 space-y-2">
+                              <p className="text-sm font-semibold capitalize">{doc.documentType.replaceAll('_', ' ')}</p>
+                              {isUploaded ? (
+                                <div className="space-y-1">
+                                  <p className="text-xs font-semibold text-emerald-700 flex items-center gap-1">
+                                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Uploaded ✓
+                                  </p>
+                                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+                                    <span><strong className="font-medium text-slate-700">File:</strong> {doc.fileName}</span>
+                                    <span><strong className="font-medium text-slate-700">Size:</strong> {formatFileSize(doc.sizeBytes)}</span>
+                                    {doc.uploadedAt ? (
+                                      <span><strong className="font-medium text-slate-700">Upload date:</strong> {formatUploadedAt(doc.uploadedAt)}</span>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              ) : doc.uploadStatus === 'uploading' ? (
+                                <p className="mt-1 text-xs text-slate-500">Uploading... {doc.uploadProgress}%</p>
+                              ) : doc.uploadStatus === 'error' ? (
+                                <p className="mt-1 text-xs text-rose-600">{doc.errorMessage}</p>
+                              ) : (
+                                <p className="mt-1 text-xs text-slate-500">No file uploaded yet</p>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
@@ -622,11 +833,20 @@ export default function ApplicationPage({ courses, onCancel }: ApplicationPagePr
                   Back
                 </button>
                 {currentStep < 4 ? (
-                  <button type="button" onClick={handleNext} className="rounded-3xl bg-blue-600 text-white px-5 py-3 text-sm font-semibold transition hover:bg-blue-700">
+                  <button
+                    type="button"
+                    onClick={handleNext}
+                    disabled={currentStep === 3 && (form.documents.some((doc) => doc.uploadStatus === 'uploading') || !requiredDocuments.every((type) => form.documents.some((doc) => (doc.uploadStatus === 'completed' || doc.uploadStatus === 'uploaded') && Boolean(doc.fileUrl && doc.fileUrl.trim()))))}
+                    className="rounded-3xl bg-blue-600 text-white px-5 py-3 text-sm font-semibold transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
                     Continue
                   </button>
                 ) : (
-                  <button type="submit" disabled={submitting} className="rounded-3xl bg-blue-600 text-white px-5 py-3 text-sm font-semibold transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60">
+                  <button
+                    type="submit"
+                    disabled={submitting || form.documents.some((doc) => doc.uploadStatus === 'uploading') || !requiredDocuments.every((type) => form.documents.some((doc) => (doc.uploadStatus === 'completed' || doc.uploadStatus === 'uploaded') && Boolean(doc.fileUrl && doc.fileUrl.trim())))}
+                    className="rounded-3xl bg-blue-600 text-white px-5 py-3 text-sm font-semibold transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
                     {submitting ? 'Submitting...' : 'Confirm & Submit'}
                   </button>
                 )}

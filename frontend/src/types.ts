@@ -31,7 +31,8 @@ export interface ApplicationDocument {
   fileUrl: string;
   sizeBytes: number;
   createdAt: string;
-  uploadStatus?: 'pending' | 'uploading' | 'uploaded' | 'error';
+  uploadedAt?: string;
+  uploadStatus?: 'pending' | 'uploading' | 'uploaded' | 'completed' | 'error';
   uploadProgress?: number;
   previewUrl?: string;
   errorMessage?: string;

@@ -49,17 +49,6 @@
   ],
   "courses": [
     {
-      "id": "6ab1051c-03f9-4293-9cde-d50daa8f1c7e",
-      "code": "BIT",
-      "title": "Bachelor of Information Technology",
-      "description": "A programme covering software development, cloud computing, networking, web technologies, and IT infrastructure management.",
-      "duration": "4 Years",
-      "fees": 450000,
-      "thumbnail": "",
-      "faculty": "School of Computing and Informatics",
-      "active": true
-    },
-    {
       "id": "3e6160cc-f3c9-4746-b17e-ed8855e7da32",
       "code": "BBIT",
       "title": "Bachelor of Business Information Technology",
@@ -99,6 +88,17 @@
       "description": "Focuses on statistics, machine learning, big data analytics, artificial intelligence, and data engineering.",
       "duration": "4 Years",
       "fees": 520000,
+      "thumbnail": "",
+      "faculty": "School of Computing and Informatics",
+      "active": true
+    },
+    {
+      "id": "6ab1051c-03f9-4293-9cde-d50daa8f1c7e",
+      "code": "BIT",
+      "title": "Bachelor of Information Technology",
+      "description": "A programme covering software development, cloud computing, networking, web technologies, and IT infrastructure management.",
+      "duration": "4 Years",
+      "fees": 450000,
       "thumbnail": "",
       "faculty": "School of Computing and Informatics",
       "active": true
@@ -240,6 +240,24 @@
   "reservations": [],
   "notifications": [
     {
+      "id": "77689915-b300-4fc2-b6ab-b8fa4ce9cd72",
+      "targetUserRole": "all",
+      "type": "library",
+      "title": " [Grade Posted] New Grade for Unit BDS",
+      "message": "Brian Otieno (brian.otieno@zenti.edu): Dear Brian Otieno,",
+      "status": "unread",
+      "dateTime": "2026-07-30 13:47:44+00"
+    },
+    {
+      "id": "56ce593d-d574-4eaa-bd39-3e0088504fa6",
+      "targetUserRole": "all",
+      "type": "payment",
+      "title": " [Invoice Generated] New Billing Invoice #INV-1194",
+      "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
+      "status": "unread",
+      "dateTime": "2026-07-26 12:15:21+00"
+    },
+    {
       "id": "2fe609d8-12d2-44a3-b6fb-0e0d5e80a812",
       "targetUserRole": "all",
       "type": "library",
@@ -274,24 +292,6 @@
       "message": "Brian Otieno (brian.otieno@zenti.edu): Dear Brian Otieno,",
       "status": "unread",
       "dateTime": "2026-07-30 14:11:21+00"
-    },
-    {
-      "id": "77689915-b300-4fc2-b6ab-b8fa4ce9cd72",
-      "targetUserRole": "all",
-      "type": "library",
-      "title": " [Grade Posted] New Grade for Unit BDS",
-      "message": "Brian Otieno (brian.otieno@zenti.edu): Dear Brian Otieno,",
-      "status": "unread",
-      "dateTime": "2026-07-30 13:47:44+00"
-    },
-    {
-      "id": "56ce593d-d574-4eaa-bd39-3e0088504fa6",
-      "targetUserRole": "all",
-      "type": "payment",
-      "title": " [Invoice Generated] New Billing Invoice #INV-1194",
-      "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
-      "status": "unread",
-      "dateTime": "2026-07-26 12:15:21+00"
     }
   ],
   "student_ledger": [
