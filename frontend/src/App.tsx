@@ -146,6 +146,23 @@ export default function App() {
   const [currentPath, setCurrentPath] = useState<string>(() => window.location.pathname || '/');
 
   const [sessionExpiredMessage, setSessionExpiredMessage] = useState<string>('');
+  const isAdminAccessRole = currentUserRole === 'admin' || currentUserRole === 'super_admin' || currentUserRole === 'admissions_officer';
+  const getAdminRouteState = (path: string) => {
+    if (path === '/admin/admissions/consultations') {
+      return { initialActiveTab: 'admissions' as const, initialAdmissionsSubTab: 'consultations' as const };
+    }
+    if (path === '/admin/admissions/applications') {
+      return { initialActiveTab: 'admissions' as const, initialAdmissionsSubTab: 'applications' as const };
+    }
+    if (path === '/admin/admissions/applicants') {
+      return { initialActiveTab: 'admissions' as const, initialAdmissionsSubTab: 'applicants' as const };
+    }
+    if (path === '/admin/admissions' || path === '/admin/admissions/dashboard') {
+      return { initialActiveTab: 'admissions' as const, initialAdmissionsSubTab: 'dashboard' as const };
+    }
+    return { initialActiveTab: undefined as any, initialAdmissionsSubTab: undefined as any };
+  };
+  const adminRouteState = getAdminRouteState(currentPath);
 
   useEffect(() => {
     const handleExpired = () => {
@@ -1525,7 +1542,7 @@ Zenti Library Services`;
               setCurrentPath('/');
             }}
           />
-        ) : currentPath.startsWith('/admin') && currentUserRole !== 'admin' && currentUserRole !== 'accountant' && currentUserRole !== 'librarian' ? (
+        ) : currentPath.startsWith('/admin') && !isAdminAccessRole && currentUserRole !== 'accountant' && currentUserRole !== 'librarian' ? (
           <Forbidden403
             onBackToDashboard={() => {
               window.history.pushState({}, '', '/');
@@ -1610,7 +1627,7 @@ Zenti Library Services`;
               </p>
             </div>
           )
-        ) : (currentUserRole === 'admin' && currentPath !== '/landing') ? (
+        ) : ((currentUserRole === 'admin' || currentUserRole === 'super_admin' || currentUserRole === 'admissions_officer') && currentPath !== '/landing') ? (
           <AdminDashboard
             courses={courses}
             lecturers={lecturers}
@@ -1623,6 +1640,13 @@ Zenti Library Services`;
             reservations={reservations}
             bookRequests={bookRequests}
             libraryGateLogs={libraryGateLogs}
+            currentUserRole={currentUserRole || undefined}
+            initialActiveTab={adminRouteState.initialActiveTab}
+            initialAdmissionsSubTab={adminRouteState.initialAdmissionsSubTab}
+            onNavigateRoute={(path) => {
+              window.history.pushState({}, '', path);
+              setCurrentPath(path);
+            }}
             onAddBook={handleAddBook}
             onUpdateBook={handleUpdateBook}
             onCheckoutBook={handleCheckoutBook}
@@ -1661,6 +1685,13 @@ Zenti Library Services`;
             bookRequests={bookRequests}
             libraryGateLogs={libraryGateLogs}
             currentUserId={currentUserId}
+            currentUserRole={currentUserRole || undefined}
+            initialActiveTab={adminRouteState.initialActiveTab}
+            initialAdmissionsSubTab={adminRouteState.initialAdmissionsSubTab}
+            onNavigateRoute={(path) => {
+              window.history.pushState({}, '', path);
+              setCurrentPath(path);
+            }}
             onAddBook={handleAddBook}
             onUpdateBook={handleUpdateBook}
             onCheckoutBook={handleCheckoutBook}
@@ -1699,6 +1730,13 @@ Zenti Library Services`;
             reservations={reservations}
             bookRequests={bookRequests}
             libraryGateLogs={libraryGateLogs}
+            currentUserRole={currentUserRole || undefined}
+            initialActiveTab={adminRouteState.initialActiveTab}
+            initialAdmissionsSubTab={adminRouteState.initialAdmissionsSubTab}
+            onNavigateRoute={(path) => {
+              window.history.pushState({}, '', path);
+              setCurrentPath(path);
+            }}
             onAddBook={handleAddBook}
             onUpdateBook={handleUpdateBook}
             onCheckoutBook={handleCheckoutBook}

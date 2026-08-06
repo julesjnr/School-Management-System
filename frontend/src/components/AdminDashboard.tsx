@@ -24,6 +24,49 @@ import {
   AreaChart, Area
 } from 'recharts';
 
+interface ConsultationRecord {
+  id: string;
+  request_no: string;
+  full_name: string;
+  email: string;
+  phone: string;
+  course_name?: string;
+  consultation_type: string;
+  preferred_date: string;
+  preferred_time: string;
+  status: string;
+  created_at: string;
+  updated_at?: string;
+  scheduled_at?: string;
+  message?: string;
+}
+
+interface ConsultationMessageRecord {
+  id: string;
+  consultation_id: string;
+  direction: string;
+  sender_name?: string;
+  sender_email?: string;
+  body: string;
+  created_at: string;
+  message_id?: string;
+}
+
+interface ApplicationRecord {
+  id: string;
+  application_no: string;
+  full_name: string;
+  email: string;
+  phone: string;
+  status: string;
+  first_choice_course_id?: string;
+  preferred_intake?: string;
+  created_at: string;
+  updated_at?: string;
+  internal_notes?: string;
+  national_id?: string;
+}
+
 interface AdminDashboardProps {
   courses: Course[];
   lecturers: Lecturer[];
@@ -62,6 +105,10 @@ interface AdminDashboardProps {
   onTriggerGateLog?: (log: Omit<LibraryGateLog, 'id' | 'timestamp'>) => void;
   mockEmails?: MockEmail[];
   onTriggerOverdueScan?: () => number;
+  currentUserRole?: string;
+  initialActiveTab?: 'overview' | 'academics' | 'finances' | 'payroll' | 'inventory' | 'roles' | 'library' | 'diagnostics' | 'admissions';
+  initialAdmissionsSubTab?: 'dashboard' | 'consultations' | 'applications' | 'applicants';
+  onNavigateRoute?: (path: string) => void;
 }
 
 export default function AdminDashboard({
@@ -101,13 +148,33 @@ export default function AdminDashboard({
   isLibrarianView = false,
   currentUserId = '',
   mockEmails = [],
-  onTriggerOverdueScan
+  onTriggerOverdueScan,
+  currentUserRole,
+  initialActiveTab,
+  initialAdmissionsSubTab,
+  onNavigateRoute
 }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'academics' | 'finances' | 'payroll' | 'inventory' | 'roles' | 'library' | 'diagnostics'>(() => {
+  const [activeTab, setActiveTab] = useState<'overview' | 'academics' | 'finances' | 'payroll' | 'inventory' | 'roles' | 'library' | 'diagnostics' | 'admissions'>(() => {
+    if (initialActiveTab) return initialActiveTab;
     if (isLibrarianView) return 'library';
     if (isAccountantView) return 'finances';
     return 'overview';
   });
+  const [admissionsSubTab, setAdmissionsSubTab] = useState<'dashboard' | 'consultations' | 'applications' | 'applicants'>(() => initialAdmissionsSubTab || 'dashboard');
+  const [consultations, setConsultations] = useState<ConsultationRecord[]>([]);
+  const [consultationMessages, setConsultationMessages] = useState<ConsultationMessageRecord[]>([]);
+  const [consultationsLoading, setConsultationsLoading] = useState(false);
+  const [consultationMessagesLoading, setConsultationMessagesLoading] = useState(false);
+  const [selectedConsultationId, setSelectedConsultationId] = useState<string | null>(null);
+  const [consultationReplyMap, setConsultationReplyMap] = useState<Record<string, string>>({});
+  const [consultationStatusMap, setConsultationStatusMap] = useState<Record<string, string>>({});
+  const [consultationSearch, setConsultationSearch] = useState('');
+  const [consultationStatusFilter, setConsultationStatusFilter] = useState('all');
+  const [updatingConsultation, setUpdatingConsultation] = useState(false);
+  const [applications, setApplications] = useState<ApplicationRecord[]>([]);
+  const [applicationsLoading, setApplicationsLoading] = useState(false);
+  const [applicationNoteMap, setApplicationNoteMap] = useState<Record<string, string>>({});
+  const [updatingApplication, setUpdatingApplication] = useState(false);
   const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState<boolean>(true);
 
@@ -457,6 +524,31 @@ export default function AdminDashboard({
     }
   }, [activeTab]);
 
+  useEffect(() => {
+    if (activeTab === 'admissions') {
+      void fetchConsultations();
+      void fetchApplications();
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (selectedConsultationId) {
+      void fetchConsultationMessages(selectedConsultationId);
+    }
+  }, [selectedConsultationId]);
+
+  useEffect(() => {
+    if (initialActiveTab) {
+      setActiveTab(initialActiveTab);
+    }
+  }, [initialActiveTab]);
+
+  useEffect(() => {
+    if (initialAdmissionsSubTab) {
+      setAdmissionsSubTab(initialAdmissionsSubTab);
+    }
+  }, [initialAdmissionsSubTab]);
+
   // Student registration states
   const [regStudentName, setRegStudentName] = useState('');
   const [regStudentEmail, setRegStudentEmail] = useState('');
@@ -783,6 +875,112 @@ export default function AdminDashboard({
     showToast('College utility expense logged successfully into digital ledger.', 'success');
   };
 
+  const getAuthHeaders = (includeJson = true) => {
+    const token = localStorage.getItem('zenti_session_token');
+    const headers: Record<string, string> = {};
+    if (includeJson) headers['Content-Type'] = 'application/json';
+    if (token) {
+      headers['x-session-token'] = token;
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    return headers;
+  };
+
+  const fetchConsultations = async () => {
+    setConsultationsLoading(true);
+    try {
+      const res = await fetch('/api/admin/consultations', { headers: getAuthHeaders(false) });
+      if (!res.ok) throw new Error('Unable to load consultations.');
+      const data = await res.json();
+      const rows = Array.isArray(data) ? data : [];
+      setConsultations(rows);
+      if (rows.length > 0 && !selectedConsultationId) {
+        setSelectedConsultationId(rows[0].id);
+      }
+    } catch (error) {
+      console.error(error);
+      showError('Admissions Error', 'Unable to load consultation requests.');
+    } finally {
+      setConsultationsLoading(false);
+    }
+  };
+
+  const fetchConsultationMessages = async (consultationId: string) => {
+    if (!consultationId) return;
+    setConsultationMessagesLoading(true);
+    try {
+      const res = await fetch(`/api/admin/consultations/${consultationId}/messages`, { headers: getAuthHeaders(false) });
+      if (!res.ok) throw new Error('Unable to load messages.');
+      const data = await res.json();
+      setConsultationMessages(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error(error);
+      showError('Admissions Error', 'Unable to load consultation thread.');
+    } finally {
+      setConsultationMessagesLoading(false);
+    }
+  };
+
+  const updateConsultationStatus = async (consultationId: string, status: string) => {
+    setUpdatingConsultation(true);
+    try {
+      const reply = consultationReplyMap[consultationId] || '';
+      const res = await fetch(`/api/admin/consultations/${consultationId}`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ status, reply })
+      });
+      if (!res.ok) throw new Error('Unable to update consultation.');
+      const updated = await res.json();
+      setConsultations(prev => prev.map(item => item.id === consultationId ? { ...item, ...updated } : item));
+      setConsultationReplyMap(prev => ({ ...prev, [consultationId]: '' }));
+      showSuccess('Consultation Updated', 'The consultation request was updated successfully.');
+      void fetchConsultationMessages(consultationId);
+    } catch (error) {
+      console.error(error);
+      showError('Admissions Error', 'The consultation request could not be updated.');
+    } finally {
+      setUpdatingConsultation(false);
+    }
+  };
+
+  const fetchApplications = async () => {
+    setApplicationsLoading(true);
+    try {
+      const res = await fetch('/api/admin/applications', { headers: getAuthHeaders(false) });
+      if (!res.ok) throw new Error('Unable to load applications.');
+      const data = await res.json();
+      setApplications(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error(error);
+      showError('Admissions Error', 'Unable to load applications.');
+    } finally {
+      setApplicationsLoading(false);
+    }
+  };
+
+  const updateApplicationStatus = async (applicationId: string, status: string) => {
+    setUpdatingApplication(true);
+    try {
+      const note = applicationNoteMap[applicationId] || '';
+      const res = await fetch(`/api/admin/applications/${applicationId}`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ status, internalNote: note })
+      });
+      if (!res.ok) throw new Error('Unable to update application.');
+      const updated = await res.json();
+      setApplications(prev => prev.map(item => item.id === applicationId ? { ...item, ...updated } : item));
+      setApplicationNoteMap(prev => ({ ...prev, [applicationId]: '' }));
+      showSuccess('Application Updated', 'The application was updated successfully.');
+    } catch (error) {
+      console.error(error);
+      showError('Admissions Error', 'The application could not be updated.');
+    } finally {
+      setUpdatingApplication(false);
+    }
+  };
+
   const handleAddStudentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!regStudentName || !regStudentEmail || !regStudentAdmission) {
@@ -949,10 +1147,25 @@ export default function AdminDashboard({
                     <Sliders className="w-4 h-4" />
                     <span>Overview</span>
                   </button>
-                  <button type="button" onClick={() => { setActiveTab('academics'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'academics' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
-                    <Award className="w-4 h-4" />
-                    <span>Academics Allocation</span>
-                  </button>
+                  {/* Admissions Module (mobile) - visible to super_admin, admissions_officer, and admin */}
+                  {(['super_admin','admissions_officer','admin'] as string[]).includes(currentUserRole || '') && (
+                    <div className="space-y-1 my-1">
+                      <button type="button" onClick={() => { setActiveTab('admissions'); setAdmissionsSubTab(prev => prev || 'dashboard'); setMobileMenuOpen(false); if (onNavigateRoute) onNavigateRoute('/admin/admissions/dashboard'); }} className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'admissions' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
+                        <div className="flex items-center gap-3">
+                          <School className="w-4 h-4" />
+                          <span>Admissions</span>
+                        </div>
+                      </button>
+                      {activeTab === 'admissions' && (
+                        <div className="pl-6 mt-1 space-y-1 border-l-2 border-slate-700 ml-4">
+                          <button type="button" onClick={() => { setActiveTab('admissions'); setAdmissionsSubTab('dashboard'); setMobileMenuOpen(false); if (onNavigateRoute) onNavigateRoute('/admin/admissions/dashboard'); }} className={`w-full text-left py-1.5 px-3 rounded text-xs font-semibold ${admissionsSubTab === 'dashboard' ? 'text-blue-400 bg-slate-800/80 font-bold' : 'text-slate-400 hover:text-white'}`}>Dashboard</button>
+                          <button type="button" onClick={() => { setActiveTab('admissions'); setAdmissionsSubTab('consultations'); setMobileMenuOpen(false); if (onNavigateRoute) onNavigateRoute('/admin/admissions/consultations'); }} className={`w-full text-left py-1.5 px-3 rounded text-xs font-semibold ${admissionsSubTab === 'consultations' ? 'text-blue-400 bg-slate-800/80 font-bold' : 'text-slate-400 hover:text-white'}`}>Consultations</button>
+                          <button type="button" onClick={() => { setActiveTab('admissions'); setAdmissionsSubTab('applications'); setMobileMenuOpen(false); if (onNavigateRoute) onNavigateRoute('/admin/admissions/applications'); }} className={`w-full text-left py-1.5 px-3 rounded text-xs font-semibold ${admissionsSubTab === 'applications' ? 'text-blue-400 bg-slate-800/80 font-bold' : 'text-slate-400 hover:text-white'}`}>Applications</button>
+                          <button type="button" onClick={() => { setActiveTab('admissions'); setAdmissionsSubTab('applicants'); setMobileMenuOpen(false); if (onNavigateRoute) onNavigateRoute('/admin/admissions/applicants'); }} className={`w-full text-left py-1.5 px-3 rounded text-xs font-semibold ${admissionsSubTab === 'applicants' ? 'text-blue-400 bg-slate-800/80 font-bold' : 'text-slate-400 hover:text-white'}`}>Applicants</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <button type="button" onClick={() => { setActiveTab('finances'); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'finances' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-850 hover:text-white'}`}>
                     <Landmark className="w-4 h-4" />
                     <span>Ledger & Finances</span>
@@ -1042,6 +1255,45 @@ export default function AdminDashboard({
                 <Sliders className="w-4 h-4" />
                 <span>Overview</span>
               </button>
+
+              {/* Admissions Module Top-Level Menu (desktop) */}
+              {(['super_admin','admissions_officer','admin'] as string[]).includes(currentUserRole || '') && (
+                <div className="space-y-1 my-1">
+                  <button type="button" onClick={() => {
+                    setActiveTab('admissions');
+                    setAdmissionsSubTab(prev => prev || 'dashboard');
+                    if (onNavigateRoute) onNavigateRoute('/admin/admissions/dashboard');
+                  }} className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'admissions' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                    <div className="flex items-center gap-3">
+                      <School className="w-4 h-4" />
+                      <span>Admissions</span>
+                    </div>
+                  </button>
+
+                  {/* Admissions Sub-items */}
+                  {activeTab === 'admissions' && (
+                    <div className="pl-4 pr-1 py-1 space-y-1 bg-slate-950/40 rounded-xl border border-slate-800/50 my-1">
+                      <button type="button" onClick={() => { setActiveTab('admissions'); setAdmissionsSubTab('dashboard'); if (onNavigateRoute) onNavigateRoute('/admin/admissions/dashboard'); }} className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${admissionsSubTab === 'dashboard' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                        <div className={`w-1.5 h-1.5 rounded-full ${admissionsSubTab === 'dashboard' ? 'bg-blue-400' : 'bg-slate-600'}`} />
+                        <span>Dashboard</span>
+                      </button>
+                      <button type="button" onClick={() => { setActiveTab('admissions'); setAdmissionsSubTab('consultations'); if (onNavigateRoute) onNavigateRoute('/admin/admissions/consultations'); }} className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${admissionsSubTab === 'consultations' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                        <div className={`w-1.5 h-1.5 rounded-full ${admissionsSubTab === 'consultations' ? 'bg-blue-400' : 'bg-slate-600'}`} />
+                        <span>Consultations</span>
+                      </button>
+                      <button type="button" onClick={() => { setActiveTab('admissions'); setAdmissionsSubTab('applications'); if (onNavigateRoute) onNavigateRoute('/admin/admissions/applications'); }} className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${admissionsSubTab === 'applications' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                        <div className={`w-1.5 h-1.5 rounded-full ${admissionsSubTab === 'applications' ? 'bg-blue-400' : 'bg-slate-600'}`} />
+                        <span>Applications</span>
+                      </button>
+                      <button type="button" onClick={() => { setActiveTab('admissions'); setAdmissionsSubTab('applicants'); if (onNavigateRoute) onNavigateRoute('/admin/admissions/applicants'); }} className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${admissionsSubTab === 'applicants' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
+                        <div className={`w-1.5 h-1.5 rounded-full ${admissionsSubTab === 'applicants' ? 'bg-blue-400' : 'bg-slate-600'}`} />
+                        <span>Applicants</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <button type="button" onClick={() => setActiveTab('academics')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'academics' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}>
                 <Award className="w-4 h-4" />
                 <span>Academics Allocation</span>
@@ -2534,6 +2786,532 @@ export default function AdminDashboard({
             onUpdateBookRequestStatus={onUpdateBookRequestStatus}
             onTriggerGateLog={onTriggerGateLog}
           />
+        )}
+
+        {activeTab === 'admissions' && (
+          <div className="space-y-6">
+            {/* ADMISSIONS NAVIGATION HEADER & BREADCRUMB */}
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-xs">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest mb-1">
+                    <School className="w-4 h-4" />
+                    <span>Admissions & Outreach Hub</span>
+                  </div>
+                  <h2 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">
+                    {admissionsSubTab === 'dashboard' && 'Admissions Overview'}
+                    {admissionsSubTab === 'consultations' && 'Consultation Requests & Inquiries'}
+                    {admissionsSubTab === 'applications' && 'Application Management'}
+                    {admissionsSubTab === 'applicants' && 'Applicant Directory'}
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Streamline prospective student consultations, track application workflows, and review applicant dossiers.
+                  </p>
+                </div>
+
+                {/* Sub-tab Pills */}
+                <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-850 p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 self-start md:self-auto">
+                  <button
+                    type="button"
+                    onClick={() => { setAdmissionsSubTab('dashboard'); if (onNavigateRoute) onNavigateRoute('/admin/admissions/dashboard'); }}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${admissionsSubTab === 'dashboard' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+                  >
+                    Dashboard
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setAdmissionsSubTab('consultations'); if (onNavigateRoute) onNavigateRoute('/admin/admissions/consultations'); }}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${admissionsSubTab === 'consultations' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+                  >
+                    <span>Consultations</span>
+                    {consultations.filter(c => c.status === 'pending').length > 0 && (
+                      <span className="w-4 h-4 rounded-full bg-amber-500 text-slate-950 font-black text-[10px] flex items-center justify-center">
+                        {consultations.filter(c => c.status === 'pending').length}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setAdmissionsSubTab('applications'); if (onNavigateRoute) onNavigateRoute('/admin/admissions/applications'); }}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${admissionsSubTab === 'applications' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+                  >
+                    Applications
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setAdmissionsSubTab('applicants'); if (onNavigateRoute) onNavigateRoute('/admin/admissions/applicants'); }}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${admissionsSubTab === 'applicants' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+                  >
+                    Applicants
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* SUB-TAB: DASHBOARD */}
+            {admissionsSubTab === 'dashboard' && (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-xs">
+                    <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
+                      <span className="text-xs font-bold uppercase tracking-wider">Total Consultations</span>
+                      <BookOpen className="w-4 h-4 text-blue-500" />
+                    </div>
+                    <div className="text-3xl font-black text-slate-900 dark:text-white">{consultations.length}</div>
+                    <p className="text-[11px] text-slate-500 mt-2 font-medium">Recorded consultation requests</p>
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-xs">
+                    <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
+                      <span className="text-xs font-bold uppercase tracking-wider">Pending Action</span>
+                      <Clock className="w-4 h-4 text-amber-500" />
+                    </div>
+                    <div className="text-3xl font-black text-amber-600 dark:text-amber-400">
+                      {consultations.filter(c => c.status === 'pending').length}
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-2 font-medium">Requests awaiting response</p>
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-xs">
+                    <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
+                      <span className="text-xs font-bold uppercase tracking-wider">Total Applications</span>
+                      <FileText className="w-4 h-4 text-emerald-500" />
+                    </div>
+                    <div className="text-3xl font-black text-slate-900 dark:text-white">{applications.length}</div>
+                    <p className="text-[11px] text-slate-500 mt-2 font-medium">Formal enrollment applications</p>
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-xs">
+                    <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
+                      <span className="text-xs font-bold uppercase tracking-wider">Active Applicants</span>
+                      <Users className="w-4 h-4 text-indigo-500" />
+                    </div>
+                    <div className="text-3xl font-black text-slate-900 dark:text-white">{applications.length}</div>
+                    <p className="text-[11px] text-slate-500 mt-2 font-medium">Unique applicant dossiers</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Quick Action Box */}
+                  <div className="bg-gradient-to-br from-blue-900 to-indigo-950 text-white rounded-2xl p-6 shadow-xl border border-blue-800/50">
+                    <h3 className="text-lg font-bold flex items-center gap-2 mb-2">
+                      <School className="w-5 h-5 text-blue-400" />
+                      Consultation Operations
+                    </h3>
+                    <p className="text-xs text-blue-200 leading-relaxed mb-4">
+                      Review prospective student inquiries, reply to consultation messages, and update appointment statuses to guide prospective students into enrollment.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => { setAdmissionsSubTab('consultations'); if (onNavigateRoute) onNavigateRoute('/admin/admissions/consultations'); }}
+                      className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl transition-all cursor-pointer shadow-md flex items-center gap-2"
+                    >
+                      <span>Open Consultations Workspace</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Recent Consultations Snapshot */}
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-xs">
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-white">Recent Inquiries</h4>
+                      <button
+                        type="button"
+                        onClick={() => { setAdmissionsSubTab('consultations'); if (onNavigateRoute) onNavigateRoute('/admin/admissions/consultations'); }}
+                        className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                      >
+                        View All
+                      </button>
+                    </div>
+                    <div className="space-y-2.5">
+                      {consultations.slice(0, 4).map(c => (
+                        <div key={c.id} className="p-3 bg-slate-50 dark:bg-slate-850 rounded-xl border border-slate-200/60 dark:border-slate-800 flex items-center justify-between">
+                          <div>
+                            <h5 className="text-xs font-bold text-slate-900 dark:text-white">{c.full_name}</h5>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400">{c.consultation_type} • {c.email}</p>
+                          </div>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                            c.status === 'pending' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300' :
+                            c.status === 'contacted' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300' :
+                            c.status === 'scheduled' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300' :
+                            c.status === 'completed' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' :
+                            'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300'
+                          }`}>
+                            {c.status}
+                          </span>
+                        </div>
+                      ))}
+                      {consultations.length === 0 && (
+                        <p className="text-xs text-slate-400 py-4 text-center">No consultations recorded yet.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* SUB-TAB: CONSULTATIONS WORKSPACE */}
+            {admissionsSubTab === 'consultations' && (
+              <div className="space-y-4">
+                {/* Search & Filter Toolbar */}
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-xs flex flex-col md:flex-row items-center justify-between gap-3">
+                  {/* Search box */}
+                  <div className="relative w-full md:w-80">
+                    <input
+                      type="text"
+                      value={consultationSearch}
+                      onChange={(e) => setConsultationSearch(e.target.value)}
+                      placeholder="Search name, email, phone, ref..."
+                      className="w-full pl-3 pr-3 py-2 text-xs bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-white"
+                    />
+                  </div>
+
+                  {/* Status filter pills */}
+                  <div className="flex items-center gap-1 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
+                    {['all', 'pending', 'contacted', 'scheduled', 'completed', 'cancelled'].map((statusKey) => {
+                      const count = statusKey === 'all' 
+                        ? consultations.length 
+                        : consultations.filter(c => c.status === statusKey).length;
+                      return (
+                        <button
+                          key={statusKey}
+                          type="button"
+                          onClick={() => setConsultationStatusFilter(statusKey)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap flex items-center gap-1.5 transition-all ${
+                            consultationStatusFilter === statusKey
+                              ? 'bg-slate-900 text-white dark:bg-blue-600 shadow-xs'
+                              : 'bg-slate-100 dark:bg-slate-850 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                          }`}
+                        >
+                          <span>{statusKey}</span>
+                          <span className="px-1.5 py-0.2 text-[10px] rounded-full bg-slate-200/80 dark:bg-slate-700 font-mono">
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => fetchConsultations()}
+                    className="p-2 text-slate-500 hover:text-slate-900 dark:hover:text-white bg-slate-100 dark:bg-slate-850 rounded-xl transition-colors cursor-pointer shrink-0"
+                    title="Refresh Consultations"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* 3-Column Work Area */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                  {/* Column 1: Consultation Requests List */}
+                  <div className="lg:col-span-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-xs">
+                    <div className="flex items-center justify-between mb-3 border-b border-slate-100 dark:border-slate-800 pb-2">
+                      <h4 className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                        Consultation Requests ({consultations.filter(c => {
+                          const matchesSearch = !consultationSearch || 
+                            c.full_name.toLowerCase().includes(consultationSearch.toLowerCase()) ||
+                            c.email.toLowerCase().includes(consultationSearch.toLowerCase()) ||
+                            c.phone.includes(consultationSearch) ||
+                            c.request_no.toLowerCase().includes(consultationSearch.toLowerCase()) ||
+                            (c.course_name && c.course_name.toLowerCase().includes(consultationSearch.toLowerCase()));
+                          const matchesStatus = consultationStatusFilter === 'all' || c.status === consultationStatusFilter;
+                          return matchesSearch && matchesStatus;
+                        }).length})
+                      </h4>
+                    </div>
+
+                    {consultationsLoading ? (
+                      <div className="py-12 text-center text-xs text-slate-400">Loading consultation requests...</div>
+                    ) : (
+                      (() => {
+                        const filtered = consultations.filter(c => {
+                          const matchesSearch = !consultationSearch || 
+                            c.full_name.toLowerCase().includes(consultationSearch.toLowerCase()) ||
+                            c.email.toLowerCase().includes(consultationSearch.toLowerCase()) ||
+                            c.phone.includes(consultationSearch) ||
+                            c.request_no.toLowerCase().includes(consultationSearch.toLowerCase()) ||
+                            (c.course_name && c.course_name.toLowerCase().includes(consultationSearch.toLowerCase()));
+                          const matchesStatus = consultationStatusFilter === 'all' || c.status === consultationStatusFilter;
+                          return matchesSearch && matchesStatus;
+                        });
+
+                        if (filtered.length === 0) {
+                          return <div className="py-12 text-center text-xs text-slate-400">No consultation requests found.</div>;
+                        }
+
+                        return (
+                          <div className="space-y-2 max-h-[64vh] overflow-y-auto pr-1">
+                            {filtered.map(c => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedConsultationId(c.id);
+                                  void fetchConsultationMessages(c.id);
+                                }}
+                                className={`w-full text-left p-3.5 rounded-xl border transition-all cursor-pointer ${
+                                  selectedConsultationId === c.id 
+                                    ? 'bg-blue-50/80 dark:bg-blue-950/40 border-blue-300 dark:border-blue-700 shadow-xs' 
+                                    : 'bg-slate-50/60 dark:bg-slate-850/60 border-slate-200/60 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                                }`}
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <div>
+                                    <h5 className="font-bold text-xs text-slate-900 dark:text-white leading-snug">{c.full_name}</h5>
+                                    <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 block mt-0.5">{c.request_no}</span>
+                                  </div>
+                                  <span className={`text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider shrink-0 ${
+                                    c.status === 'pending' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' :
+                                    c.status === 'contacted' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :
+                                    c.status === 'scheduled' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300' :
+                                    c.status === 'completed' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
+                                    'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                                  }`}>
+                                    {c.status}
+                                  </span>
+                                </div>
+                                <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 border-t border-slate-200/40 dark:border-slate-800/60 pt-2">
+                                  <span className="truncate max-w-[140px] font-medium">{c.consultation_type}</span>
+                                  <span className="font-mono text-[10px]">{new Date(c.created_at).toLocaleDateString()}</span>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })()
+                    )}
+                  </div>
+
+                  {/* Column 2: Message Thread & Reply Workspace */}
+                  <div className="lg:col-span-5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-xs flex flex-col min-h-[60vh]">
+                    {selectedConsultationId ? (
+                      (() => {
+                        const selectedItem = consultations.find(x => x.id === selectedConsultationId);
+                        const currentReplyStatus = consultationStatusMap[selectedConsultationId] || selectedItem?.status || 'contacted';
+                        return (
+                          <div className="flex-1 flex flex-col justify-between">
+                            <div>
+                              {/* Header */}
+                              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 mb-3">
+                                <div>
+                                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white">Conversation Thread</h4>
+                                  <p className="text-[11px] text-slate-500 dark:text-slate-400">{selectedItem?.full_name} • {selectedItem?.email}</p>
+                                </div>
+                                <span className="text-[10px] font-mono text-slate-400">ID: {selectedItem?.request_no}</span>
+                              </div>
+
+                              {/* Messages Box */}
+                              <div className="bg-slate-50 dark:bg-slate-950/60 rounded-xl p-3 border border-slate-200/60 dark:border-slate-850 max-h-[46vh] overflow-y-auto space-y-3">
+                                {consultationMessagesLoading ? (
+                                  <div className="py-8 text-center text-xs text-slate-400">Loading conversation history...</div>
+                                ) : consultationMessages.length === 0 ? (
+                                  <div className="py-8 text-center text-xs text-slate-400">No messages found in this thread.</div>
+                                ) : (
+                                  consultationMessages.map(m => (
+                                    <div
+                                      key={m.id}
+                                      className={`p-3 rounded-xl border text-xs max-w-[88%] ${
+                                        m.direction === 'admin'
+                                          ? 'ml-auto bg-blue-600 text-white border-blue-500 shadow-xs'
+                                          : 'mr-auto bg-white dark:bg-slate-850 text-slate-800 dark:text-slate-100 border-slate-200 dark:border-slate-800 shadow-xs'
+                                      }`}
+                                    >
+                                      <div className="flex items-center justify-between gap-2 mb-1 border-b border-white/20 dark:border-slate-700/60 pb-1">
+                                        <span className="font-bold text-[10px] uppercase tracking-wider">
+                                          {m.direction === 'admin' ? (m.sender_name || 'Admissions Officer') : (m.sender_name || selectedItem?.full_name || 'Applicant')}
+                                        </span>
+                                        <span className={`text-[9px] font-mono ${m.direction === 'admin' ? 'text-blue-100' : 'text-slate-400'}`}>
+                                          {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        </span>
+                                      </div>
+                                      <p className="leading-relaxed whitespace-pre-wrap">{m.body}</p>
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Reply Input Box */}
+                            <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 space-y-3">
+                              <textarea
+                                value={consultationReplyMap[selectedConsultationId] || ''}
+                                onChange={(e) => setConsultationReplyMap(prev => ({ ...prev, [selectedConsultationId]: e.target.value }))}
+                                rows={3}
+                                className="w-full p-3 text-xs bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-white"
+                                placeholder="Type your response to the applicant..."
+                              />
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Update Status:</span>
+                                  <select
+                                    value={currentReplyStatus}
+                                    onChange={(e) => setConsultationStatusMap(prev => ({ ...prev, [selectedConsultationId]: e.target.value }))}
+                                    className="text-xs p-2 bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white font-semibold"
+                                  >
+                                    <option value="pending">Pending</option>
+                                    <option value="contacted">Contacted</option>
+                                    <option value="scheduled">Scheduled</option>
+                                    <option value="completed">Completed</option>
+                                    <option value="cancelled">Cancelled</option>
+                                  </select>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  disabled={updatingConsultation}
+                                  onClick={() => {
+                                    if (selectedConsultationId) {
+                                      void updateConsultationStatus(selectedConsultationId, currentReplyStatus);
+                                    }
+                                  }}
+                                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                                >
+                                  <span>{updatingConsultation ? 'Updating...' : 'Send Reply & Update'}</span>
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <div className="flex-1 flex flex-col items-center justify-center py-16 text-center text-slate-400">
+                        <BookOpen className="w-10 h-10 text-slate-300 dark:text-slate-700 mb-2" />
+                        <p className="text-xs font-semibold">Select a consultation request from the left list to view conversation history and reply.</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Column 3: Full Consultation Details */}
+                  <div className="lg:col-span-3 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-xs">
+                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 pb-2 border-b border-slate-100 dark:border-slate-800 mb-3">
+                      Consultation Details
+                    </h4>
+
+                    {selectedConsultationId ? (
+                      (() => {
+                        const item = consultations.find(x => x.id === selectedConsultationId);
+                        if (!item) return <p className="text-xs text-slate-400">Consultation record not found.</p>;
+                        return (
+                          <div className="space-y-3 text-xs">
+                            <div className="p-3 bg-slate-50 dark:bg-slate-850 rounded-xl border border-slate-200/60 dark:border-slate-800">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Applicant Name</span>
+                              <div className="font-bold text-sm text-slate-900 dark:text-white mt-0.5">{item.full_name}</div>
+                            </div>
+
+                            <div className="p-3 bg-slate-50 dark:bg-slate-850 rounded-xl border border-slate-200/60 dark:border-slate-800">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Contact Info</span>
+                              <div className="font-medium text-slate-800 dark:text-slate-200 mt-1">{item.email}</div>
+                              <div className="font-mono text-slate-500 dark:text-slate-400 mt-0.5">{item.phone}</div>
+                            </div>
+
+                            <div className="p-3 bg-slate-50 dark:bg-slate-850 rounded-xl border border-slate-200/60 dark:border-slate-800">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Consultation Type</span>
+                              <div className="font-bold text-blue-600 dark:text-blue-400 mt-0.5">{item.consultation_type}</div>
+                              {item.course_name && (
+                                <div className="text-[11px] text-slate-500 mt-1">Course: {item.course_name}</div>
+                              )}
+                            </div>
+
+                            <div className="p-3 bg-slate-50 dark:bg-slate-850 rounded-xl border border-slate-200/60 dark:border-slate-800">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Preferred Schedule</span>
+                              <div className="font-semibold text-slate-900 dark:text-white mt-0.5">
+                                {item.preferred_date || 'Flexible'} {item.preferred_time ? `• ${item.preferred_time}` : ''}
+                              </div>
+                            </div>
+
+                            <div className="p-3 bg-slate-50 dark:bg-slate-850 rounded-xl border border-slate-200/60 dark:border-slate-800">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Current Status</span>
+                              <span className={`inline-block text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-wider mt-1.5 ${
+                                item.status === 'pending' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' :
+                                item.status === 'contacted' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :
+                                item.status === 'scheduled' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300' :
+                                item.status === 'completed' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
+                                'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                              }`}>
+                                {item.status}
+                              </span>
+                            </div>
+
+                            {item.message && (
+                              <div className="p-3 bg-slate-50 dark:bg-slate-850 rounded-xl border border-slate-200/60 dark:border-slate-800">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Initial Inquiry Message</span>
+                                <p className="text-slate-700 dark:text-slate-300 mt-1 leading-relaxed whitespace-pre-wrap">{item.message}</p>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <p className="text-xs text-slate-400 py-8 text-center">No consultation selected.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {admissionsSubTab === 'applications' && (
+              <div className="bg-white rounded-xl border p-4">
+                <div className="flex justify-between items-center mb-4">
+                  <h4 className="text-sm font-bold">Applications</h4>
+                  <button onClick={() => fetchApplications()} className="text-xs text-slate-500">Refresh</button>
+                </div>
+                {applicationsLoading ? <p className="text-xs text-slate-400">Loading...</p> : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="text-slate-500 font-bold uppercase text-[11px]">
+                          <th className="py-2 px-3">Ref</th>
+                          <th className="py-2 px-3">Name</th>
+                          <th className="py-2 px-3">Email</th>
+                          <th className="py-2 px-3">Status</th>
+                          <th className="py-2 px-3">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {applications.map(app => (
+                          <tr key={app.id} className="border-t">
+                            <td className="py-2 px-3 font-mono">{app.application_no}</td>
+                            <td className="py-2 px-3">{app.full_name}</td>
+                            <td className="py-2 px-3">{app.email}</td>
+                            <td className="py-2 px-3">{app.status}</td>
+                            <td className="py-2 px-3">
+                              <div className="flex gap-2">
+                                <select value={applicationNoteMap[app.id] || ''} onChange={(e) => setApplicationNoteMap(prev => ({ ...prev, [app.id]: e.target.value }))} className="text-xs p-1 border rounded">
+                                  <option value="">--internal note--</option>
+                                </select>
+                                <button onClick={() => updateApplicationStatus(app.id, 'under_review')} className="text-xs bg-blue-600 text-white px-2 py-1 rounded">Under Review</button>
+                                <button onClick={() => updateApplicationStatus(app.id, 'approved')} className="text-xs bg-emerald-600 text-white px-2 py-1 rounded">Approve</button>
+                                <button onClick={() => updateApplicationStatus(app.id, 'rejected')} className="text-xs bg-rose-600 text-white px-2 py-1 rounded">Reject</button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {admissionsSubTab === 'applicants' && (
+              <div className="bg-white rounded-xl border p-4">
+                <h4 className="text-sm font-bold mb-3">Applicants</h4>
+                {applicationsLoading ? <p className="text-xs text-slate-400">Loading...</p> : (
+                  <div className="space-y-2">
+                    {applications.map(a => (
+                      <div key={a.id} className="p-3 border rounded">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <div className="font-bold">{a.full_name}</div>
+                            <div className="text-xs text-slate-500">{a.application_no} • {a.email}</div>
+                          </div>
+                          <div className="text-sm font-bold">{a.status}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         )}
 
         {activeTab === 'diagnostics' && (

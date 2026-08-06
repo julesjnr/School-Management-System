@@ -317,7 +317,7 @@ export interface Testimony {
   avatar: string;
 }
 
-export type UserRole = 'student' | 'lecturer' | 'admin' | 'accountant' | 'librarian' | null;
+export type UserRole = 'student' | 'lecturer' | 'admin' | 'accountant' | 'librarian' | 'super_admin' | 'admissions_officer' | null;
 
 export interface CourseReview {
   id: string;
