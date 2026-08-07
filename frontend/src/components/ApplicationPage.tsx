@@ -563,10 +563,7 @@ export default function ApplicationPage({ courses, onCancel, onSubmitted }: Appl
                   <span className="block text-xs uppercase tracking-[0.2em] text-slate-400">Phone</span>
                   +254 700 000 000
                 </div>
-                <div>
-                  <span className="block text-xs uppercase tracking-[0.2em] text-slate-400">Accepted files</span>
-                  PDF, JPG, PNG
-                </div>
+                {/* Accepted files info moved next to document upload fields */}
               </div>
             </div>
           </div>
@@ -741,6 +738,12 @@ export default function ApplicationPage({ courses, onCancel, onSubmitted }: Appl
                               {doc.fileName ? <span className="font-medium text-slate-700">{doc.fileName}</span> : 'No file selected yet'}
                             </div>
                           </div>
+                          {/* Place accepted files guidance specifically for National ID and KCSE certificate uploads */}
+                          {(doc.documentType === 'national_id' || doc.documentType === 'kcse_certificate') && (
+                            <div className="mt-3">
+                              <span className="block text-xs uppercase tracking-[0.2em] text-slate-400">ACCEPTED FILES — PDF, JPG, PNG</span>
+                            </div>
+                          )}
                           {doc.previewUrl ? (
                             <div className="mt-4 rounded-3xl border border-slate-100 bg-slate-50 p-3">
                               <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">

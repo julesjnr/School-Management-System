@@ -88,13 +88,36 @@ ensureUploadsDirectory();
 app.use('/uploads', express.static(uploadBaseDirectory));
 
 const uploadStorage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadBaseDirectory),
+  destination: (req, file, cb) => {
+    try {
+      // Use roleId (tenant/school) when available; fall back to a public bucket
+      const user = (req && req.user) || {};
+      const rawSchool = (user.roleId || req.headers['x-school-id'] || req.headers['x-user-id'] || 'public').toString();
+      const safeSchool = rawSchool.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 100) || 'public';
+
+      // Route uploads into logical subfolders depending on the field name
+      let dir = uploadBaseDirectory;
+      if (file && file.fieldname === 'image') {
+        dir = path.join(uploadBaseDirectory, 'schools', safeSchool, 'courses');
+      } else if (file && file.fieldname === 'file') {
+        dir = path.join(uploadBaseDirectory, 'applications');
+      } else {
+        dir = path.join(uploadBaseDirectory, 'misc');
+      }
+
+      fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    } catch (err) {
+      cb(err as any, uploadBaseDirectory);
+    }
+  },
   filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
     const cleanExt = (ext && ['.pdf', '.jpg', '.jpeg', '.png'].includes(ext)) ? ext : '';
     const uniquePrefix = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     const safeBaseName = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 50);
-    cb(null, `doc-${uniquePrefix}-${safeBaseName}${cleanExt}`);
+    const prefix = (file && file.fieldname === 'image') ? 'course' : 'doc';
+    cb(null, `${prefix}-${uniquePrefix}-${safeBaseName}${cleanExt}`);
   }
 });
 
@@ -1326,8 +1349,8 @@ function saveDatabase(dbState: any) {
 // Role-Based Access Control (RBAC) Protection Middleware
 function checkRBAC(allowedRoles: string[]) {
   return (req: any, res: any, next: any) => {
-    // Only trust the verified role propagated from the JWT token header
-    const userRole = req.headers["x-user-role"];
+    // Prefer the verified identity attached by `authenticateJWT`, fall back to header
+    const userRole = req.user?.role || req.headers["x-user-role"];
     
     // Explicitly block students from administrative routes and restrict write access
     if (userRole === "student" && (req.path.startsWith("/api/admin") || req.path.startsWith("/admin"))) {
@@ -1341,13 +1364,16 @@ function checkRBAC(allowedRoles: string[]) {
 
     // Default permission checks
     if (req.path.startsWith("/api/admin")) {
-      if (!userRole) {
-        return res.status(403).json({
+      // If we do not have a verified identity here, reply with 401 so clients
+      // can treat this as a session/authentication problem rather than an RBAC denial.
+      if (!req.user && !userRole) {
+        return res.status(401).json({
           success: false,
-          error: "Access Denied: Unauthenticated access to administrative routes is strictly forbidden.",
+          error: "Authentication required for administrative routes.",
           code: "RBAC_UNAUTHENTICATED"
         });
       }
+
       if (!allowedRoles.includes(userRole)) {
         return res.status(403).json({
           success: false,
@@ -2264,7 +2290,7 @@ app.post("/api/courses", async (req, res) => {
         description: courseData.description ?? null,
         duration: courseData.duration,
         fees: courseData.fees,
-        thumbnail: courseData.thumbnail ?? null,
+        thumbnail: cleanText(courseData.thumbnail, 2000) || null,
         active: courseData.active ?? true,
         faculty: courseData.faculty,
       })
@@ -2301,7 +2327,17 @@ app.post('/api/admin/courses/upload-thumbnail', async (req: any, res: any, next:
       return res.status(400).json({ error: 'No image file uploaded.' });
     }
 
-    const fileUrl = `/uploads/${req.file.filename}`;
+    // Ensure uploaded file is an image for course thumbnails
+    if (!req.file.mimetype || !req.file.mimetype.startsWith('image/')) {
+      // remove the stored file if present
+      try { fs.unlinkSync(req.file.path); } catch (e) { /* ignore */ }
+      return res.status(400).json({ error: 'Uploaded file must be an image (PNG or JPEG).' });
+    }
+
+    // Build a stable, public-facing file URL
+    // Note: req.file.path is inside the uploads directory
+    const relPath = path.relative(uploadBaseDirectory, req.file.path).split(path.sep).join('/');
+    const fileUrl = `/uploads/${relPath}`;
     const uploadedAt = new Date().toISOString();
     res.status(201).json({
       fileUrl,
@@ -2330,15 +2366,42 @@ app.patch("/api/admin/courses/:id", async (req: any, res: any) => {
     return res.status(400).json({ error: "Title, code, faculty, duration, and a non-negative tuition fee are required." });
   }
   try {
+    // Load existing thumbnail so we can clean up replaced/removed files
+    const existing = await db.execute(sql`SELECT thumbnail FROM courses WHERE id=${id}`);
+    const oldThumb = existing.rows[0]?.thumbnail;
+
+    const newThumb = cleanText(body.thumbnail, 2000) || null;
+
     const result = await db.execute(sql`UPDATE courses SET title=${title}, code=${code}, faculty=${faculty}, duration=${duration},
       fees=${Number(body.fees)}, department=${cleanText(body.department, 255) || null}, intake=${cleanText(body.intake, 100) || null},
       study_mode=${cleanText(body.studyMode, 50) || null}, application_fee=${Math.max(0, Number(body.applicationFee) || 0)},
-      thumbnail=${cleanText(body.thumbnail, 2000) || null},
+      thumbnail=${newThumb},
       entry_requirements=${cleanText(body.entryRequirements) || null}, description=${cleanText(body.description) || null},
       course_content=${cleanText(body.courseContent) || null}, course_highlights=${cleanText(body.courseHighlights) || null}, updated_at=NOW()
       WHERE id=${id} AND archived_at IS NULL RETURNING *`);
     const course = result.rows[0];
     if (!course) return res.status(404).json({ error: "Active course not found." });
+
+    // If the thumbnail was changed or removed, attempt to delete the old file safely
+    try {
+      if (oldThumb && oldThumb !== newThumb && typeof oldThumb === 'string' && oldThumb.startsWith('/uploads/')) {
+        // Ensure we only delete files inside the uploads directory and within the current admin's tenant folder
+        const rawSchool = (req.user?.roleId || req.user?.userId || 'public').toString();
+        const safeSchool = rawSchool.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 100) || 'public';
+        const expectedSegment = `/schools/${safeSchool}/courses/`;
+        // normalizedOld is like '/uploads/schools/{safeSchool}/courses/filename'
+        const normalizedOld = oldThumb.split('/').join('/');
+        if (normalizedOld.includes(expectedSegment)) {
+          // Strip the leading '/uploads/' so we join correctly with uploadBaseDirectory
+          const rel = normalizedOld.replace(/^\/uploads\//, '').replace(/^\//, '');
+          const absoluteOld = path.join(uploadBaseDirectory, rel);
+          if (absoluteOld.startsWith(path.resolve(uploadBaseDirectory))) {
+            try { fs.unlinkSync(absoluteOld); } catch (e) { /* ignore unlink errors */ }
+          }
+        }
+      }
+    } catch (e) { /* non-fatal cleanup error */ }
+
     await writeAdminAudit(req, "course.updated", "course", id, { code });
     res.json(course);
   } catch (error: any) { res.status(409).json({ error: error?.message || "Unable to update course." }); }
@@ -2545,7 +2608,8 @@ app.post('/api/public/application-documents', (req: any, res: any, next: any) =>
       return res.status(500).json({ error: 'Failed to confirm stored file.' });
     }
 
-    const fileUrl = `/uploads/${req.file.filename}`;
+    const relPath = path.relative(uploadBaseDirectory, req.file.path).split(path.sep).join('/');
+    const fileUrl = `/uploads/${relPath}`;
     const uploadedAt = new Date().toISOString();
     res.status(201).json({
       fileUrl,

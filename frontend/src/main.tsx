@@ -114,14 +114,17 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     if (newToken) {
       attachTokenHeader(init, newToken);
       const retriedResponse = await originalFetch(input, init);
-      if (retriedResponse.status !== 401 && retriedResponse.status !== 403) {
+      // If token refresh succeeded but we still get 401, treat as expired.
+      if (retriedResponse.status === 401) {
+        expireSession();
         return retriedResponse;
       }
-      response = retriedResponse;
+      // For other statuses (including 403), return the response so the UI can
+      // show a proper 'forbidden' message instead of being forced to login.
+      return retriedResponse;
     }
 
-    expireSession();
-  } else if (response.status === 403 && !isAuthEndpoint && !isRefreshEndpoint) {
+    // No refresh token or refresh failed: expire session.
     expireSession();
   } else if ((response.status === 401 || response.status === 403) && isRefreshEndpoint) {
     expireSession();

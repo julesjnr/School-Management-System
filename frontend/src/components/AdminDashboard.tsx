@@ -1795,6 +1795,20 @@ export default function AdminDashboard({
                     {newThumbnail && (
                       <div className="rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
                         <img src={newThumbnail} alt="Course thumbnail preview" className="w-full h-40 object-cover" />
+                        <div className="p-2 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              // Clear the thumbnail preview and mark for removal on save
+                              setNewThumbnail('');
+                              setNewThumbnailFile(null);
+                              setThumbnailUploadError('');
+                            }}
+                            className="text-[11px] text-rose-600 bg-rose-50 border border-rose-100 px-2 py-1 rounded"
+                          >
+                            Remove image
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>

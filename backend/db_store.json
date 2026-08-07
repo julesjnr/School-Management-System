@@ -49,28 +49,6 @@
   ],
   "courses": [
     {
-      "id": "430353d5-bbf6-4f75-ba73-3e4b47681c9f",
-      "code": "BCS",
-      "title": "Bachelor of Computer Science",
-      "description": "A degree focusing on software engineering, artificial intelligence, databases, networking, cybersecurity, and computer systems.",
-      "duration": "4 Years",
-      "fees": 480000,
-      "thumbnail": "",
-      "faculty": "School of Computing and Informatics",
-      "active": true
-    },
-    {
-      "id": "3515c26b-f0bd-4494-8ba0-e70f53affd73",
-      "code": "BDS",
-      "title": "Bachelor of Data Science",
-      "description": "Focuses on statistics, machine learning, big data analytics, artificial intelligence, and data engineering.",
-      "duration": "4 Years",
-      "fees": 520000,
-      "thumbnail": "",
-      "faculty": "School of Computing and Informatics",
-      "active": true
-    },
-    {
       "id": "6ab1051c-03f9-4293-9cde-d50daa8f1c7e",
       "code": "BIT",
       "title": "Bachelor of Information Technology",
@@ -99,6 +77,28 @@
       "description": "A programme specializing in software architecture, software testing, DevOps, mobile development, and enterprise systems.",
       "duration": "4 Years",
       "fees": 500000,
+      "thumbnail": "",
+      "faculty": "School of Computing and Informatics",
+      "active": true
+    },
+    {
+      "id": "430353d5-bbf6-4f75-ba73-3e4b47681c9f",
+      "code": "BCS",
+      "title": "Bachelor of Computer Science",
+      "description": "A degree focusing on software engineering, artificial intelligence, databases, networking, cybersecurity, and computer systems.",
+      "duration": "4 Years",
+      "fees": 480000,
+      "thumbnail": "",
+      "faculty": "School of Computing and Informatics",
+      "active": true
+    },
+    {
+      "id": "3515c26b-f0bd-4494-8ba0-e70f53affd73",
+      "code": "BDS",
+      "title": "Bachelor of Data Science",
+      "description": "Focuses on statistics, machine learning, big data analytics, artificial intelligence, and data engineering.",
+      "duration": "4 Years",
+      "fees": 520000,
       "thumbnail": "",
       "faculty": "School of Computing and Informatics",
       "active": true

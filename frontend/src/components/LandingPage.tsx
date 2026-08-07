@@ -187,23 +187,17 @@ export default function LandingPage({
  
           <nav className="hidden md:flex items-center gap-6" aria-label="Main Navigation">
             <a href="#hero" className="text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 font-medium text-xs uppercase tracking-wider transition-colors">Home</a>
+            <a href="#about" className="text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 font-medium text-xs uppercase tracking-wider transition-colors">About</a>
             <a href="#courses" className="text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 font-medium text-xs uppercase tracking-wider transition-colors flex items-center gap-1">
-              Courses
+              Programs
               <span className="bg-blue-100 dark:bg-slate-800 text-blue-800 dark:text-blue-200 text-[9px] px-2 py-0.5 rounded-full font-bold">
                 {activeCourses.length}
               </span>
             </a>
-            <a href="#strengths" className="text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 font-medium text-xs uppercase tracking-wider transition-colors">Strengths</a>
-            <a href="#faculty" className="text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 font-medium text-xs uppercase tracking-wider transition-colors">Faculty</a>
-            <a href="#news" className="text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 font-medium text-xs uppercase tracking-wider transition-colors">Campus News</a>
-            <a href="#testimonials" className="text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 font-medium text-xs uppercase tracking-wider transition-colors">Testimonials</a>
-            <button
-              type="button"
-              onClick={onOpenConsultation}
-              className="text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 font-medium text-xs uppercase tracking-wider transition-colors cursor-pointer"
-            >
-              Book Consultation
-            </button>
+            <a href="#admissions" className="text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 font-medium text-xs uppercase tracking-wider transition-colors">Admissions</a>
+            <a href="#campus" className="text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 font-medium text-xs uppercase tracking-wider transition-colors">Campus Life</a>
+            <a href="#news" className="text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 font-medium text-xs uppercase tracking-wider transition-colors">News</a>
+            <a href="#contact" className="text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 font-medium text-xs uppercase tracking-wider transition-colors">Contact</a>
           </nav>
 
           <div className="flex items-center gap-2">
@@ -306,24 +300,25 @@ export default function LandingPage({
           <div className="md:col-span-7 space-y-6 text-center md:text-left">
             <div className="inline-flex items-center gap-1.5 bg-blue-100/70 text-blue-800 text-xs px-3 py-1.5 rounded-full font-bold border border-blue-200/50">
               <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-              <span>Academic Applications Open for 2026</span>
+              <span>Applications Open — Next Intake</span>
             </div>
-            
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-slate-900 tracking-tight leading-[1.1]">
-              Empowering the Next <br />
-              <span className="text-blue-600 decoration-blue-200 underline decoration-4 underline-offset-4">Generation</span> of Innovators.
+
+            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-slate-900 tracking-tight leading-[1.05]">
+              Shape Your Future at
+              <br />
+              <span className="text-blue-600">Zenti University</span>
             </h1>
 
             <p className="text-slate-600 text-base sm:text-lg max-w-xl mx-auto md:mx-0 leading-relaxed font-light">
-              Welcome to Zenti, an esteemed institution where tech skillsets meet hands-on mastery. Explore our registered programs and connect with top-tier faculties using our next-generation Management Information System.
+              Discover quality programs, experienced lecturers, and a learning environment designed to prepare you for tomorrow.
             </p>
 
             <div className="flex flex-col sm:flex-row items-center justify-center md:justify-start gap-3 pt-2">
               <a 
                 href="#courses"
-                className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3.5 rounded-xl transition-all duration-150 shadow-md shadow-blue-200 flex items-center justify-center gap-2 cursor-pointer hover:translate-y-[-1px]"
+                className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3.5 rounded-xl transition-all duration-150 shadow-md shadow-blue-200 flex items-center justify-center gap-2 cursor-pointer"
               >
-                Explore Courses
+                Explore Programs
                 <ArrowRight className="w-4 h-4" />
               </a>
               {hasActiveSession ? (
@@ -424,6 +419,59 @@ export default function LandingPage({
         </div>
       </section>
 
+      {/* ADMISSIONS CTA */}
+      <section id="admissions" className="py-12 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="max-w-2xl">
+            <h3 className="text-2xl font-extrabold">Applications for the Next Intake Are Open</h3>
+            <p className="text-sm mt-2 text-blue-100">Apply for undergraduate and postgraduate programs. Secure your place in our next cohort and start shaping your future.</p>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={onOpenApplication} className="bg-white text-blue-700 font-bold px-6 py-3 rounded-lg">Apply Now</button>
+            <a href="#courses" className="bg-white/10 text-white border border-white/20 px-5 py-3 rounded-lg font-semibold">Explore Programs</a>
+          </div>
+        </div>
+      </section>
+
+      {/* FEATURE HIGHLIGHTS (overlapping hero) */}
+      <section className="-mt-10 relative z-20 px-4">
+        <div className="max-w-7xl mx-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5 flex items-start gap-4">
+              <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold">A</div>
+              <div>
+                <h4 className="text-sm font-bold text-slate-900">Accredited Programs</h4>
+                <p className="text-xs text-slate-500">Degree programs recognised by regulators and industry partners.</p>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5 flex items-start gap-4">
+              <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold">F</div>
+              <div>
+                <h4 className="text-sm font-bold text-slate-900">Expert Faculty</h4>
+                <p className="text-xs text-slate-500">Practitioners and researchers delivering real-world learning.</p>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5 flex items-start gap-4">
+              <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold">M</div>
+              <div>
+                <h4 className="text-sm font-bold text-slate-900">Modern Facilities</h4>
+                <p className="text-xs text-slate-500">Labs, studios and learning spaces equipped for hands-on education.</p>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5 flex items-start gap-4">
+              <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold">S</div>
+              <div>
+                <h4 className="text-sm font-bold text-slate-900">Student Support</h4>
+                <p className="text-xs text-slate-500">Career services, counselling and financial guidance for students.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* 4. STATISTICS COUNTER SECTION */}
       <section id="strengths" className="relative overflow-hidden bg-white border-y border-slate-100 py-10 px-4">
         {/* Subtle geometric line overlays */}
@@ -472,6 +520,25 @@ export default function LandingPage({
               </div>
               <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Alumni Rating</p>
               <p className="text-[11px] text-slate-400">Exceptional corporate review</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ABOUT / WELCOME SECTION */}
+      <section id="about" className="py-16 px-4 bg-white border-b border-slate-100">
+        <div className="max-w-7xl mx-auto grid md:grid-cols-12 gap-8 items-center">
+          <div className="md:col-span-6 space-y-4">
+            <h2 className="text-3xl font-extrabold text-slate-900">Welcome to Zenti University</h2>
+            <p className="text-slate-600 text-base leading-relaxed">Zenti University combines practical training with academic rigour to prepare graduates for modern workplaces. Our curriculum emphasises hands-on learning, research-led teaching, and strong industry connections.</p>
+            <p className="text-slate-600 text-sm leading-relaxed">Whether you're exploring undergraduate degrees, continuing professional education, or short courses, Zenti provides a supportive environment to grow your skills.</p>
+            <div className="pt-4">
+              <a href="#about" className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg font-semibold">Learn More <ArrowRight className="w-4 h-4" /></a>
+            </div>
+          </div>
+          <div className="md:col-span-6">
+            <div className="rounded-2xl overflow-hidden border border-slate-100 shadow-sm">
+              <img src={courses[0]?.thumbnail || 'https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&q=80&w=1200'} alt="Campus" className="w-full h-72 object-cover" referrerPolicy="no-referrer" />
             </div>
           </div>
         </div>
@@ -532,7 +599,7 @@ export default function LandingPage({
                   {/* Thumb */}
                   <div className="relative h-44 overflow-hidden bg-slate-100">
                     <img 
-                      src={c.thumbnail} 
+                      src={c.thumbnail || 'https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&q=80&w=600'} 
                       alt={c.title} 
                       className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                       referrerPolicy="no-referrer"
@@ -774,6 +841,21 @@ export default function LandingPage({
         </div>
       </section>
 
+      {/* CAMPUS / UNIVERSITY LIFE SECTION */}
+      <section id="campus" className="relative overflow-hidden py-20 px-4 bg-black text-white">
+        <div className="absolute inset-0 opacity-60">
+          <img src={courses[1]?.thumbnail || courses[0]?.thumbnail || 'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?auto=format&fit=crop&q=80&w=1400'} alt="Campus life" className="w-full h-full object-cover mix-blend-overlay" referrerPolicy="no-referrer" />
+        </div>
+        <div className="relative z-10 max-w-7xl mx-auto text-center">
+          <h2 className="text-4xl font-extrabold">Experience Life at Zenti</h2>
+          <p className="text-lg text-white/80 max-w-2xl mx-auto mt-4">Join a vibrant campus community with clubs, events, and opportunities to grow outside the classroom.</p>
+          <div className="mt-6 flex items-center justify-center gap-4">
+            <a href="#" className="bg-white text-blue-700 px-6 py-3 rounded-lg font-bold">Explore Campus</a>
+            <button onClick={() => showInfo?.('Campus tour coming soon')} className="bg-white/20 border border-white/30 text-white px-5 py-3 rounded-lg font-semibold">Watch Campus Tour</button>
+          </div>
+        </div>
+      </section>
+
       {/* 5. NEWS & RECENT updates */}
       <section id="news" className="relative overflow-hidden py-16 px-4 border-b border-slate-100 bg-slate-50/50">
         
@@ -920,6 +1002,20 @@ export default function LandingPage({
                 aria-label={`Testimonial screen slider page ${i + 1}`}
               />
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* FINAL CTA */}
+      <section className="py-16 px-4 bg-gradient-to-r from-blue-700 to-indigo-700 text-white">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
+          <div>
+            <h3 className="text-3xl font-extrabold">Ready to Begin Your Journey?</h3>
+            <p className="text-sm text-blue-100 mt-2">Apply today or explore our full program portfolio to find your next academic step.</p>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={onOpenApplication} className="bg-white text-blue-700 font-bold px-6 py-3 rounded-lg">Apply Now</button>
+            <a href="#courses" className="bg-white/10 border border-white/20 text-white px-5 py-3 rounded-lg font-semibold">Explore Programs</a>
           </div>
         </div>
       </section>
