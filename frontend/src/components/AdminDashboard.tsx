@@ -927,18 +927,17 @@ export default function AdminDashboard({
   const updateConsultationStatus = async (consultationId: string, status: string) => {
     setUpdatingConsultation(true);
     try {
-      const reply = consultationReplyMap[consultationId] || '';
+      const reply = (consultationReplyMap[consultationId] || '').trim();
       const res = await fetch(`/api/admin/consultations/${consultationId}`, {
         method: 'PATCH',
         headers: getAuthHeaders(),
         body: JSON.stringify({ status, reply })
       });
       if (!res.ok) throw new Error('Unable to update consultation.');
-      const updated = await res.json();
-      setConsultations(prev => prev.map(item => item.id === consultationId ? { ...item, ...updated } : item));
       setConsultationReplyMap(prev => ({ ...prev, [consultationId]: '' }));
       showSuccess('Consultation Updated', 'The consultation request was updated successfully.');
-      void fetchConsultationMessages(consultationId);
+      await fetchConsultations();
+      await fetchConsultationMessages(consultationId);
     } catch (error) {
       console.error(error);
       showError('Admissions Error', 'The consultation request could not be updated.');
@@ -3071,9 +3070,16 @@ export default function AdminDashboard({
                                     {c.status}
                                   </span>
                                 </div>
-                                <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 border-t border-slate-200/40 dark:border-slate-800/60 pt-2">
-                                  <span className="truncate max-w-[140px] font-medium">{c.consultation_type}</span>
-                                  <span className="font-mono text-[10px]">{new Date(c.created_at).toLocaleDateString()}</span>
+                                <div className="text-[11px] text-slate-600 dark:text-slate-300 mt-1.5 font-medium truncate">
+                                  Course: {c.course_name || 'General Admissions Inquiry'}
+                                </div>
+                                <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center justify-between">
+                                  <span>{c.email}</span>
+                                  <span className="font-mono">{c.phone}</span>
+                                </div>
+                                <div className="mt-2 flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 border-t border-slate-200/40 dark:border-slate-800/60 pt-2 font-mono">
+                                  <span>Submitted: {new Date(c.created_at).toLocaleDateString()}</span>
+                                  <span className="capitalize text-blue-600 dark:text-blue-400 font-semibold">{c.preferred_contact_method || c.consultation_type}</span>
                                 </div>
                               </button>
                             ))}
@@ -3089,6 +3095,8 @@ export default function AdminDashboard({
                       (() => {
                         const selectedItem = consultations.find(x => x.id === selectedConsultationId);
                         const currentReplyStatus = consultationStatusMap[selectedConsultationId] || selectedItem?.status || 'contacted';
+                        const hasAdminReply = consultationMessages.some(m => m.direction === 'admin');
+
                         return (
                           <div className="flex-1 flex flex-col justify-between">
                             <div>
@@ -3108,26 +3116,34 @@ export default function AdminDashboard({
                                 ) : consultationMessages.length === 0 ? (
                                   <div className="py-8 text-center text-xs text-slate-400">No messages found in this thread.</div>
                                 ) : (
-                                  consultationMessages.map(m => (
-                                    <div
-                                      key={m.id}
-                                      className={`p-3 rounded-xl border text-xs max-w-[88%] ${
-                                        m.direction === 'admin'
-                                          ? 'ml-auto bg-blue-600 text-white border-blue-500 shadow-xs'
-                                          : 'mr-auto bg-white dark:bg-slate-850 text-slate-800 dark:text-slate-100 border-slate-200 dark:border-slate-800 shadow-xs'
-                                      }`}
-                                    >
-                                      <div className="flex items-center justify-between gap-2 mb-1 border-b border-white/20 dark:border-slate-700/60 pb-1">
-                                        <span className="font-bold text-[10px] uppercase tracking-wider">
-                                          {m.direction === 'admin' ? (m.sender_name || 'Admissions Officer') : (m.sender_name || selectedItem?.full_name || 'Applicant')}
-                                        </span>
-                                        <span className={`text-[9px] font-mono ${m.direction === 'admin' ? 'text-blue-100' : 'text-slate-400'}`}>
-                                          {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                        </span>
+                                  <>
+                                    {consultationMessages.map(m => (
+                                      <div
+                                        key={m.id}
+                                        className={`p-3 rounded-xl border text-xs max-w-[88%] ${
+                                          m.direction === 'admin'
+                                            ? 'ml-auto bg-blue-600 text-white border-blue-500 shadow-xs'
+                                            : 'mr-auto bg-white dark:bg-slate-850 text-slate-800 dark:text-slate-100 border-slate-200 dark:border-slate-800 shadow-xs'
+                                        }`}
+                                      >
+                                        <div className="flex items-center justify-between gap-2 mb-1 border-b border-white/20 dark:border-slate-700/60 pb-1">
+                                          <span className="font-bold text-[10px] uppercase tracking-wider">
+                                            {m.direction === 'admin' ? (m.sender_name || 'Admissions Officer') : (m.sender_name || selectedItem?.full_name || 'Applicant')}
+                                          </span>
+                                          <span className={`text-[9px] font-mono ${m.direction === 'admin' ? 'text-blue-100' : 'text-slate-400'}`}>
+                                            {new Date(m.created_at).toLocaleDateString()} • {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                          </span>
+                                        </div>
+                                        <p className="leading-relaxed whitespace-pre-wrap">{m.body}</p>
                                       </div>
-                                      <p className="leading-relaxed whitespace-pre-wrap">{m.body}</p>
-                                    </div>
-                                  ))
+                                    ))}
+
+                                    {!hasAdminReply && (
+                                      <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-center text-xs text-amber-600 dark:text-amber-400 font-medium">
+                                        No admissions officer has replied yet.
+                                      </div>
+                                    )}
+                                  </>
                                 )}
                               </div>
                             </div>
@@ -3162,6 +3178,11 @@ export default function AdminDashboard({
                                   disabled={updatingConsultation}
                                   onClick={() => {
                                     if (selectedConsultationId) {
+                                      const replyText = (consultationReplyMap[selectedConsultationId] || '').trim();
+                                      if (!replyText && currentReplyStatus === selectedItem?.status) {
+                                        showError('Validation Error', 'Please enter a reply message or select a new status.');
+                                        return;
+                                      }
                                       void updateConsultationStatus(selectedConsultationId, currentReplyStatus);
                                     }
                                   }}
@@ -3195,6 +3216,11 @@ export default function AdminDashboard({
                         return (
                           <div className="space-y-3 text-xs">
                             <div className="p-3 bg-slate-50 dark:bg-slate-850 rounded-xl border border-slate-200/60 dark:border-slate-800">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Consultation Reference</span>
+                              <div className="font-mono font-bold text-sm text-blue-600 dark:text-blue-400 mt-0.5">{item.request_no}</div>
+                            </div>
+
+                            <div className="p-3 bg-slate-50 dark:bg-slate-850 rounded-xl border border-slate-200/60 dark:border-slate-800">
                               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Applicant Name</span>
                               <div className="font-bold text-sm text-slate-900 dark:text-white mt-0.5">{item.full_name}</div>
                             </div>
@@ -3216,10 +3242,14 @@ export default function AdminDashboard({
                             </div>
 
                             <div className="p-3 bg-slate-50 dark:bg-slate-850 rounded-xl border border-slate-200/60 dark:border-slate-800">
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Preferred Contact Method & Schedule</span>
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Preferred Contact Method</span>
                               <div className="font-bold text-blue-600 dark:text-blue-400 mt-0.5 capitalize">{item.preferred_contact_method || item.consultation_type}</div>
-                              <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                                Schedule: {item.preferred_date || 'Flexible'} {item.preferred_time ? `• ${item.preferred_time}` : ''}
+                            </div>
+
+                            <div className="p-3 bg-slate-50 dark:bg-slate-850 rounded-xl border border-slate-200/60 dark:border-slate-800">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Preferred Consultation Date</span>
+                              <div className="font-semibold text-slate-900 dark:text-white mt-0.5">
+                                {item.preferred_date || 'Flexible'} {item.preferred_time ? `• ${item.preferred_time}` : ''}
                               </div>
                             </div>
 
@@ -3229,7 +3259,7 @@ export default function AdminDashboard({
                             </div>
 
                             <div className="p-3 bg-slate-50 dark:bg-slate-850 rounded-xl border border-slate-200/60 dark:border-slate-800">
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Status</span>
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Current Status</span>
                               <span className={`inline-block text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-wider mt-1.5 ${
                                 item.status === 'pending' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' :
                                 item.status === 'contacted' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :
@@ -3243,7 +3273,7 @@ export default function AdminDashboard({
 
                             {item.message && (
                               <div className="p-3 bg-slate-50 dark:bg-slate-850 rounded-xl border border-slate-200/60 dark:border-slate-800">
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Initial Inquiry Message</span>
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Original Message</span>
                                 <p className="text-slate-700 dark:text-slate-300 mt-1 leading-relaxed whitespace-pre-wrap">{item.message}</p>
                               </div>
                             )}
