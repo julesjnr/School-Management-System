@@ -270,7 +270,7 @@ export default function ConsultationBookingPage({
                     <option value="">General Admissions / Not Sure Yet</option>
                     {courses.filter((c) => c.active).map((course) => (
                       <option key={course.id} value={course.id}>
-                        {course.title} ({course.department})
+                        {course.title} ({course.faculty})
                       </option>
                     ))}
                   </select>

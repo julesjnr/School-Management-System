@@ -240,6 +240,15 @@
   "reservations": [],
   "notifications": [
     {
+      "id": "e13d5169-2a31-40df-b1ad-77575fd765b2",
+      "targetUserRole": "all",
+      "type": "library",
+      "title": " [Grade Posted] New Grade for Unit BCS",
+      "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
+      "status": "unread",
+      "dateTime": "2026-07-26 13:15:08+00"
+    },
+    {
       "id": "afce5cd0-a3a8-4a63-8b91-a385e021c89e",
       "targetUserRole": "all",
       "type": "payment",
@@ -283,15 +292,6 @@
       "message": "james maina (james.maina@zenti.edu): Dear james maina,",
       "status": "unread",
       "dateTime": "2026-07-28 11:05:19+00"
-    },
-    {
-      "id": "e13d5169-2a31-40df-b1ad-77575fd765b2",
-      "targetUserRole": "all",
-      "type": "library",
-      "title": " [Grade Posted] New Grade for Unit BCS",
-      "message": "Julius Ochieng (julius.ochieng@zenti.edu): Dear Julius Ochieng,",
-      "status": "unread",
-      "dateTime": "2026-07-26 13:15:08+00"
     }
   ],
   "student_ledger": [

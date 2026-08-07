@@ -128,7 +128,7 @@ export default function LandingPage({
     return () => {
       clearInterval(studentsInterval);
       clearInterval(coursesInterval);
-      clearInterval(completionCount);
+      clearInterval(completionInterval);
     };
   }, [courses, totalStudentsCount]);
 
@@ -851,7 +851,7 @@ export default function LandingPage({
           <p className="text-lg text-white/80 max-w-2xl mx-auto mt-4">Join a vibrant campus community with clubs, events, and opportunities to grow outside the classroom.</p>
           <div className="mt-6 flex items-center justify-center gap-4">
             <a href="#" className="bg-white text-blue-700 px-6 py-3 rounded-lg font-bold">Explore Campus</a>
-            <button onClick={() => showInfo?.('Campus tour coming soon')} className="bg-white/20 border border-white/30 text-white px-5 py-3 rounded-lg font-semibold">Watch Campus Tour</button>
+            <button onClick={() => showInfo?.('Campus tour coming soon', 'Campus tour feature will be available shortly.')} className="bg-white/20 border border-white/30 text-white px-5 py-3 rounded-lg font-semibold">Watch Campus Tour</button>
           </div>
         </div>
       </section>
@@ -1203,12 +1203,14 @@ export default function LandingPage({
                     <span>Research Interests</span>
                   </span>
                   <ul className="space-y-1.5 list-none">
-                    {selectedLecturerForContact.researchInterests?.map((interest, idx) => (
-                      <li key={idx} className="text-xs text-slate-700 dark:text-slate-305 flex items-start gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 shrink-0" />
-                        <span>{interest}</span>
-                      </li>
-                    )) || (
+                    {selectedLecturerForContact.researchInterests && selectedLecturerForContact.researchInterests.length > 0 ? (
+                      selectedLecturerForContact.researchInterests.map((interest, idx) => (
+                        <li key={idx} className="text-xs text-slate-700 dark:text-slate-305 flex items-start gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 shrink-0" />
+                          <span>{interest}</span>
+                        </li>
+                      ))
+                    ) : (
                       <li className="text-xs text-slate-400 italic">No research areas specified.</li>
                     )}
                   </ul>
@@ -1221,12 +1223,14 @@ export default function LandingPage({
                     <span>Recent Publications</span>
                   </span>
                   <div className="space-y-3">
-                    {selectedLecturerForContact.publications?.map((pub, idx) => (
-                      <div key={idx} className="flex gap-2 text-xs text-slate-600 dark:text-slate-350 leading-relaxed items-start">
-                        <Newspaper className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
-                        <span>{pub}</span>
-                      </div>
-                    )) || (
+                    {selectedLecturerForContact.publications && selectedLecturerForContact.publications.length > 0 ? (
+                      selectedLecturerForContact.publications.map((pub, idx) => (
+                        <div key={idx} className="flex gap-2 text-xs text-slate-600 dark:text-slate-350 leading-relaxed items-start">
+                          <Newspaper className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                          <span>{pub}</span>
+                        </div>
+                      ))
+                    ) : (
                       <p className="text-xs text-slate-400 italic">No publication listings available.</p>
                     )}
                   </div>
