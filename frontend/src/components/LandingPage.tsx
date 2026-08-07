@@ -335,12 +335,21 @@ export default function LandingPage({
                   <ArrowRight className="w-4 h-4" />
                 </button>
               ) : (
-                <button
-                  onClick={onOpenApplication}
-                  className="w-full sm:w-auto bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 font-semibold px-6 py-3.5 rounded-xl transition-all duration-150 flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
-                >
-                  <span>Apply Now</span>
-                </button>
+                <>
+                  <button
+                    onClick={onOpenLogin}
+                    className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3.5 rounded-xl transition-all duration-150 flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-blue-100 hover:translate-y-[-1px]"
+                  >
+                    <span>Portal Login</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={onOpenApplication}
+                    className="w-full sm:w-auto bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 font-semibold px-6 py-3.5 rounded-xl transition-all duration-150 flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                  >
+                    <span>Apply Now</span>
+                  </button>
+                </>
               )}
               <button
                 type="button"

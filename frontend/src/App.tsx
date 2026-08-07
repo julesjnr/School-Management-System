@@ -149,6 +149,18 @@ export default function App() {
 
   const [sessionExpiredMessage, setSessionExpiredMessage] = useState<string>('');
   const isAdminAccessRole = currentUserRole === 'admin' || currentUserRole === 'super_admin' || currentUserRole === 'admissions_officer';
+
+  useEffect(() => {
+    if (!currentUserRole) {
+      return;
+    }
+
+    if (currentPath === '/login' || currentPath === '/') {
+      window.history.replaceState({}, '', '/');
+      setCurrentPath('/');
+    }
+  }, [currentUserRole, currentPath]);
+
   const getAdminRouteState = (path: string) => {
     if (path === '/admin/admissions/consultations') {
       return { initialActiveTab: 'admissions' as const, initialAdmissionsSubTab: 'consultations' as const };
@@ -1619,7 +1631,7 @@ Zenti Library Services`;
               onTriggerGateLog={handleTriggerGateLog}
               onCheckoutBook={handleCheckoutBook}
               onReturnBook={handleReturnBook}
-              onLogout={() => { setCurrentUserRole(null); setCurrentUserId(''); }}
+              onLogout={() => { setCurrentUserRole(null); setCurrentUserId(''); window.history.pushState({}, '', '/'); setCurrentPath('/'); }}
             />
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-slate-50 dark:bg-slate-900">
@@ -1652,7 +1664,7 @@ Zenti Library Services`;
               onAddBookRequest={handleAddBookRequest}
               attendanceSessions={attendanceSessions}
               onSaveAttendance={handleSaveAttendance}
-              onLogout={() => { setCurrentUserRole(null); setCurrentUserId(''); }}
+              onLogout={() => { setCurrentUserRole(null); setCurrentUserId(''); window.history.pushState({}, '', '/'); setCurrentPath('/'); }}
             />
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-slate-50 dark:bg-slate-900">
