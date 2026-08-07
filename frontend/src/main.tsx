@@ -100,29 +100,31 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     requestUrl.includes('/api/auth/reset-requests')
   );
 
+  const expireSession = () => {
+    localStorage.removeItem("zenti_current_user_role");
+    localStorage.removeItem("zenti_current_user_id");
+    localStorage.removeItem("zenti_session_token");
+    localStorage.removeItem("zenti_refresh_token");
+    window.history.pushState({}, '', '/login');
+    window.dispatchEvent(new CustomEvent('zenti-session-expired'));
+  };
+
   if (response.status === 401 && !isAuthEndpoint && !isRefreshEndpoint) {
     const newToken = await performSilentRefresh();
     if (newToken) {
       attachTokenHeader(init, newToken);
       const retriedResponse = await originalFetch(input, init);
-      if (retriedResponse.status !== 401) {
+      if (retriedResponse.status !== 401 && retriedResponse.status !== 403) {
         return retriedResponse;
       }
       response = retriedResponse;
     }
 
-    // Refresh failed or retry returned 401: expire session
-    localStorage.removeItem("zenti_current_user_role");
-    localStorage.removeItem("zenti_current_user_id");
-    localStorage.removeItem("zenti_session_token");
-    localStorage.removeItem("zenti_refresh_token");
-    window.dispatchEvent(new CustomEvent('zenti-session-expired'));
-  } else if (response.status === 401 && isRefreshEndpoint) {
-    localStorage.removeItem("zenti_current_user_role");
-    localStorage.removeItem("zenti_current_user_id");
-    localStorage.removeItem("zenti_session_token");
-    localStorage.removeItem("zenti_refresh_token");
-    window.dispatchEvent(new CustomEvent('zenti-session-expired'));
+    expireSession();
+  } else if (response.status === 403 && !isAuthEndpoint && !isRefreshEndpoint) {
+    expireSession();
+  } else if ((response.status === 401 || response.status === 403) && isRefreshEndpoint) {
+    expireSession();
   }
 
   return response;
