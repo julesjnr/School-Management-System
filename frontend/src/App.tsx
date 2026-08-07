@@ -16,6 +16,7 @@ import { subjectMap, initialNews, initialTestimonies } from './data';
 import LandingPage from './components/LandingPage';
 import ApplicationPage from './components/ApplicationPage';
 import ApplicationSubmittedPage from './components/ApplicationSubmittedPage';
+import ConsultationBookingPage from './components/ConsultationBookingPage';
 import LoginPage from './components/LoginPage';
 import ChangePasswordPage from './components/ChangePasswordPage';
 import StudentDashboard from './components/StudentDashboard';
@@ -1522,6 +1523,18 @@ Zenti Library Services`;
               setCurrentPath('/application-submitted');
             }}
           />
+        ) : currentPath === '/consultation' || currentPath === '/book-consultation' ? (
+          <ConsultationBookingPage
+            courses={courses}
+            onCancel={() => {
+              window.history.pushState({}, '', '/');
+              setCurrentPath('/');
+            }}
+            onNavigateHome={() => {
+              window.history.pushState({}, '', '/');
+              setCurrentPath('/');
+            }}
+          />
         ) : currentPath.startsWith('/application-submitted') ? (
           <ApplicationSubmittedPage
             courses={courses}
@@ -1808,6 +1821,11 @@ Zenti Library Services`;
               setSessionExpiredMessage('');
               window.history.pushState({}, '', '/apply');
               setCurrentPath('/apply');
+            }}
+            onOpenConsultation={() => {
+              setSessionExpiredMessage('');
+              window.history.pushState({}, '', '/consultation');
+              setCurrentPath('/consultation');
             }}
             onSelectCourse={(c) => setSelectedCourse(c)}
           />

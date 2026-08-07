@@ -30,15 +30,18 @@ interface ConsultationRecord {
   full_name: string;
   email: string;
   phone: string;
+  course_id?: string;
   course_name?: string;
   consultation_type: string;
-  preferred_date: string;
-  preferred_time: string;
+  preferred_contact_method?: string;
+  preferred_date?: string;
+  preferred_time?: string;
+  subject?: string;
+  message?: string;
   status: string;
   created_at: string;
   updated_at?: string;
   scheduled_at?: string;
-  message?: string;
 }
 
 interface ConsultationMessageRecord {
@@ -3203,22 +3206,30 @@ export default function AdminDashboard({
                             </div>
 
                             <div className="p-3 bg-slate-50 dark:bg-slate-850 rounded-xl border border-slate-200/60 dark:border-slate-800">
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Consultation Type</span>
-                              <div className="font-bold text-blue-600 dark:text-blue-400 mt-0.5">{item.consultation_type}</div>
-                              {item.course_name && (
-                                <div className="text-[11px] text-slate-500 mt-1">Course: {item.course_name}</div>
-                              )}
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Interested Course</span>
+                              <div className="font-bold text-slate-900 dark:text-white mt-0.5">{item.course_name || 'General Admissions Inquiry'}</div>
                             </div>
 
                             <div className="p-3 bg-slate-50 dark:bg-slate-850 rounded-xl border border-slate-200/60 dark:border-slate-800">
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Preferred Schedule</span>
-                              <div className="font-semibold text-slate-900 dark:text-white mt-0.5">
-                                {item.preferred_date || 'Flexible'} {item.preferred_time ? `• ${item.preferred_time}` : ''}
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Subject</span>
+                              <div className="font-semibold text-slate-800 dark:text-slate-200 mt-0.5">{item.subject || 'General Consultation Request'}</div>
+                            </div>
+
+                            <div className="p-3 bg-slate-50 dark:bg-slate-850 rounded-xl border border-slate-200/60 dark:border-slate-800">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Preferred Contact Method & Schedule</span>
+                              <div className="font-bold text-blue-600 dark:text-blue-400 mt-0.5 capitalize">{item.preferred_contact_method || item.consultation_type}</div>
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                                Schedule: {item.preferred_date || 'Flexible'} {item.preferred_time ? `• ${item.preferred_time}` : ''}
                               </div>
                             </div>
 
                             <div className="p-3 bg-slate-50 dark:bg-slate-850 rounded-xl border border-slate-200/60 dark:border-slate-800">
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Current Status</span>
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Date Submitted</span>
+                              <div className="font-mono text-slate-700 dark:text-slate-300 mt-0.5">{new Date(item.created_at).toLocaleString()}</div>
+                            </div>
+
+                            <div className="p-3 bg-slate-50 dark:bg-slate-850 rounded-xl border border-slate-200/60 dark:border-slate-800">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Status</span>
                               <span className={`inline-block text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-wider mt-1.5 ${
                                 item.status === 'pending' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' :
                                 item.status === 'contacted' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :

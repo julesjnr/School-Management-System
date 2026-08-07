@@ -18,6 +18,7 @@ interface LandingPageProps {
   totalStudentsCount: number;
   onOpenLogin: () => void;
   onOpenApplication: () => void;
+  onOpenConsultation?: () => void;
   onSelectCourse: (course: Course) => void;
   onReturnToDashboard?: (role: string, id: string) => void;
 }
@@ -31,6 +32,7 @@ export default function LandingPage({
   totalStudentsCount, 
   onOpenLogin,
   onOpenApplication,
+  onOpenConsultation,
   onSelectCourse,
   onReturnToDashboard
 }: LandingPageProps) {
@@ -195,6 +197,13 @@ export default function LandingPage({
             <a href="#faculty" className="text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 font-medium text-xs uppercase tracking-wider transition-colors">Faculty</a>
             <a href="#news" className="text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 font-medium text-xs uppercase tracking-wider transition-colors">Campus News</a>
             <a href="#testimonials" className="text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 font-medium text-xs uppercase tracking-wider transition-colors">Testimonials</a>
+            <button
+              type="button"
+              onClick={onOpenConsultation}
+              className="text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 font-medium text-xs uppercase tracking-wider transition-colors cursor-pointer"
+            >
+              Book Consultation
+            </button>
           </nav>
 
           <div className="flex items-center gap-2">
@@ -328,11 +337,18 @@ export default function LandingPage({
               ) : (
                 <button
                   onClick={onOpenApplication}
-                  className="w-full sm:w-auto bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 font-semibold px-6 py-3.5 rounded-xl transition-all duration-150 flex items-center justify-center gap-1.5"
+                  className="w-full sm:w-auto bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 font-semibold px-6 py-3.5 rounded-xl transition-all duration-150 flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
                 >
                   <span>Apply Now</span>
                 </button>
               )}
+              <button
+                type="button"
+                onClick={onOpenConsultation}
+                className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white font-semibold px-6 py-3.5 rounded-xl transition-all duration-150 flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+              >
+                <span>Book Consultation</span>
+              </button>
             </div>
 
             {/* Micro proofs */}

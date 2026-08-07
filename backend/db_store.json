@@ -49,17 +49,6 @@
   ],
   "courses": [
     {
-      "id": "3e6160cc-f3c9-4746-b17e-ed8855e7da32",
-      "code": "BBIT",
-      "title": "Bachelor of Business Information Technology",
-      "description": "Integrates business management principles with information technology to prepare graduates for digital business environments.",
-      "duration": "4 Years",
-      "fees": 430000,
-      "thumbnail": "",
-      "faculty": "School of Business and Computing",
-      "active": true
-    },
-    {
       "id": "cfccd04f-89dd-45ac-977c-ab782636626a",
       "code": "BSE",
       "title": "Bachelor of Software Engineering",
@@ -101,6 +90,17 @@
       "fees": 450000,
       "thumbnail": "",
       "faculty": "School of Computing and Informatics",
+      "active": true
+    },
+    {
+      "id": "3e6160cc-f3c9-4746-b17e-ed8855e7da32",
+      "code": "BBIT",
+      "title": "Bachelor of Business Information Technology",
+      "description": "Integrates business management principles with information technology to prepare graduates for digital business environments.",
+      "duration": "4 Years",
+      "fees": 430000,
+      "thumbnail": "",
+      "faculty": "School of Business and Computing",
       "active": true
     }
   ],

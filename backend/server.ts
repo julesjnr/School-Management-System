@@ -2392,51 +2392,91 @@ app.patch("/api/admin/reviews/:id", async (req: any, res: any) => {
 
 app.post("/api/public/consultations", async (req, res) => {
   const body = req.body || {};
-  const fullName = cleanText(body.fullName, 255), email = cleanText(body.email, 255).toLowerCase(), phone = cleanText(body.phone, 50);
-  const type = cleanText(body.consultationType, 30), preferredDate = cleanText(body.preferredDate, 20), preferredTime = cleanText(body.preferredTime, 50), message = cleanText(body.message);
-  if (!fullName || !/^\S+@\S+\.\S+$/.test(email) || !phone || !["physical", "phone", "online"].includes(type) || !/^\d{4}-\d{2}-\d{2}$/.test(preferredDate) || !preferredTime || !message) {
-    return res.status(400).json({ error: "Provide valid name, email, phone, consultation type, preferred date/time, and message." });
+  const fullName = cleanText(body.fullName, 255);
+  const email = cleanText(body.email, 255).toLowerCase();
+  const phone = cleanText(body.phone, 50);
+  const contactMethod = cleanText(body.preferredContactMethod || body.consultationType, 50) || 'phone';
+  const preferredDate = cleanText(body.preferredDate, 20) || null;
+  const preferredTime = cleanText(body.preferredTime, 50) || '10:00 AM';
+  const subject = cleanText(body.subject, 255) || 'General Admissions Inquiry';
+  const message = cleanText(body.message);
+
+  if (!fullName || !/^\S+@\S+\.\S+$/.test(email) || !phone || !message) {
+    return res.status(400).json({ error: "Please provide valid full name, email, phone number, and message." });
   }
+
+  if (preferredDate && !/^\d{4}-\d{2}-\d{2}$/.test(preferredDate)) {
+    return res.status(400).json({ error: "Preferred date must be in YYYY-MM-DD format." });
+  }
+
   try {
     const requestNo = `CON-${new Date().getFullYear()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
-    const result = await db.execute(sql`INSERT INTO consultations (request_no,full_name,email,phone,course_id,course_name,consultation_type,preferred_date,preferred_time,message)
-      VALUES (${requestNo},${fullName},${email},${phone},${cleanText(body.courseId, 50) || null},${cleanText(body.courseName, 255) || null},${type},${preferredDate},${preferredTime},${message}) RETURNING *`);
+    const result = await db.execute(sql`INSERT INTO consultations (
+      request_no, full_name, email, phone, course_id, course_name, consultation_type, preferred_contact_method, preferred_date, preferred_time, subject, message, status, created_at, updated_at
+    ) VALUES (
+      ${requestNo}, ${fullName}, ${email}, ${phone}, ${cleanText(body.courseId, 50) || null}, ${cleanText(body.courseName, 255) || null}, ${contactMethod}, ${contactMethod}, ${preferredDate ? preferredDate : null}, ${preferredTime}, ${subject}, ${message}, 'pending', NOW(), NOW()
+    ) RETURNING *`);
     const consultation: any = result.rows[0];
-    await db.execute(sql`INSERT INTO consultation_messages (consultation_id,direction,sender_name,sender_email,body)
-      VALUES (${consultation.id},'student',${fullName},${email},${message})`);
+
+    await db.execute(sql`INSERT INTO consultation_messages (consultation_id, direction, sender_name, sender_email, body, created_at)
+      VALUES (${consultation.id}, 'student', ${fullName}, ${email}, ${message}, NOW())`);
+
     await queueEmail(`consultation:${consultation.id}:confirmation`, email, `Consultation request ${requestNo} received`, "We received your consultation request and will contact you shortly.");
-    res.status(201).json({ requestNo, status: "pending", message: "Your consultation request was received." });
-  } catch (error: any) { res.status(500).json({ error: "Unable to submit consultation request." }); }
+    res.status(201).json({ requestNo, status: "pending", message: "Your consultation request was received.", consultation });
+  } catch (error: any) {
+    console.error("Consultation submit error:", error);
+    res.status(500).json({ error: "Unable to submit consultation request." });
+  }
 });
 
 app.get("/api/admin/consultations", async (req: any, res: any) => {
   if (!requireAdminRole(req, res)) return;
-  try { const result = await db.execute(sql`SELECT * FROM consultations WHERE deleted_at IS NULL ORDER BY created_at DESC`); res.json(result.rows); }
-  catch (error: any) { res.status(500).json({ error: "Unable to load consultations." }); }
+  try {
+    const result = await db.execute(sql`SELECT * FROM consultations WHERE deleted_at IS NULL ORDER BY created_at DESC`);
+    res.json(result.rows);
+  } catch (error: any) {
+    res.status(500).json({ error: "Unable to load consultations." });
+  }
 });
 
 app.patch("/api/admin/consultations/:id", async (req: any, res: any) => {
   if (!requireAdminRole(req, res)) return;
-  const status = cleanText(req.body?.status, 30).toLowerCase();
+  let status = cleanText(req.body?.status, 30).toLowerCase();
   const reply = cleanText(req.body?.reply);
-  if (status && !["pending", "contacted", "scheduled", "completed", "cancelled"].includes(status)) return res.status(400).json({ error: "Invalid consultation status." });
+
+  if (reply && (!status || status === 'pending')) {
+    status = 'contacted';
+  }
+
+  if (status && !["pending", "contacted", "scheduled", "completed", "cancelled"].includes(status)) {
+    return res.status(400).json({ error: "Invalid consultation status." });
+  }
+
   try {
     const found = await db.execute(sql`UPDATE consultations SET status=COALESCE(${status || null},status), scheduled_at=CASE WHEN ${status}='scheduled' THEN NOW() ELSE scheduled_at END, updated_at=NOW() WHERE id=${req.params.id} AND deleted_at IS NULL RETURNING *`);
-    const consultation: any = found.rows[0]; if (!consultation) return res.status(404).json({ error: "Consultation not found." });
+    const consultation: any = found.rows[0];
+    if (!consultation) return res.status(404).json({ error: "Consultation not found." });
+
     if (reply) {
       const messageId = `<consultation-${consultation.id}-${crypto.randomUUID()}@zenti.local>`;
-      await db.execute(sql`INSERT INTO consultation_messages (consultation_id,direction,sender_name,sender_email,body,message_id) VALUES (${consultation.id},'admin','Admissions',NULL,${reply},${messageId})`);
+      await db.execute(sql`INSERT INTO consultation_messages (consultation_id, direction, sender_name, sender_email, body, message_id, created_at) VALUES (${consultation.id}, 'admin', 'Admissions Officer', NULL, ${reply}, ${messageId}, NOW())`);
       await queueEmail(`consultation:${consultation.id}:reply:${messageId}`, consultation.email, `Re: Consultation ${consultation.request_no}`, reply);
     }
     await writeAdminAudit(req, "consultation.updated", "consultation", consultation.id, { status, replied: Boolean(reply) });
     res.json(consultation);
-  } catch (error: any) { res.status(500).json({ error: "Unable to update consultation." }); }
+  } catch (error: any) {
+    res.status(500).json({ error: "Unable to update consultation." });
+  }
 });
 
 app.get("/api/admin/consultations/:id/messages", async (req: any, res: any) => {
   if (!requireAdminRole(req, res)) return;
-  try { const result = await db.execute(sql`SELECT * FROM consultation_messages WHERE consultation_id=${req.params.id} ORDER BY created_at ASC`); res.json(result.rows); }
-  catch { res.status(500).json({ error: "Unable to load consultation conversation." }); }
+  try {
+    const result = await db.execute(sql`SELECT * FROM consultation_messages WHERE consultation_id=${req.params.id} ORDER BY created_at ASC`);
+    res.json(result.rows);
+  } catch {
+    res.status(500).json({ error: "Unable to load consultation conversation." });
+  }
 });
 
 app.post('/api/public/application-documents', (req: any, res: any, next: any) => {
