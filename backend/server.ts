@@ -2284,6 +2284,38 @@ app.post("/api/courses", async (req, res) => {
   }
 });
 
+app.post('/api/admin/courses/upload-thumbnail', async (req: any, res: any, next: any) => {
+  if (!requireAdminRole(req, res)) return;
+  upload.single('image')(req, res, (err: any) => {
+    if (err) {
+      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'Image size must be 10 MB or less.' });
+      }
+      return res.status(400).json({ error: err.message || 'Image upload validation failed.' });
+    }
+    next();
+  });
+}, async (req: any, res: any) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image file uploaded.' });
+    }
+
+    const fileUrl = `/uploads/${req.file.filename}`;
+    const uploadedAt = new Date().toISOString();
+    res.status(201).json({
+      fileUrl,
+      fileName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      sizeBytes: req.file.size,
+      uploadedAt,
+    });
+  } catch (error: any) {
+    console.error('Failed to upload course thumbnail:', error);
+    res.status(500).json({ error: 'Course thumbnail upload failed.' });
+  }
+});
+
 // Production course lifecycle APIs. Existing course creation remains available
 // for backwards compatibility; these endpoints enforce admissions-admin access.
 app.patch("/api/admin/courses/:id", async (req: any, res: any) => {
@@ -2301,6 +2333,7 @@ app.patch("/api/admin/courses/:id", async (req: any, res: any) => {
     const result = await db.execute(sql`UPDATE courses SET title=${title}, code=${code}, faculty=${faculty}, duration=${duration},
       fees=${Number(body.fees)}, department=${cleanText(body.department, 255) || null}, intake=${cleanText(body.intake, 100) || null},
       study_mode=${cleanText(body.studyMode, 50) || null}, application_fee=${Math.max(0, Number(body.applicationFee) || 0)},
+      thumbnail=${cleanText(body.thumbnail, 2000) || null},
       entry_requirements=${cleanText(body.entryRequirements) || null}, description=${cleanText(body.description) || null},
       course_content=${cleanText(body.courseContent) || null}, course_highlights=${cleanText(body.courseHighlights) || null}, updated_at=NOW()
       WHERE id=${id} AND archived_at IS NULL RETURNING *`);

@@ -568,6 +568,9 @@ export default function AdminDashboard({
   const [newFees, setNewFees] = useState('');
   const [newFaculty, setNewFaculty] = useState('School of Computing & AI');
   const [newThumbnail, setNewThumbnail] = useState('https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&q=80&w=600');
+  const [newThumbnailFile, setNewThumbnailFile] = useState<File | null>(null);
+  const [isThumbnailUploading, setIsThumbnailUploading] = useState(false);
+  const [thumbnailUploadError, setThumbnailUploadError] = useState('');
 
   // Allocation subject states
   const [allocateLecturerId, setAllocateLecturerId] = useState('');
@@ -845,6 +848,9 @@ export default function AdminDashboard({
     setNewCode('');
     setNewDesc('');
     setNewFees('');
+    setNewThumbnail('https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&q=80&w=600');
+    setNewThumbnailFile(null);
+    setThumbnailUploadError('');
     triggerToast(`Course "${newTitle}" registered successfully! It is now published live on the public landing page.`, 'success');
   };
 
@@ -1726,6 +1732,71 @@ export default function AdminDashboard({
                       onChange={(e) => setNewDesc(e.target.value)}
                       className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs text-slate-800 focus:outline-hidden h-20"
                     />
+                  </div>
+
+                  <div className="grid gap-3">
+                    <div className="space-y-1">
+                      <label htmlFor="course-thumbnail-url" className="block text-[11px] font-bold text-slate-650">Course Thumbnail URL</label>
+                      <input
+                        id="course-thumbnail-url"
+                        type="text"
+                        placeholder="https://example.com/course-cover.jpg"
+                        value={newThumbnail}
+                        onChange={(e) => setNewThumbnail(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs text-slate-800 focus:outline-hidden"
+                      />
+                      <p className="text-[11px] text-slate-400">Paste an image URL or upload a cover image below.</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label htmlFor="course-thumbnail-file" className="block text-[11px] font-bold text-slate-650">Upload Course Image</label>
+                      <input
+                        id="course-thumbnail-file"
+                        type="file"
+                        accept="image/png,image/jpeg,image/jpg"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          setNewThumbnailFile(file);
+                          setThumbnailUploadError('');
+                          setIsThumbnailUploading(true);
+
+                          try {
+                            const formData = new FormData();
+                            formData.append('image', file);
+
+                            const response = await fetch('/api/admin/courses/upload-thumbnail', {
+                              method: 'POST',
+                              body: formData,
+                              headers: { ...getAuthHeaders(false) },
+                            });
+
+                            if (!response.ok) {
+                              const errorData = await response.json();
+                              throw new Error(errorData?.error || 'Upload failed.');
+                            }
+
+                            const payload = await response.json();
+                            setNewThumbnail(payload.fileUrl || newThumbnail);
+                            toast.success('Course image uploaded successfully.');
+                          } catch (error: any) {
+                            console.error('Thumbnail upload error:', error);
+                            setThumbnailUploadError(error?.message || 'Failed to upload course image.');
+                          } finally {
+                            setIsThumbnailUploading(false);
+                          }
+                        }}
+                        className="w-full text-xs text-slate-700 file:border file:border-slate-200 file:bg-slate-50 file:px-3 file:py-2 file:text-xs file:text-slate-900 rounded-lg"
+                      />
+                      {isThumbnailUploading && <p className="text-[11px] text-slate-500">Uploading image...</p>}
+                      {thumbnailUploadError && <p className="text-[11px] text-rose-600">{thumbnailUploadError}</p>}
+                    </div>
+
+                    {newThumbnail && (
+                      <div className="rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
+                        <img src={newThumbnail} alt="Course thumbnail preview" className="w-full h-40 object-cover" />
+                      </div>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-3 gap-3">
